@@ -57,3 +57,20 @@ Faction thay đổi decision space, không chỉ cộng vài phần trăm attack
 - Sabotage/misinformation luôn ghi audit event và có counter-intelligence.
 - Resource node cạn dần; thiên tai, dịch bệnh và di cư mob tạo biến động vùng.
 - Event không được xóa tiến trình vĩnh viễn mà không có recovery path.
+
+
+## Phase 2A logistics rules
+
+- Mỗi city mới nhận starter package một lần: 500 wood, 500 stone, 500 iron; không có passive income.
+- Resource node có capacity và recovery rate server-side; harvest làm giảm remaining, tick chỉ phục hồi tối đa đến capacity.
+- Logistics dùng bảng PostgreSQL quan hệ: resource_nodes, depots, trade_routes, caravans.
+- Caravan bị giới hạn bởi depot capacity và chỉ cộng throughput khi delivery hoàn tất.
+- Phase 2B ambush resolution phải ghi seed vào event record để audit/replay.
+
+
+### Supply và ambush
+
+- Mỗi tick army mất 1 supply, bắt đầu từ 100; dưới 25 supply thì mất 1 strength mỗi tick.
+- Caravan không hộ tống có 65% ambush success; có escort thì còn 25%.
+- Ambush thành công làm mất 60% cargo nếu không escort, 25% nếu có escort; seed deterministic phải nằm trong event record.
+- Economy score = min(1000, floor((wood + stone + 2 * iron) / 2)) từ throughput delivery hoàn tất.

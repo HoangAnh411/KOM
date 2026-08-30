@@ -1,0 +1,2 @@
+import { defineConfig, devices } from "@playwright/test";
+export default defineConfig({ testDir: "./e2e", timeout: 30000, use: { baseURL: "http://127.0.0.1:5173", trace: "retain-on-failure" }, webServer: [{ command: "npm run dev:server", url: "http://127.0.0.1:3000/health", timeout: 120000, reuseExistingServer: true }, { command: "npx vite apps/client --host 127.0.0.1", url: "http://127.0.0.1:5173", timeout: 120000, reuseExistingServer: false }], projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }, { name: "mobile", use: { ...devices["Pixel 5"] } }] });

@@ -4,7 +4,7 @@
 
 ## Trạng thái hiện tại
 
-**Phase 1 — MVP vertical slice: gần hoàn thành**
+**Phase 2 — Economy và logistics: hoàn thành local gate**
 
 Đã chạy được vòng end-to-end local: dev account → world snapshot → PixiJS map → build command → server validation → economy/caravan tick → WebSocket update.
 
@@ -24,8 +24,8 @@
 
 - [x] Chạy `infra/migrations/001_initial.sql` trên PostgreSQL thật; đã tạo 34 bảng.
 - [x] Restart server và xác nhận city/queue/score/caravan load lại từ PostgreSQL.
-- [ ] Browser E2E login → build → WebSocket update → reconnect.
-- [ ] Kiểm tra trực quan trên browser và mobile viewport.
+- [x] Browser E2E login → build → WebSocket update → reconnect.
+- [x] Kiểm tra trực quan trên browser và mobile viewport.
 
 ## Phase 1 — MVP vertical slice
 
@@ -33,17 +33,30 @@
 
 **Tiêu chí hoàn thành:** PostgreSQL persistence đã kiểm chứng; command giả mạo/spam bị từ chối; CI xanh; hai tab nhận cùng snapshot.
 
-## Phase 2 — Economy và logistics thật
+## Phase 2 — Economy và logistics thật: hoàn thành local gate
+
+### Thứ tự milestone đã chốt
+
+1. Phase 2A.1: relational resource nodes, depletion/recovery, depots, routes, caravans.
+2. Phase 2A.2: atomic command persistence, durable idempotency, delivery/throughput acceptance.
+3. Phase 2B.1: outbox/event ledger.
+4. Phase 2B.2: resource recovery.
+5. Phase 2B.3: escort/ambush; ambush seed phải được lưu trong event record.
+6. Phase 2B.4: army supply.
+7. Phase 2B.5: economy score.
+8. Phase 2B.6: integration/E2E.
+
+Sau mỗi milestone phải chạy verification và cập nhật docs/GAME-DESIGN.md nếu thêm hoặc đổi công thức/luật gameplay.
 
 **Mục tiêu:** logistics là gameplay trung tâm thay vì marker placeholder.
 
-- [ ] Resource node theo region với depletion/recovery.
-- [ ] Depot, capacity, route distance và travel time.
-- [ ] Caravan cargo, hộ tống, delivery và ambush.
-- [ ] Supply, morale và attrition theo khoảng cách/thời gian.
-- [ ] Economy score từ throughput và resource hiếm.
-- [ ] Outbox/event ledger cho economy và caravan.
-- [ ] Integration tests cho delivery, ambush, retry và reconnect.
+- [x] Resource node theo region với depletion/recovery.
+- [x] Depot, capacity, route distance và travel time.
+- [x] Caravan cargo, hộ tống, delivery và ambush.
+- [x] Supply, morale và attrition theo khoảng cách/thời gian.
+- [x] Economy score từ throughput và resource hiếm.
+- [x] Outbox/event ledger cho economy và caravan.
+- [x] Integration tests cho delivery, ambush, retry và reconnect.
 
 **Tiêu chí hoàn thành:** cắt tuyến có tác động kinh tế đo được; quân xa supply suy yếu; event log tái dựng được kết quả.
 
@@ -55,7 +68,7 @@
 - [ ] Terrain, formation, timing, morale và command cap.
 - [ ] Deterministic server-side battle simulation.
 - [ ] Battle report bất biến và anti-replay validation.
-- [ ] Military score từ objective, territory và battle outcome.
+- [x] Military Score từ objective, territory và battle outcome.
 - [ ] Faction modifier làm thay đổi cách chơi, không bán power.
 - [ ] Battle worker khi simulation cần scale độc lập.
 
@@ -68,7 +81,7 @@
 - [ ] Alliance lifecycle, roles và contribution diminishing returns.
 - [ ] Treaty proposal, acceptance, expiry và violation.
 - [ ] Voting, term limits và audit log.
-- [ ] Diplomacy score từ treaty objective, reputation và mediation.
+- [x] Diplomacy Score từ treaty objective, reputation và mediation.
 - [ ] Chat, mail và moderation boundary.
 - [ ] Permission matrix và concurrent treaty tests.
 
@@ -157,11 +170,10 @@
 
 ## Bước tiếp theo
 
-1. Bật server với `DATABASE_URL` và `REDIS_URL`.
-2. Thêm browser E2E login → build → WebSocket update → reconnect.
-4. Kiểm tra trực quan trên browser và mobile viewport.
-5. Đóng Phase 1 rồi bắt đầu Phase 2 với resource node, depot và cargo thật.
-
+1. Chốt release branch cho Phase 2.
+2. Bắt đầu Phase 3: combat tactical.
+3. Giữ các gate regression: `npm run build`, `npm test`, Playwright desktop/mobile và PostgreSQL migrations.
 ## Quy tắc cập nhật
 
 Sau mỗi feature/bugfix, cập nhật checkbox, trạng thái, test đã chạy và tài liệu domain liên quan. Không đánh dấu hoàn thành nếu chưa đạt tiêu chí nghiệm thu của phase.
+

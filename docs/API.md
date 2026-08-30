@@ -59,3 +59,12 @@ Lỗi có dạng `ERROR` với code ổn định như `RATE_LIMITED`, `QUEUE_LIM
 - WebSocket command: 30/phút/player.
 - Command tốn kém như spy/battle/caravan reroute: 5/phút/player khi được bật.
 - Login: 10/phút/IP.
+
+
+### Logistics commands
+
+- `POST /api/commands/harvest` thu hoạch tối đa 50 resource từ node trong phạm vi và cần depot.
+- `POST /api/commands/routes` tạo route giữa hai city cùng player; distance và travel time do server tính.
+- `POST /api/commands/caravans` trừ cargo tại source, giới hạn bởi depot capacity, rồi delivery tại destination.
+- `POST /api/commands/escort` gắn army của player vào caravan đang di chuyển.
+- `POST /api/commands/ambush` resolve deterministic; seed được lưu trong caravan và event ledger.
