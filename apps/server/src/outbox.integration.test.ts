@@ -21,7 +21,7 @@ class FakeRedis {
   async flushDb(): Promise<void> { this.streams.clear(); }
 }
 
-const databaseUrl = process.env.TEST_DATABASE_URL;
+const databaseUrl = process.env.RUN_POSTGRES_INTEGRATION === "1" ? process.env.TEST_DATABASE_URL : undefined;
 const redisUrl = process.env.TEST_REDIS_URL;
 const skip = !databaseUrl;
 

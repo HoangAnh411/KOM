@@ -1,6 +1,5 @@
 import type { SpyMission } from "@kingdoms/shared";
 import { spyMissionConfig } from "@kingdoms/shared";
-import * as api from "../api.js";
 import { useGame } from "../state.js";
 
 const statusLabels: Record<string, string> = { in_progress: "Đang chạy", success: "Thành công", intercepted: "Bị chặn", failed: "Thất bại" };
@@ -16,7 +15,7 @@ function reportLabel(mission: SpyMission): string {
 }
 
 export function EspionagePanel() {
-  const { state, addNotice } = useGame();
+  const { state, runCommand } = useGame();
   const session = state.session!; const snapshot = state.snapshot!;
   const otherPlayers = Object.keys(snapshot.scores).filter(id => id !== session.player.id).map(id => ({ id, displayName: snapshot.cities.find(c => c.playerId === id)?.playerName ?? id }));
 
@@ -26,8 +25,8 @@ export function EspionagePanel() {
     <div className="spy-launch">
       <select id="spy-target">{otherPlayers.map(p => <option value={p.id} key={p.id}>{p.displayName}</option>)}</select>
       <select id="spy-type"><option value="scout">Trinh sát</option><option value="sabotage">Phá hoại</option><option value="steal">Đánh cắp</option></select>
-      <button onClick={() => { const target = (document.getElementById("spy-target") as HTMLSelectElement).value; const type = (document.getElementById("spy-type") as HTMLSelectElement).value as "scout" | "sabotage" | "steal"; if (target) api.launchSpy(session.token, target, type).catch(e => addNotice(e.message)); }}>Gửi điệp vụ</button>
-      <button onClick={() => api.activateCounterIntel(session.token).catch(e => addNotice(e.message))}>Bật phản gián</button>
+      <button onClick={() => { const target = (document.getElementById("spy-target") as HTMLSelectElement).value; const type = (document.getElementById("spy-type") as HTMLSelectElement).value as "scout" | "sabotage" | "steal"; if (target) runCommand({ kind: "spy_launch", label: "Gửi điệp vụ", path: "/api/commands/spy/launch", body: { targetPlayerId: target, missionType: type } }).catch(() => undefined); }}>Gửi điệp vụ</button>
+      <button onClick={() => runCommand({ kind: "counter_intel", label: "Bật phản gián", path: "/api/commands/spy/counter-intel", body: {} }).catch(() => undefined)}>Bật phản gián</button>
     </div>
     {snapshot.spyMissions?.filter(m => m.actorPlayerId === session.player.id).map(m => (
       <div className="spy-mission" key={m.id}>

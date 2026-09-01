@@ -1,5 +1,9 @@
 import { test, expect } from "@playwright/test";
 
+const api = process.env.PLAYWRIGHT_API ?? "http://127.0.0.1:3000";
+// Fresh world per file: the ~16-city placement cap would 500 later logins in a shared world.
+test.beforeEach(async ({ request }) => { await request.post(`${api}/api/dev/reset`); });
+
 // Fix 8: the map is interactive — click to select entities, issue direct move
 // orders from the inspector, and the alliance form no longer uses prompt().
 test("map entity selection, direct move order and prompt-free alliance form", async ({ page }, testInfo) => {
@@ -50,6 +54,8 @@ test("map entity selection, direct move order and prompt-free alliance form", as
   expect(ordered.targetY).toBe(ownCity.y);
 
   // --- Alliance creation through typed inputs (no browser prompt) ---
+  await page.locator(".drawer summary").click();
+  await expect(page.locator(".alliance-panel")).toBeVisible();
   await page.getByLabel("Tên liên minh").fill("Liên minh Bản đồ");
   await page.getByLabel("Ký hiệu liên minh").fill("MAP");
   const allianceResponse = page.waitForResponse(response => response.url().endsWith("/api/commands/alliance/create"));

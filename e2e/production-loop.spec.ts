@@ -1,6 +1,8 @@
 import { test, expect, type Page } from "@playwright/test";
 
 const api = process.env.PLAYWRIGHT_API ?? "http://127.0.0.1:3000";
+// Fresh world per file: the ~16-city placement cap would 500 later logins in a shared world.
+test.beforeEach(async ({ request }) => { await request.post(`${api}/api/dev/reset`); });
 const adminHeaders = { authorization: "Bearer playwright-admin-token" };
 
 async function login(page: Page, name: string): Promise<{ token: string; player: { id: string } }> {
@@ -26,13 +28,16 @@ test("alliance leader vote reaches a passed state", async ({ page, request }, te
 });
 
 test("mob migration is rendered with spawned NPC armies", async ({ page }, testInfo) => {
-  await login(page, `NPC E2E ${testInfo.project.name} ${Date.now()}`); const event = page.locator(".event-mob_migration").first(); await expect(event).toBeVisible({ timeout: 10_000 });
+  await login(page, `NPC E2E ${testInfo.project.name} ${Date.now()}`);
+  await page.locator(".drawer summary").click();
+  const event = page.locator(".event-mob_migration").first(); await expect(event).toBeVisible({ timeout: 10_000 });
   // The shared e2e world grows player armies that can kill wandering mobs, so only the
   // mob-count row itself is asserted here; deterministic spawn counts live in unit tests.
-  await expect(event).toContainText(/ mobs/);
+  await expect(event).toContainText(/bọn xâm lược/);
 });
 
 test("season close is visible in the archive UI", async ({ page, request }, testInfo) => {
   await login(page, `Archive E2E ${testInfo.project.name} ${Date.now()}`); const closed = await request.post(`${api}/api/admin/season/close`, { headers: adminHeaders, data: { reason: "playwright season archive" } }); expect(closed.ok()).toBeTruthy();
+  await page.locator(".drawer summary").click();
   await page.locator(".archive-panel button").click(); await expect(page.locator(".archive-panel details").first()).toBeVisible();
 });

@@ -1,8 +1,12 @@
 import { test, expect } from "@playwright/test";
 
+const api = process.env.PLAYWRIGHT_API ?? "http://127.0.0.1:3000";
+// Fresh world per file: the ~16-city placement cap would 500 later logins in a shared world.
+test.beforeEach(async ({ request }) => { await request.post(`${api}/api/dev/reset`); });
+
 // Army panel: build the barracks, recruit cavalry, attack a wandering mob
 // (battle report modal), then cancel the pursuit via the HUD.
-test("recruit, attack mob, battle report and cancel pursuit", async ({ page }, testInfo) => {
+test("recruit, attack mob, battle report and cancel pursuit", async ({ page, request }, testInfo) => {
   test.skip(testInfo.project.name === "mobile", "desktop-sized HUD interaction");
   await page.goto("/");
   await page.locator("input").fill(`Army E2E ${testInfo.project.name} ${Date.now()}`);
@@ -26,12 +30,16 @@ test("recruit, attack mob, battle report and cancel pursuit", async ({ page }, t
   await expect(armyRow).toContainText("Kỵ binh · 10");
   await expect(armyRow).toContainText("Chờ lệnh");
 
-  // --- Attack the first available target (wandering mobs spawn every tick) ---
+  // --- Attack a deterministic dev target. Natural mobs can move or die while
+  // the test waits for the barracks, which made this scenario timing-dependent. ---
+  const session = await page.evaluate(() => JSON.parse(sessionStorage.getItem("kingdoms-session")!) as { token: string });
+  const prepared = await request.post(`${api}/api/dev/battle-target`, { headers: { authorization: `Bearer ${session.token}` } });
+  expect(prepared.ok()).toBeTruthy();
+  const targetArmyId = ((await prepared.json()) as { targetArmyId: string }).targetArmyId;
   await armyRow.locator("button", { hasText: "Tấn công" }).click();
   const targets = page.locator(".modal-card select").locator("option");
-  // Mob migrations spawn continuously, so the list holds the placeholder plus at least one mob.
   await expect.poll(async () => await targets.count(), { timeout: 15000 }).toBeGreaterThan(1);
-  await page.locator(".modal-card select").selectOption({ index: 1 });
+  await page.locator(".modal-card select").selectOption(targetArmyId);
   const attackResponse = page.waitForResponse(response => response.url().endsWith("/api/commands/attack"));
   await page.locator(".modal-card button", { hasText: "Ra lệnh tấn công" }).click();
   expect((await attackResponse).ok()).toBeTruthy();

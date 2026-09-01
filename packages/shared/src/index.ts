@@ -236,7 +236,13 @@ export type OnboardingProgress = z.infer<typeof onboardingProgressSchema>;
 export const onboardingAckCommandSchema = z.object({ commandId: z.string().min(8), step: z.enum(onboardableSteps) });
 export type OnboardingAckCommand = z.infer<typeof onboardingAckCommandSchema>;
 
-export const snapshotSchema = z.object({ kingdom: z.object({ id: z.string(), name: z.string() }), season: z.object({ id: z.string(), status: z.enum(["SCHEDULED", "ACTIVE", "FINALIZING", "CLOSED"]), endsAt: z.string() }), cities: z.array(citySchema), caravans: z.array(caravanSchema), armies: z.array(armySchema), heroes: z.array(heroSchema), scores: z.record(scoreSchema), factionCatalog: z.record(z.object({ name: z.string(), description: z.string() })), logistics: logisticsSnapshotSchema, battleReports: z.array(battleReportSchema).optional(), terrainMap: z.record(z.enum(terrainTypes)).optional(), alliances: z.array(allianceSchema).optional(), allianceVotes: z.array(allianceVoteSchema).optional(), treaties: z.array(treatySchema).optional(), spyMissions: z.array(spyMissionSchema).optional(), worldEvents: z.array(worldEventSchema).optional(), onboarding: onboardingProgressSchema.optional() });
+// Protocol version of the world snapshot contract. Clients lock game commands
+// and ask for a refresh when the server speaks a different version.
+export const PROTOCOL_VERSION = 1;
+export const battleHistoryResponseSchema = z.object({ items: z.array(battleReportSchema), nextCursor: z.string().optional() });
+export type BattleHistoryResponse = z.infer<typeof battleHistoryResponseSchema>;
+
+export const snapshotSchema = z.object({ protocolVersion: z.number().int().default(PROTOCOL_VERSION), kingdom: z.object({ id: z.string(), name: z.string() }), season: z.object({ id: z.string(), status: z.enum(["SCHEDULED", "ACTIVE", "FINALIZING", "CLOSED"]), endsAt: z.string() }), cities: z.array(citySchema), caravans: z.array(caravanSchema), armies: z.array(armySchema), heroes: z.array(heroSchema), scores: z.record(scoreSchema), factionCatalog: z.record(z.object({ name: z.string(), description: z.string() })), logistics: logisticsSnapshotSchema, battleReports: z.array(battleReportSchema).optional(), terrainMap: z.record(z.enum(terrainTypes)).optional(), alliances: z.array(allianceSchema).optional(), allianceVotes: z.array(allianceVoteSchema).optional(), treaties: z.array(treatySchema).optional(), spyMissions: z.array(spyMissionSchema).optional(), worldEvents: z.array(worldEventSchema).optional(), onboarding: onboardingProgressSchema.optional() });
 export type WorldSnapshot = z.infer<typeof snapshotSchema>;
 
 // === PHASE 7B: COMMAND RESPONSE CONTRACT ===

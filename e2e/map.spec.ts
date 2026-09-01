@@ -1,5 +1,9 @@
 import { test, expect } from "@playwright/test";
 
+const api = process.env.PLAYWRIGHT_API ?? "http://127.0.0.1:3000";
+// Fresh world per file: the ~16-city placement cap would 500 later logins in a shared world.
+test.beforeEach(async ({ request }) => { await request.post(`${api}/api/dev/reset`); });
+
 test("map pan, zoom and focus-my-city interaction smoke", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === "mobile", "desktop-sized viewport coordinates");
   const errors: string[] = [];

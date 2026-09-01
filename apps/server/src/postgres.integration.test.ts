@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 
-const testDatabaseUrl = process.env.TEST_DATABASE_URL;
+const testDatabaseUrl = process.env.RUN_POSTGRES_INTEGRATION === "1" ? process.env.TEST_DATABASE_URL : undefined;
 
 test("PostgreSQL auth, command idempotency and moderation survive restart", { skip: !testDatabaseUrl }, async () => {
   process.env.DATABASE_URL = testDatabaseUrl;
@@ -94,4 +94,86 @@ test("a failed persist rolls back combat/onboarding claims; retry with the same 
   assert.equal(server.store.snapshot.armies.filter(army => army.ownerPlayerId === session.player.id).length, 1, "retry applied the recruit");
   assert.equal(server.store.snapshot.cities.find(item => item.id === city.id)!.resources.wood, 450, "cost deducted exactly once");
   await server.app.close();
+});
+
+test("GET /api/battles uses the player indexes, pages via cursor and survives restart", { skip: !testDatabaseUrl }, async () => {
+  process.env.DATABASE_URL = testDatabaseUrl; process.env.AUTH_MODE = "password"; process.env.CLIENT_ORIGIN = "http://localhost:5173";
+  const { createServer } = await import("./app.js");
+  const register = async (name: string, factionId: string) => {
+    const server = createServer(); await server.store.load();
+    const response = await server.app.inject({ method: "POST", url: "/api/auth/register", headers: { origin: "http://localhost:5173" }, payload: { username: name, password: "BattlePass123!", displayName: name, factionId } });
+    assert.equal(response.statusCode, 200, response.body);
+    const session = response.json() as { token: string; player: { id: string } };
+    await server.app.close();
+    return { ...session, username: name };
+  };
+  const a = await register(`battle_a_${randomUUID().replaceAll("-", "").slice(0, 12)}`, "meridian");
+  const b = await register(`battle_b_${randomUUID().replaceAll("-", "").slice(0, 12)}`, "bastion");
+  const c = await register(`battle_c_${randomUUID().replaceAll("-", "").slice(0, 12)}`, "veiled");
+
+  const pool = new Pool({ connectionString: testDatabaseUrl });
+  const kingdom = await pool.query("SELECT kingdom_id FROM players WHERE id = $1", [a.player.id]);
+  const kingdomId = kingdom.rows[0].kingdom_id as string;
+  const seasonId = (await pool.query("SELECT id FROM seasons ORDER BY starts_at DESC LIMIT 1")).rows[0].id as string;
+  const bId = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+  const participant = (playerId: string | null, armyId: string) => JSON.stringify({ ownerType: "player", playerId, armyId, unitType: "infantry", formation: "line", strengthBefore: 100, strengthAfter: 50, moraleBefore: 70, moraleAfter: 60, supplyBefore: 100 });
+  const insert = (n: number, attackerId: string | null, defenderId: string | null, createdAt: string) => {
+    const id = bId(n);
+    return pool.query(
+      `INSERT INTO battle_reports (id, kingdom_id, season_id, attacker_id, defender_id, attacker_army_id, defender_army_id, tile_x, tile_y, terrain, victor, seed, rounds, result, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 3, 4, 'plains', 'attacker', 7, '[]', $8, $9) ON CONFLICT (id) DO NOTHING`,
+      [id, kingdomId, seasonId, attackerId, defenderId, bId(1000 + n), bId(2000 + n),
+        JSON.stringify({ id, kingdomId, seasonId, tileX: 3, tileY: 4, terrain: "plains", victor: "attacker", seed: 7, rounds: [], resolvedAt: createdAt, attacker: JSON.parse(participant(attackerId, bId(1000 + n))), defender: JSON.parse(participant(defenderId, bId(2000 + n))) }),
+        createdAt]);
+  };
+  await insert(1, a.player.id, b.player.id, "2026-08-01T01:00:00.000Z");
+  await insert(2, a.player.id, b.player.id, "2026-08-02T01:00:00.000Z");
+  await insert(3, a.player.id, b.player.id, "2026-08-03T01:00:00.000Z");
+  await insert(4, b.player.id, c.player.id, "2026-08-04T01:00:00.000Z");
+  await insert(5, c.player.id, a.player.id, "2026-08-05T01:00:00.000Z");
+
+  // Index usage: the OR-filter resolves through both partial indexes. A tiny table
+  // makes the planner prefer a Seq Scan, so force index paths off to prove the
+  // indexes are usable, not just present.
+  const explainClient = await pool.connect();
+  await explainClient.query("SET enable_seqscan = off");
+  const explain = await explainClient.query("EXPLAIN SELECT id, created_at, result FROM battle_reports WHERE (attacker_id = $1 OR defender_id = $1) ORDER BY created_at DESC, id DESC LIMIT 21", [a.player.id]);
+  await explainClient.release();
+  const plan = (explain.rows as Array<{ "QUERY PLAN": string }>).map(row => row["QUERY PLAN"]).join("\n");
+  assert.ok(plan.includes("idx_battle_reports_attacker_id"), plan);
+  assert.ok(plan.includes("idx_battle_reports_defender_id"), plan);
+
+  const injectGet = (instance: Awaited<ReturnType<typeof import("./app.js")["createServer"]>>, token: string, query = "") => instance.app.inject({ method: "GET", url: `/api/battles${query}`, headers: { authorization: `Bearer ${token}` } });
+  const server = createServer(); await server.store.load();
+  const login = await server.app.inject({ method: "POST", url: "/api/auth/login", headers: { origin: "http://localhost:5173" }, payload: { username: a.username, password: "BattlePass123!" } });
+  assert.equal(login.statusCode, 200, login.body);
+  const token = (login.json() as { token: string }).token;
+  const first = await injectGet(server, token, "?limit=2");
+  assert.equal(first.statusCode, 200, first.body);
+  const impossibleDate = Buffer.from(JSON.stringify({ createdAt: "2020-02-30", id: bId(99) })).toString("base64url");
+  const invalidCursor = await injectGet(server, token, `?cursor=${encodeURIComponent(impossibleDate)}`);
+  assert.equal(invalidCursor.statusCode, 400, invalidCursor.body);
+  assert.equal((invalidCursor.json() as { code: string }).code, "INVALID_CURSOR");
+  const page1 = first.json() as { items: Array<{ id: string }>; nextCursor: string };
+  assert.deepEqual(page1.items.map(item => item.id), [bId(5), bId(3)], "newest-first, A sees battles where A fights");
+  const page2 = (await injectGet(server, token, `?limit=2&cursor=${encodeURIComponent(page1.nextCursor)}`)).json() as { items: Array<{ id: string }>; nextCursor?: string };
+  assert.deepEqual(page2.items.map(item => item.id), [bId(2), bId(1)]);
+  assert.equal(page2.nextCursor, undefined, "last page carries no cursor");
+  const loginB = await server.app.inject({ method: "POST", url: "/api/auth/login", headers: { origin: "http://localhost:5173" }, payload: { username: b.username, password: "BattlePass123!" } });
+  const tokenB = (loginB.json() as { token: string }).token;
+  const pageB = (await injectGet(server, tokenB)).json() as { items: Array<{ id: string }> };
+  assert.deepEqual(pageB.items.map(item => item.id), [bId(4), bId(3), bId(2), bId(1)], "B sees B-vs-C and B-vs-A");
+  await server.app.close();
+
+  // Restart: the same pages come back from the database alone.
+  const restarted = createServer(); await restarted.store.load();
+  const loginAgain = await restarted.app.inject({ method: "POST", url: "/api/auth/login", headers: { origin: "http://localhost:5173" }, payload: { username: a.username, password: "BattlePass123!" } });
+  const tokenAgain = (loginAgain.json() as { token: string }).token;
+  const afterRestart = (await injectGet(restarted, tokenAgain, "?limit=2")).json() as { items: Array<{ id: string }>; nextCursor: string };
+  assert.deepEqual(afterRestart.items.map(item => item.id), [bId(5), bId(3)]);
+  assert.equal(afterRestart.nextCursor, page1.nextCursor, "cursor keys are stable across restarts");
+  await restarted.app.close();
+
+  await pool.query("DELETE FROM battle_reports WHERE id::text LIKE '00000000-0000-4000-8000-%'");
+  await pool.end();
 });

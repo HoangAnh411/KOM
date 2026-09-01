@@ -1,5 +1,9 @@
 import { test, expect } from "@playwright/test";
 
+const api = process.env.PLAYWRIGHT_API ?? "http://127.0.0.1:3000";
+// Fresh world per file: the ~16-city placement cap would 500 later logins in a shared world.
+test.beforeEach(async ({ request }) => { await request.post(`${api}/api/dev/reset`); });
+
 test("login, build, websocket snapshot and session restore", async ({ page }, testInfo) => {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Kingdoms of Meridian" })).toBeVisible();

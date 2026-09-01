@@ -1,13 +1,13 @@
 import { useEffect, useState } from "react";
 import { gameRules } from "@kingdoms/shared";
-import * as api from "../api.js";
 import { useGame } from "../state.js";
+import { caravanReady, cargoWithinCapacity, cargoWithinResources, harvestReady, routeReady } from "../validation.js";
 
 const nodeNames = { wood: "Rừng", stone: "Mỏ đá", iron: "Mỏ sắt" } as const;
 const cargoOptions = [10, 25, 50] as const;
 
 export function LogisticsPanel() {
-  const { state, addNotice } = useGame();
+  const { state, runCommand } = useGame();
   const session = state.session!; const snapshot = state.snapshot!;
   const city = snapshot.cities.find(item => item.playerId === session.player.id) ?? snapshot.cities[0];
   const [now, setNow] = useState(Date.now());
@@ -22,10 +22,15 @@ export function LogisticsPanel() {
   const activeRoutes = snapshot.logistics.tradeRoutes.filter(route => route.ownerPlayerId === session.player.id && route.status === "active");
   const activeCaravans = snapshot.caravans.filter(caravan => caravan.ownerPlayerId === session.player.id && caravan.status === "moving");
   const myArmies = snapshot.armies.filter(army => army.ownerPlayerId === session.player.id && army.strength > 0 && !army.frozen);
+  const depot = snapshot.logistics.depots.find(item => item.cityId === city.id);
   const cargoTotal = cargo.wood + cargo.stone + cargo.iron;
   const countdown = (endsAt: string) => { const seconds = Math.max(0, Math.ceil((Date.parse(endsAt) - now) / 1000)); return `${Math.floor(seconds / 60)}m ${seconds % 60}s`; };
   const destinationName = (caravan: (typeof snapshot.caravans)[number]) => caravan.destinationKind === "market" ? (marketHubs.find(hub => hub.id === caravan.destinationMarketId)?.name ?? "Thương cảng") : (snapshot.cities.find(item => item.id === caravan.destinationCityId)?.name ?? "?");
   const sourceName = (id: string) => snapshot.cities.find(item => item.id === id)?.name ?? "?";
+  const routeCheck = routeReady(depot, destId);
+  const caravanCheck = city.frozen ? { ok: false as const, reason: "Thành phố đang bị đóng băng." } : caravanReady(depot, city, cargo);
+  const withinCapacity = cargoWithinCapacity(depot, cargo);
+  const withinResources = cargoWithinResources(city, cargo);
 
   return <section className="logistics-panel">
     <h2>Kinh tế & vận tải</h2>
@@ -37,13 +42,14 @@ export function LogisticsPanel() {
         <select value={harvestAmount} onChange={event => setHarvestAmount(Number(event.target.value))}>{cargoOptions.map(option => <option value={option} key={option}>{option}</option>)}</select>
       </label>
       <div className="node-list">
-        {snapshot.logistics.resourceNodes.slice(0, 8).map(node => (
-          <div className="node-row" key={node.id}>
+        {snapshot.logistics.resourceNodes.slice(0, 8).map(node => {
+          const check = harvestReady(node, harvestAmount);
+          return <div className="node-row" key={node.id}>
             <span><strong>{nodeNames[node.resourceType]}</strong> ({node.x},{node.y})</span>
             <span className="hint">{node.remaining}/{node.capacity}</span>
-            <button disabled={city.frozen} onClick={() => api.harvest(session.token, node.id, city.id, harvestAmount).catch((e) => addNotice(e.message))}>Khai thác</button>
-          </div>
-        ))}
+            <button disabled={city.frozen || !check.ok} title={check.reason} onClick={() => runCommand({ kind: "harvest", label: "Khai thác tài nguyên", path: "/api/commands/harvest", body: { nodeId: node.id, cityId: city.id, amount: harvestAmount } }).catch(() => undefined)}>Khai thác</button>
+          </div>;
+        })}
       </div>
     </div>
 
@@ -56,7 +62,8 @@ export function LogisticsPanel() {
           <option value="">Chọn điểm đến…</option>
           {marketHubs.map(hub => <option value={hub.id} key={hub.id}>{hub.name}</option>)}
         </select>
-        <button disabled={!destId || city.frozen} onClick={() => api.createRoute(session.token, city.id, "market", destId).catch((e) => addNotice(e.message))}>Lập tuyến</button>
+        <button disabled={city.frozen || !routeCheck.ok} title={routeCheck.reason} onClick={() => runCommand({ kind: "route", label: "Lập tuyến vận tải", path: "/api/commands/routes", body: { sourceCityId: city.id, destinationKind: "market", destinationId: destId } }).then(() => setDestId("")).catch(() => undefined)}>Lập tuyến</button>
+        {!routeCheck.ok && !city.frozen && <span className="hint validation-reason">{routeCheck.reason}</span>}
       </div>
       {activeRoutes.length === 0 && <p className="hint">Chưa có tuyến nào.</p>}
       {activeRoutes.map(route => {
@@ -81,8 +88,10 @@ export function LogisticsPanel() {
             </label>
           ))}
         </div>
-        <p className="hint">Tổng hàng hóa: {cargoTotal}</p>
-        <button disabled={cargoTotal === 0 || city.frozen} onClick={() => api.startCaravan(session.token, routeId, cargo).then(() => setRouteId("")).catch((e) => addNotice(e.message))}>Gửi caravan</button>
+        <p className="hint">Tổng hàng hóa: {cargoTotal}{depot ? ` / sức chứa ${depot.capacity}` : " (cần kho để gửi)"}{!withinCapacity && cargoTotal > 0 && depot && <span className="validation-reason"> — vượt sức chứa kho</span>}</p>
+        {!withinResources && cargoTotal > 0 && <p className="hint validation-reason">Không đủ tài nguyên trong kho để gửi.</p>}
+        {caravanCheck.reason && <p className="hint validation-reason">{caravanCheck.reason}</p>}
+        <button disabled={!caravanCheck.ok} title={caravanCheck.reason} onClick={() => runCommand({ kind: "caravan", label: "Gửi caravan", path: "/api/commands/caravans", body: { routeId, cargo: { ...cargo, food: 0 } } }).then(() => setRouteId("")).catch(() => undefined)}>Gửi caravan</button>
       </div>
     )}
 
@@ -101,7 +110,7 @@ export function LogisticsPanel() {
                 <option value="">Chọn quân hộ tống…</option>
                 {myArmies.map(army => <option value={army.id} key={army.id}>QĐ {gameRules.recruitment[army.unitType as keyof typeof gameRules.recruitment].name} ({army.strength})</option>)}
               </select>
-              <button disabled={!escortId} onClick={() => api.escort(session.token, caravan.id, escortId).catch((e) => addNotice(e.message))}>Hộ tống</button>
+              <button disabled={!escortId} onClick={() => runCommand({ kind: "escort", label: "Hộ tống caravan", path: "/api/commands/escort", body: { caravanId: caravan.id, armyId: escortId } }).catch(() => undefined)}>Hộ tống</button>
             </div>
           )}
         </div>

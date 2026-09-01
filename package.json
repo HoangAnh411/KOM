@@ -19,6 +19,8 @@
     "worker:outbox": "npm run worker:outbox -w @kingdoms/server",
     "test:loadtest:seed": "npm run test:loadtest:seed -w @kingdoms/server",
     "test:loadtest:verify": "npm run test:loadtest:verify -w @kingdoms/server",
+    "check:bundle": "node scripts/check-bundle.mjs",
+    "verify:web-alpha": "npm run typecheck && npm run build && npm test && npm run test:postgres && npm run test:e2e && npm run check:bundle && git diff --check",
     "dev:web": "node scripts/dev-web.mjs"
   }
 }

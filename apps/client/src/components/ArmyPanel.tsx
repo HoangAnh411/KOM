@@ -1,13 +1,12 @@
 import { useState } from "react";
 import { gameRules, recruitmentCost } from "@kingdoms/shared";
 import type { Army, UnitType } from "@kingdoms/shared";
-import * as api from "../api.js";
 import { useGame } from "../state.js";
 
 type RecruitUnitId = keyof typeof gameRules.recruitment;
 
 export function ArmyPanel() {
-  const { state, addNotice } = useGame();
+  const { state, runCommand } = useGame();
   const session = state.session!; const snapshot = state.snapshot!;
   const city = snapshot.cities.find(item => item.playerId === session.player.id) ?? snapshot.cities[0];
   const [modal, setModal] = useState<null | { kind: "recruit" } | { kind: "attack"; armyId: string }>(null);
@@ -40,12 +39,12 @@ export function ArmyPanel() {
           <span title="Vị trí">({army.x},{army.y})</span>
         </div>
         <div className="army-actions">
-          <select title="Đội hình" value={army.formation} onChange={event => api.setFormation(session.token, army.id, event.target.value).catch(e => addNotice(e.message))}>
+          <select title="Đội hình" value={army.formation} onChange={event => runCommand({ kind: "set_formation", label: "Đổi đội hình", path: "/api/commands/formation", body: { armyId: army.id, formation: event.target.value } }).catch(() => undefined)}>
             <option value="line">Hàng ngang</option>
             <option value="wedge">Nêm</option>
             <option value="square">Vuông</option>
           </select>
-          <button disabled={(army.attackOrder === undefined && army.targetX === undefined) || city.frozen} onClick={() => api.cancelArmyOrder(session.token, army.id).catch(e => addNotice(e.message))}>Hủy lệnh</button>
+          <button disabled={(army.attackOrder === undefined && army.targetX === undefined) || city.frozen} onClick={() => runCommand({ kind: "cancel_army_order", label: "Hủy lệnh", path: "/api/commands/cancel-army-order", body: { armyId: army.id } }).catch(() => undefined)}>Hủy lệnh</button>
           <button disabled={enemyArmies.length === 0} onClick={() => { setTargetId(""); setModal({ kind: "attack", armyId: army.id }); }}>
             {army.attackOrder ? "Đổi mục tiêu" : "Tấn công"}
           </button>
@@ -73,7 +72,7 @@ export function ArmyPanel() {
           <p className="hint">Chi phí: {unitCost.wood}g {unitCost.stone}đ {unitCost.iron}s{!canAfford && " — không đủ tài nguyên"}</p>
           <div className="modal-actions">
             <button onClick={() => setModal(null)}>Hủy</button>
-            <button disabled={!canAfford || city.frozen} autoFocus onClick={() => api.recruit(session.token, city.id, recruitUnit, count).then(() => setModal(null)).catch(e => addNotice(e.message))}>Tuyển {count} {gameRules.recruitment[recruitUnit].name}</button>
+            <button disabled={!canAfford || city.frozen} autoFocus onClick={() => runCommand({ kind: "recruit", label: "Tuyển quân", path: "/api/commands/recruit", body: { cityId: city.id, unitType: recruitUnit, amount: count } }).then(() => setModal(null)).catch(() => undefined)}>Tuyển {count} {gameRules.recruitment[recruitUnit].name}</button>
           </div>
         </div>
       </div>
@@ -95,7 +94,7 @@ export function ArmyPanel() {
           </select>
           <div className="modal-actions">
             <button onClick={() => setModal(null)}>Hủy</button>
-            <button disabled={!targetId || city.frozen} autoFocus onClick={() => api.attack(session.token, modal.armyId, targetId).then(() => setModal(null)).catch(e => addNotice(e.message))}>Ra lệnh tấn công</button>
+            <button disabled={!targetId || city.frozen} autoFocus onClick={() => runCommand({ kind: "attack", label: "Ra lệnh tấn công", path: "/api/commands/attack", body: { armyId: modal.armyId, targetArmyId: targetId } }).then(() => setModal(null)).catch(() => undefined)}>Ra lệnh tấn công</button>
           </div>
         </div>
       </div>

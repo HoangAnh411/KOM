@@ -56,10 +56,13 @@ jobs:
       - name: gate 6 - unit and regression tests
         run: npm test
 
-      - name: gate 7 - Playwright desktop and mobile
+      - name: gate 7 - Playwright Chromium desktop (Phase 7C)
         run: |
           npx playwright install --with-deps chromium
           npm run test:e2e
 
-      - name: gate 8 - git diff --check
+      - name: gate 8 - client chunk sizes within 500 KiB
+        run: npm run check:bundle
+
+      - name: gate 9 - git diff --check
         run: git diff --check

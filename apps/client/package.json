@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "tsc -p tsconfig.json && vite build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "tsc -p tsconfig.json && node --test dist/errors.test.js"
+    "test": "tsc -p tsconfig.json && node --test dist/*.test.js"
   },
   "dependencies": {
     "@kingdoms/shared": "0.1.0",

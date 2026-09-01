@@ -1,12 +1,11 @@
 import { useEffect, useState } from "react";
 import { gameRules } from "@kingdoms/shared";
-import * as api from "../api.js";
 import { useGame } from "../state.js";
 
 type BuildingId = keyof typeof gameRules.buildings;
 
 export function CityPanel() {
-  const { state, addNotice } = useGame();
+  const { state, runCommand } = useGame();
   const session = state.session!; const snapshot = state.snapshot!;
   const city = snapshot.cities.find(item => item.playerId === session.player.id) ?? snapshot.cities[0];
   const [now, setNow] = useState(Date.now());
@@ -16,6 +15,12 @@ export function CityPanel() {
 
   return <section className="city-panel">
     <h2>Thành phố & công trình</h2>
+    <div className="actions">
+      <button disabled={city.frozen || queuesFull} onClick={() => runCommand({ kind: "build", label: "Xây kho", path: "/api/commands/build", body: { cityId: city.id, buildingId: "warehouse", queueType: "build" } }).catch(() => undefined)}>Xây kho</button>
+      <button disabled={city.frozen || queuesFull} onClick={() => runCommand({ kind: "build", label: "Xây trạm trung chuyển", path: "/api/commands/build", body: { cityId: city.id, buildingId: "road_depot", queueType: "build" } }).catch(() => undefined)}>Xây trạm trung chuyển</button>
+      <button disabled={city.frozen || queuesFull} onClick={() => runCommand({ kind: "build", label: "Xây trại lính", path: "/api/commands/build", body: { cityId: city.id, buildingId: "barracks", queueType: "build" } }).catch(() => undefined)}>Xây trại lính</button>
+    </div>
+    <p>Build queues: {city.queues.filter(queue => queue.type === "build").length}/2</p>
     <div className="building-list">
       {(Object.entries(gameRules.buildings) as Array<[BuildingId, (typeof gameRules.buildings)[BuildingId]]>).map(([id, rule]) => {
         const level = city.buildings[id] ?? 0;
@@ -25,7 +30,7 @@ export function CityPanel() {
           <p className="hint">{rule.description}</p>
           {queued
             ? <p className="hint">Đang xây · còn {Math.max(0, Math.ceil((Date.parse(queued.completesAt) - now) / 1000))}s</p>
-            : <button className="building-build" disabled={city.frozen || queuesFull} onClick={() => api.startBuild(session.token, city.id, id).catch((e) => addNotice(e.message))}>Xây · {rule.cost.wood}g {rule.cost.stone}đ {rule.cost.iron}s</button>}
+            : <button className="building-build" disabled={city.frozen || queuesFull} onClick={() => runCommand({ kind: "build", label: `Xây ${rule.name}`, path: "/api/commands/build", body: { cityId: city.id, buildingId: id, queueType: "build" } }).catch(() => undefined)}>Xây · {rule.cost.wood}g {rule.cost.stone}đ {rule.cost.iron}s</button>}
         </div>;
       })}
     </div>

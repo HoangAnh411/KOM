@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { Pool } from "pg";
 
-const databaseUrl = process.env.TEST_DATABASE_URL;
+const databaseUrl = process.env.RUN_POSTGRES_INTEGRATION === "1" ? process.env.TEST_DATABASE_URL : undefined;
 const migrateEntry = fileURLToPath(new URL("../dist/migrate.js", import.meta.url));
 
 function runMigrate(arg: string, extraEnv: Record<string, string> = {}): { status: number; output: string } {

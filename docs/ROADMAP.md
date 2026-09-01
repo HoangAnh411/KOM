@@ -4,7 +4,7 @@ Kingdoms of Meridian — Tiến trình và Roadmap
 
 ## Trạng thái hiện tại
 
-**Phase 5, Phase 6 và auth/moderation baseline: hoàn thành local, PostgreSQL integration và browser E2E gate**
+**Phase 5, Phase 6, Phase 7A và Phase 7B (Web Playable Alpha, đóng ngày 2026-09-01): hoàn thành local + PostgreSQL integration + browser E2E gate. Đang chạy Phase 7C — Web Closed Alpha (desktop polish), chờ phiên manual acceptance cuối.**
 
 Đã xác nhận typecheck, build, unit/regression, PostgreSQL restart/multi-instance integration và Playwright desktop/mobile đều pass. Auth/session PostgreSQL, frozen moderation, world-event NPC, alliance vote và season archive đã có acceptance coverage.
 
@@ -140,7 +140,7 @@ Sau mỗi milestone phải chạy verification và cập nhật docs/GAME-DESIGN
 - [X] Load-test harness k6: 100 WS 15 phút, 10 cmd/s, reconnect burst, duplicate commandId; seed/verify CLI chỉ nhận DB hậu tố `_loadtest`.
 - [ ] Chạy full load test 15 phút và lưu report trước beta.
 - [X] Ban/unban baseline, atomic audit/session revoke, frozen entities và action guards; abuse detection nâng cao còn deferred.
-- [X] CI thành 8 gates: `npm ci` → migrate fresh → idempotency+checksum → typecheck/build → PostgreSQL integration → unit/regression → Playwright desktop/mobile → `git diff --check`.
+- [X] CI thành 9 gates: `npm ci` → migrate fresh → idempotency+checksum → typecheck/build → PostgreSQL integration → unit/regression → Playwright Chromium desktop (7C) → `check:bundle` → `git diff --check`.
 - [ ] Restore drill log trong operations runbook (trước beta).
 - [ ] Security review auth, permissions, input và secrets.
 
@@ -164,7 +164,7 @@ Sau mỗi milestone phải chạy verification và cập nhật docs/GAME-DESIGN
 
 **Tiêu chí hoàn thành:** typecheck/build/test/test:postgres/test:e2e xanh; alpha web chơi được end-to-end trong một local process.
 
-### Đợt rà soát 2026-09-01 — sửa 8 lỗi gameplay (chưa đánh dấu Phase 7B hoàn thành)
+### Đợt rà soát 2026-09-01 — sửa 8 lỗi gameplay (đã hoàn thành; Phase 7B đóng ngày 2026-09-01)
 
 - [X] Chi phí tuyển quân đồng bộ client/server: `recruitmentCost()` chia sẻ ở `packages/shared` (giá theo lô 10, hết 10×);
 - [X] Route UI mặc định Thương cảng, ẩn điểm đến thành phố (server chỉ cho route tới thành phố của chính mình);
@@ -177,7 +177,7 @@ Sau mỗi milestone phải chạy verification và cập nhật docs/GAME-DESIGN
 
 **Regression/E2E mới:** contract test trên REST, test ledger pursuit, raider cooldown ×2, supply catch-up, `map-command.spec.ts`, route-creator single select trong `economy.spec.ts`; `production-loop.spec.ts`/`reset.spec.ts` đọc `PLAYWRIGHT_API` và khớp contract `data.*`; client `apiBase` ưu tiên `VITE_API_URL` (bỏ override cứng tới port 3000).
 
-### Đợt rà soát 2026-09-01 — sửa 4 lỗi command/rollback/raider (chưa đánh dấu Phase 7B hoàn thành)
+### Đợt rà soát 2026-09-01 — sửa 4 lỗi command/rollback/raider (đã hoàn thành; Phase 7B đóng ngày 2026-09-01)
 
 - [X] `cancel-army-order` hủy cả lệnh di chuyển manual (`army.targetX/targetY`), không chỉ attack order; inspector “Hủy lệnh” đồng bộ;
 - [X] Mọi nhánh từ chối sớm của command endpoint (unauthenticated 401, banned 403, rate-limit 429) trả đủ `CommandResponse` `{ commandId, result: "rejected", code }` — thay vì chỉ `{ code }`;
@@ -185,6 +185,25 @@ Sau mỗi milestone phải chạy verification và cập nhật docs/GAME-DESIGN
 - [X] Raider respawn timer chỉ chạy khi band thiếu quân: tick xóa `nextRespawnAt` cũ khi đủ target, chỉ giương cooldown khi lần đầu phát hiện thiếu và xóa khi đã đủ lại — không còn spawn tức thì sau khi chết với timestamp hết hạn.
 
 **Regression/E2E mới:** cancel-manual-move trong `combat.test.ts`; contract 401/403/429 trong `app.test.ts`; rollback giải phóng claim combat/onboarding trong `store.test.ts` (in-memory) và `postgres.integration.test.ts` (persist fail mô phỏng qua pool, retry thành công, chi phí trừ đúng một lần); stale expired respawn timer trong `raiders.test.ts`.
+
+## Phase 7C — Web Closed Alpha, desktop polish
+
+**Mục tiêu:** bản alpha web khép kín trên desktop: shell HUD kiểu game, command pipeline chống mất lệnh, validation trước khi gửi, map Pixi theo lớp, protocol versioning và battle history phân trang.
+
+- [X] Desktop shell: top bar 56px (tài nguyên/score/đếm ngược mùa/connection pill), nav rail 64px, map trung tâm, context panel 360px, action bar 72px; dưới 1024px hiện thông báo “viewport desktop chưa được hỗ trợ”.
+- [X] GameProvider: selection/interaction/active panel/connection/pending commands; `runCommand` với commandId client-mint, dedupe trùng lệnh đang bay dùng chung Promise/kết quả thật, timeout 10s → “uncertain” + nút “Thử lại” tái dùng cùng id và chặn double-retry, pending lưu sessionStorage theo player, logout xoá.
+- [X] Toasts tự đóng sau 4s và không chặn pointer (không đè lên UI để click).
+- [X] Validation trước khi gửi: logistics (cargo ≤ sức chứa depot, cargo ≤ kho, harvest ≤ còn lại, route/depot hợp lệ) và action bar (ownership, frozen, strength, tile, unit type, merge ≤ 500).
+- [X] Pixi map theo layer với `Map<entityId, DisplayObject>`; terrain rebuild chỉ khi kingdom/terrain đổi; `setInteraction()` chuyển chế độ; pan/zoom giữ nguyên; dynamic import sau login; mọi chunk ≤ 500 KiB.
+- [X] `protocolVersion: 1` trong snapshot: client khoá lệnh + băng cảnh báo khi lệch version.
+- [X] Battle report: snapshot chỉ gửi 20 bản mới nhất mỗi viewer; `BATTLE_REPORT` live chỉ cho participant; `ATTACK_CANCELED` chỉ cho owner.
+- [X] `GET /api/battles` keyset pagination (limit mặc định 20, clamp 1–50, cursor base64url `{createdAt,id}` với ISO timestamp + UUID strict, chỉ thấy trận mình tham gia); migration 014 partial index cho attacker/defender.
+- [X] Phá hiệp ước bằng modal React có focus trap + Escape + mô tả “−150 danh tiếng”, thay cho `confirm()` native.
+- [X] Drawer nâng cao (alliance/espionage/events/archive/diplomacy) lazy-load khi mở lần đầu.
+- [X] Test matrix: client unit 35, server unit 102, PostgreSQL (014 fresh/rerun/checksum + `/api/battles` dùng index + phân trang + cursor invalid + sống sót restart; chỉ bật integration bằng `RUN_POSTGRES_INTEGRATION` trong runner để gate chạy lặp an toàn), Playwright Chromium-only 16 scenario = 11 gốc + 5 regression 7C (double-submit dedupe không gửi HTTP thứ hai và nhận cùng kết quả thật, send fail → uncertain + “Thử lại” tái dùng cùng commandId/chặn double-retry, reload khôi phục pending uncertain, battle report chỉ tới participant, treaty modal focus trap/Escape/−150) + reset ở setup project và trước mỗi Chromium scenario (world riêng để khỏi chạm trần ~16 ô đặt thành phố trong một run, battle E2E dùng target dev có xác thực và vị trí deterministic để không phụ thuộc mob tự di chuyển/hết hạn, config env-driven `PLAYWRIGHT_API`/`PLAYWRIGHT_WEB`, webServer bật máy chủ riêng trên port do `PLAYWRIGHT_API` chỉ định), `check:bundle` ≤ 500 KiB, CI gate 8 chuyên cho bundle.
+- [ ] Manual acceptance: onboarding walkthrough, phiên 30–60 phút, không raw ID / native prompt/confirm, không jank.
+
+**Tiêu chí hoàn thành:** toàn bộ automated gate xanh (`verify:web-alpha` = typecheck/build/test/test:postgres/test:e2e/check:bundle/diff-check) và phiên manual không có blocker.
 
 ## Phase 8 — Đa nền tảng và phát hành
 
@@ -224,9 +243,10 @@ Sau mỗi milestone phải chạy verification và cập nhật docs/GAME-DESIGN
 ## Bước tiếp theo
 
 1. Hoàn thiện misinformation của espionage.
-2. Phase 7: chat/mail moderation, battle worker và Redis outbox publisher.
-3. Bổ sung load test WebSocket/tick/queue/caravan và backup/restore runbook.
-4. Giữ các gate regression: `npm run typecheck`, `npm run build`, `npm test`, Playwright desktop/mobile và PostgreSQL migrations.
+2. Phase 7C: phiên manual acceptance (30–60 phút) rồi đóng phase.
+3. Phase 7: chat/mail moderation, battle worker và Redis outbox publisher.
+4. Bổ sung load test WebSocket/tick/queue/caravan và backup/restore runbook.
+5. Giữ các gate regression: `npm run typecheck`, `npm run build`, `npm test`, Playwright Chromium desktop và PostgreSQL migrations.
 
 ## Quy tắc cập nhật
 

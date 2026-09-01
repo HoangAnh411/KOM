@@ -1,6 +1,5 @@
 import { gameRules } from "@kingdoms/shared";
 import type { OnboardingStep } from "@kingdoms/shared";
-import * as api from "../api.js";
 import { useGame } from "../state.js";
 
 const stepMeta: Record<OnboardingStep, { label: string; focus: string }> = {
@@ -15,7 +14,7 @@ const stepMeta: Record<OnboardingStep, { label: string; focus: string }> = {
 };
 
 export function OnboardingPanel() {
-  const { state, addNotice } = useGame();
+  const { state, runCommand } = useGame();
   const session = state.session!; const snapshot = state.snapshot!;
   const completed = new Set(snapshot.onboarding?.completedSteps ?? []);
   const stepsLeft = (Object.keys(stepMeta) as OnboardingStep[]).filter(step => !completed.has(step)).length;
@@ -35,7 +34,7 @@ export function OnboardingPanel() {
             <span className="step-actions">
               <button onClick={() => document.querySelector<HTMLElement>(stepMeta[step].focus)?.scrollIntoView({ behavior: "smooth", block: "start" })}>Đi tới</button>
               {(step === "city_inspected" || step === "score_viewed") && (
-                <button onClick={() => api.ackOnboarding(session.token, step).catch(e => addNotice(e.message))}>Hoàn tất bước</button>
+                <button onClick={() => runCommand({ kind: "onboarding_ack", label: "Hoàn tất bước giới thiệu", path: "/api/commands/onboarding/ack", body: { step } }).catch(() => undefined)}>Hoàn tất bước</button>
               )}
             </span>
           )}
