@@ -28,4 +28,8 @@ export class RateLimiter {
     bucket.count += 1;
     return bucket.count <= limit;
   }
+
+  async close(): Promise<void> {
+    if (this.redis?.isOpen) await this.redis.disconnect().catch(() => undefined);
+  }
 }

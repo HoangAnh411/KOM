@@ -1,0 +1,177 @@
+# Phase 7A production stack: one game-server replica, one outbox worker, PostgreSQL, Redis, Caddy.
+# Prometheus/Grafana are opt-in via: docker compose --profile observability -f infra/docker-compose.prod.yml up -d
+# Secrets come from an uncommitted ../.env.prod file (see .env.prod.example).
+
+name: kingdoms-prod
+
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+      target: client
+    restart: unless-stopped
+    command: ["sh", "-c", "cp -r /srv/client/. /var/www/client/ && tail -f /dev/null"]
+    volumes:
+      - client-static:/var/www/client
+    networks: [internal]
+
+  migrate:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+      target: server
+    env_file: ../.env.prod
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+    command: ["node", "apps/server/dist/migrate.js", "up"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+    networks: [internal]
+
+  game:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+      target: server
+    restart: unless-stopped
+    env_file: ../.env.prod
+    environment:
+      NODE_ENV: production
+      AUTH_MODE: password
+      HOST: 0.0.0.0
+      PORT: 3000
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379
+      TRUST_PROXY: "true"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/health/ready').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    expose: ["3000"]
+    networks: [internal]
+
+  outbox:
+    build:
+      context: ..
+      dockerfile: infra/Dockerfile
+      target: server
+    restart: unless-stopped
+    env_file: ../.env.prod
+    environment:
+      NODE_ENV: production
+      AUTH_MODE: password
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      REDIS_URL: redis://redis:6379
+    command: ["node", "apps/server/dist/outbox-worker.js"]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks: [internal]
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - kingdoms-postgres:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [internal]
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    volumes:
+      - kingdoms-redis:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [internal]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS, e.g. play.example.com or localhost:8081}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - client-static:/srv/client:ro
+      - kingdoms-caddy:/data
+    depends_on:
+      game:
+        condition: service_healthy
+      web:
+        condition: service_started
+    networks: [internal]
+
+  prometheus:
+    profiles: ["observability"]
+    image: prom/prometheus
+    restart: unless-stopped
+    # The bearer token is mounted from an env-provided file rather than checked
+    # into git; generate it before first start (disallows empty scrape auth):
+    #   echo "${METRICS_TOKEN}" > infra/backup/prometheus.token
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - ./alerts.yml:/etc/prometheus/alerts.yml:ro
+      - ./backup/prometheus.token:/etc/prometheus/bearer.token:ro
+      - kingdoms-prometheus:/prometheus
+    depends_on:
+      - game
+      - outbox
+    networks: [internal]
+
+  grafana:
+    profiles: ["observability"]
+    image: grafana/grafana
+    restart: unless-stopped
+    ports:
+      - "3001:3000"
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-changeme}
+    volumes:
+      - kingdoms-grafana:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
+    depends_on:
+      - prometheus
+    networks: [internal]
+
+volumes:
+  kingdoms-postgres:
+  kingdoms-redis:
+  kingdoms-caddy:
+  client-static:
+  kingdoms-prometheus:
+  kingdoms-grafana:
+
+networks:
+  internal:

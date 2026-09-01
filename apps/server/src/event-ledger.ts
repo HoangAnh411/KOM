@@ -21,10 +21,17 @@ export class EventLedger {
 
   all(): LedgerEvent[] { return [...this.history]; }
   hasCommand(commandId: string): boolean { return this.commandIds.has(commandId); }
+  discard(id: string): void {
+    const event = this.history.find(item => item.id === id);
+    const pendingIndex = this.events.findIndex(item => item.id === id); if (pendingIndex >= 0) this.events.splice(pendingIndex, 1);
+    const historyIndex = this.history.findIndex(item => item.id === id); if (historyIndex >= 0) this.history.splice(historyIndex, 1);
+    if (event?.commandId) this.commandIds.delete(event.commandId);
+  }
 
   async load(): Promise<void> {
     if (!this.pool) return;
     try {
+      this.events.length = 0; this.history.length = 0; this.commandIds.clear();
       const result = await this.pool.query<LoadedEvent>(`SELECT id, event_type AS "eventType", aggregate_type AS "aggregateType", aggregate_id AS "aggregateId", command_id AS "commandId", actor_player_id AS "actorPlayerId", payload, created_at AS "createdAt" FROM event_ledger ORDER BY created_at`);
       for (const event of result.rows) { this.history.push(event); if (event.commandId) this.commandIds.add(event.commandId); }
     } catch (error) { console.warn("event ledger load skipped", error instanceof Error ? error.message : error); }

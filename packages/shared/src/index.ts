@@ -16,18 +16,23 @@ export type Resources = z.infer<typeof resourceSchema>;
 export const scoreSchema = z.object({ military: z.number().int().min(0).max(1000), economy: z.number().int().min(0).max(1000), diplomacy: z.number().int().min(0).max(1000), overall: z.number().min(0) });
 export type Scores = z.infer<typeof scoreSchema>;
 
-export const citySchema = z.object({ id: z.string(), playerId: z.string(), playerName: z.string(), name: z.string(), x: z.number().int(), y: z.number().int(), resources: resourceSchema, buildings: z.record(z.number().int().positive()), queues: z.array(z.object({ id: z.string(), type: z.enum(["build", "research"]), buildingId: z.string(), targetLevel: z.number().int(), completesAt: z.string() })) });
+export const citySchema = z.object({ id: z.string(), playerId: z.string(), playerName: z.string(), name: z.string(), x: z.number().int(), y: z.number().int(), resources: resourceSchema, buildings: z.record(z.number().int().positive()), queues: z.array(z.object({ id: z.string(), type: z.enum(["build", "research"]), buildingId: z.string(), targetLevel: z.number().int(), completesAt: z.string() })), frozen: z.boolean().optional(), frozenAt: z.string().optional() });
 export type City = z.infer<typeof citySchema>;
 
-export const caravanSchema = z.object({ id: z.string(), ownerPlayerId: z.string(), sourceCityId: z.string(), destinationCityId: z.string(), progress: z.number().min(0).max(1), status: z.enum(["moving", "delivered", "ambushed"]), routeId: z.string().optional(), cargo: resourceSchema.optional(), departureAt: z.string().optional(), arrivesAt: z.string().optional(), escortArmyId: z.string().optional(), ambushSeed: z.number().int().nonnegative().optional() });
+export const destinationKinds = ["city", "market"] as const;
+export type DestinationKind = (typeof destinationKinds)[number];
+
+export const caravanSchema = z.object({ id: z.string(), ownerPlayerId: z.string(), sourceCityId: z.string(), destinationKind: z.enum(destinationKinds).default("city"), destinationCityId: z.string().nullable(), destinationMarketId: z.string().optional(), progress: z.number().min(0).max(1), status: z.enum(["moving", "delivered", "ambushed"]), routeId: z.string().optional(), cargo: resourceSchema.optional(), departureAt: z.string().optional(), arrivesAt: z.string().optional(), escortArmyId: z.string().optional(), ambushSeed: z.number().int().nonnegative().optional(), frozen: z.boolean().optional(), frozenAt: z.string().optional() });
 export type Caravan = z.infer<typeof caravanSchema>;
 export const resourceNodeSchema = z.object({ id: z.string(), kingdomId: z.string(), regionId: z.string(), x: z.number().int(), y: z.number().int(), resourceType: z.enum(['wood', 'stone', 'iron']), remaining: z.number().int().nonnegative(), capacity: z.number().int().positive(), recoveryRate: z.number().int().nonnegative() });
 export type ResourceNode = z.infer<typeof resourceNodeSchema>;
 export const depotSchema = z.object({ cityId: z.string(), level: z.number().int().positive(), capacity: z.number().int().positive() });
 export type Depot = z.infer<typeof depotSchema>;
-export const tradeRouteSchema = z.object({ id: z.string(), kingdomId: z.string().optional(), ownerPlayerId: z.string(), sourceCityId: z.string(), destinationCityId: z.string(), distance: z.number().int().nonnegative(), travelTimeSeconds: z.number().int().positive(), status: z.enum(['active', 'disabled']) });
+export const marketHubSchema = z.object({ id: z.string(), kingdomId: z.string(), name: z.string(), x: z.number().int(), y: z.number().int() });
+export type MarketHub = z.infer<typeof marketHubSchema>;
+export const tradeRouteSchema = z.object({ id: z.string(), kingdomId: z.string().optional(), ownerPlayerId: z.string(), sourceCityId: z.string(), destinationKind: z.enum(destinationKinds).default("city"), destinationCityId: z.string().nullable(), destinationMarketId: z.string().optional(), distance: z.number().int().nonnegative(), travelTimeSeconds: z.number().int().positive(), status: z.enum(['active', 'disabled']) });
 export type TradeRoute = z.infer<typeof tradeRouteSchema>;
-export const logisticsSnapshotSchema = z.object({ resourceNodes: z.array(resourceNodeSchema), depots: z.array(depotSchema), tradeRoutes: z.array(tradeRouteSchema), throughput: z.record(z.object({ wood: z.number().int().nonnegative(), stone: z.number().int().nonnegative(), iron: z.number().int().nonnegative() })) });
+export const logisticsSnapshotSchema = z.object({ resourceNodes: z.array(resourceNodeSchema), depots: z.array(depotSchema), tradeRoutes: z.array(tradeRouteSchema), marketHubs: z.array(marketHubSchema).default([]), throughput: z.record(z.object({ wood: z.number().int().nonnegative(), stone: z.number().int().nonnegative(), iron: z.number().int().nonnegative() })) });
 export type LogisticsSnapshot = z.infer<typeof logisticsSnapshotSchema>;
 
 // === PHASE 3: COMBAT TYPES ===
@@ -59,18 +64,35 @@ export const formationModifiers: Record<Formation, { attack: number; defense: nu
   square: { attack: 0.8, defense: 1.3 },
 };
 
-export const armySchema = z.object({ 
-  id: z.string(), 
-  ownerPlayerId: z.string(), 
-  x: z.number().int(), 
-  y: z.number().int(), 
-  unitType: z.enum(unitTypes), 
-  strength: z.number().int().min(0).max(500), 
-  morale: z.number().int().min(0).max(100), 
-  formation: z.enum(formations), 
-  supply: z.number().int().min(0).max(100), 
-  targetX: z.number().int().optional(), 
-  targetY: z.number().int().optional() 
+export const npcKinds = ["raider", "migration"] as const;
+export type NpcKind = (typeof npcKinds)[number];
+
+export const attackOrderSchema = z.object({
+  id: z.string(), armyId: z.string(), targetArmyId: z.string(), seed: z.number().int().nonnegative(),
+  targetX: z.number().int(), targetY: z.number().int(), issuedAt: z.string(),
+});
+export type AttackOrder = z.infer<typeof attackOrderSchema>;
+
+export const armySchema = z.object({
+  id: z.string(),
+  ownerType: z.enum(["player", "npc"]).default("player"),
+  ownerPlayerId: z.string().nullable(),
+  npcKind: z.enum(npcKinds).optional(),
+  sourceWorldEventId: z.string().optional(),
+  nextActionAt: z.string().optional(),
+  x: z.number().int(),
+  y: z.number().int(),
+  unitType: z.enum(unitTypes),
+  strength: z.number().int().min(0).max(500),
+  morale: z.number().int().min(0).max(100),
+  formation: z.enum(formations),
+  supply: z.number().int().min(0).max(100),
+  targetX: z.number().int().optional(),
+  targetY: z.number().int().optional(),
+  attackOrder: attackOrderSchema.optional(),
+  lastSupplyAt: z.string().optional(),
+  frozen: z.boolean().optional(),
+  frozenAt: z.string().optional()
 });
 export type Army = z.infer<typeof armySchema>;
 
@@ -80,6 +102,20 @@ export type Hero = z.infer<typeof heroSchema>;
 export const mapTileSchema = z.object({ x: z.number().int(), y: z.number().int(), terrain: z.enum(terrainTypes) });
 export type MapTile = z.infer<typeof mapTileSchema>;
 
+const battleParticipantSchema = z.object({
+  ownerType: z.enum(["player", "npc"]).default("player"),
+  playerId: z.string().nullable(),
+  armyId: z.string(),
+  unitType: z.enum(unitTypes),
+  formation: z.enum(formations),
+  strengthBefore: z.number().int(),
+  strengthAfter: z.number().int(),
+  moraleBefore: z.number().int(),
+  moraleAfter: z.number().int(),
+  supplyBefore: z.number().int(),
+  npcKind: z.enum(npcKinds).optional(),
+});
+
 export const battleReportSchema = z.object({
   id: z.string(),
   kingdomId: z.string(),
@@ -87,28 +123,8 @@ export const battleReportSchema = z.object({
   tileX: z.number().int(),
   tileY: z.number().int(),
   terrain: z.enum(terrainTypes),
-  attacker: z.object({
-    playerId: z.string(),
-    armyId: z.string(),
-    unitType: z.enum(unitTypes),
-    formation: z.enum(formations),
-    strengthBefore: z.number().int(),
-    strengthAfter: z.number().int(),
-    moraleBefore: z.number().int(),
-    moraleAfter: z.number().int(),
-    supplyBefore: z.number().int(),
-  }),
-  defender: z.object({
-    playerId: z.string(),
-    armyId: z.string(),
-    unitType: z.enum(unitTypes),
-    formation: z.enum(formations),
-    strengthBefore: z.number().int(),
-    strengthAfter: z.number().int(),
-    moraleBefore: z.number().int(),
-    moraleAfter: z.number().int(),
-    supplyBefore: z.number().int(),
-  }),
+  attacker: battleParticipantSchema,
+  defender: battleParticipantSchema,
   rounds: z.array(z.object({
     round: z.number().int(),
     attackerDamage: z.number().int(),
@@ -141,9 +157,17 @@ export const allianceSchema = z.object({
   leaderPlayerId: z.string(),
   members: z.array(allianceMemberSchema),
   notice: z.string().max(200).optional(),
+  leaderTermStartedAt: z.string().optional(),
   createdAt: z.string(),
 });
 export type Alliance = z.infer<typeof allianceSchema>;
+
+export const allianceVoteSchema = z.object({
+  id: z.string(), allianceId: z.string(), candidatePlayerId: z.string(), openedByPlayerId: z.string(),
+  votes: z.array(z.object({ playerId: z.string(), vote: z.boolean(), castAt: z.string() })),
+  status: z.enum(["open", "passed", "failed"]), openedAt: z.string(), expiresAt: z.string(),
+});
+export type AllianceVote = z.infer<typeof allianceVoteSchema>;
 
 export const treatyTypes = ["non_aggression", "trade_pact", "defensive_pact"] as const;
 export type TreatyType = (typeof treatyTypes)[number];
@@ -174,14 +198,70 @@ export const diplomacyStatsSchema = z.object({
   mediationCount: z.number().int().nonnegative(),
 });
 export type DiplomacyStats = z.infer<typeof diplomacyStatsSchema>;
+// === PHASE 5: ESPIONAGE & WORLD EVENTS ===
+export const spyMissionTypes = ["scout", "sabotage", "steal", "counter_intel"] as const;
+export type SpyMissionType = (typeof spyMissionTypes)[number];
+export const spyMissionStatuses = ["in_progress", "success", "failed", "intercepted"] as const;
+export type SpyMissionStatus = (typeof spyMissionStatuses)[number];
+export const spyMissionConfig = {
+  scout: { baseCost: 50, durationSeconds: 300, cooldownSeconds: 600, baseAccuracy: 0.6 },
+  sabotage: { baseCost: 150, durationSeconds: 600, cooldownSeconds: 1200, baseAccuracy: 0.4 },
+  steal: { baseCost: 100, durationSeconds: 450, cooldownSeconds: 900, baseAccuracy: 0.5 },
+  counter_intel: { baseCost: 80, durationSeconds: 0, cooldownSeconds: 1800, baseAccuracy: 0.7 },
+} as const;
+export const spyMissionSchema = z.object({
+  id: z.string(), kingdomId: z.string(), actorPlayerId: z.string(), targetPlayerId: z.string(),
+  missionType: z.enum(spyMissionTypes), status: z.enum(spyMissionStatuses), accuracy: z.number().min(0).max(1),
+  cost: z.object({ wood: z.number().nonnegative(), stone: z.number().nonnegative(), iron: z.number().nonnegative() }),
+  startedAt: z.string(), completesAt: z.string(), report: z.unknown().optional(),
+});
+export type SpyMission = z.infer<typeof spyMissionSchema>;
+export const worldEventTypes = ["drought", "plague", "earthquake", "mob_migration", "gold_rush"] as const;
+export type WorldEventType = (typeof worldEventTypes)[number];
+export const worldEventSchema = z.object({
+  id: z.string(), kingdomId: z.string(), eventType: z.enum(worldEventTypes),
+  affectedTiles: z.array(z.object({ x: z.number().int(), y: z.number().int() })),
+  modifier: z.record(z.number()), startsAt: z.string(), endsAt: z.string(), severity: z.number().int().min(1).max(3), seed: z.number().int().optional(),
+});
+export type WorldEvent = z.infer<typeof worldEventSchema>;
 
-export const snapshotSchema = z.object({ kingdom: z.object({ id: z.string(), name: z.string() }), season: z.object({ id: z.string(), status: z.enum(["SCHEDULED", "ACTIVE", "FINALIZING", "CLOSED"]), endsAt: z.string() }), cities: z.array(citySchema), caravans: z.array(caravanSchema), armies: z.array(armySchema), heroes: z.array(heroSchema), scores: z.record(scoreSchema), factionCatalog: z.record(z.object({ name: z.string(), description: z.string() })), logistics: logisticsSnapshotSchema, battleReports: z.array(battleReportSchema).optional(), terrainMap: z.record(z.enum(terrainTypes)).optional(), alliances: z.array(allianceSchema).optional(), treaties: z.array(treatySchema).optional() });
+// === PHASE 7B: ONBOARDING ===
+export const onboardingSteps = ["city_inspected", "depot_built", "resource_harvested", "market_exported", "barracks_built", "army_recruited", "raider_defeated", "score_viewed"] as const;
+export type OnboardingStep = (typeof onboardingSteps)[number];
+export const onboardableSteps = ["city_inspected", "score_viewed"] as const satisfies ReadonlyArray<OnboardingStep>;
+
+export const onboardingProgressSchema = z.object({ variant: z.string(), completedSteps: z.array(z.enum(onboardingSteps)).default([]) });
+export type OnboardingProgress = z.infer<typeof onboardingProgressSchema>;
+
+export const onboardingAckCommandSchema = z.object({ commandId: z.string().min(8), step: z.enum(onboardableSteps) });
+export type OnboardingAckCommand = z.infer<typeof onboardingAckCommandSchema>;
+
+export const snapshotSchema = z.object({ kingdom: z.object({ id: z.string(), name: z.string() }), season: z.object({ id: z.string(), status: z.enum(["SCHEDULED", "ACTIVE", "FINALIZING", "CLOSED"]), endsAt: z.string() }), cities: z.array(citySchema), caravans: z.array(caravanSchema), armies: z.array(armySchema), heroes: z.array(heroSchema), scores: z.record(scoreSchema), factionCatalog: z.record(z.object({ name: z.string(), description: z.string() })), logistics: logisticsSnapshotSchema, battleReports: z.array(battleReportSchema).optional(), terrainMap: z.record(z.enum(terrainTypes)).optional(), alliances: z.array(allianceSchema).optional(), allianceVotes: z.array(allianceVoteSchema).optional(), treaties: z.array(treatySchema).optional(), spyMissions: z.array(spyMissionSchema).optional(), worldEvents: z.array(worldEventSchema).optional(), onboarding: onboardingProgressSchema.optional() });
 export type WorldSnapshot = z.infer<typeof snapshotSchema>;
+
+// === PHASE 7B: COMMAND RESPONSE CONTRACT ===
+export const commandResultSchema = z.enum(["accepted", "already_processed", "rejected"]);
+export type CommandResult = z.infer<typeof commandResultSchema>;
+export type CommandResponse<T = unknown> = {
+  commandId: string;
+  result: CommandResult;
+  acceptedAt?: string;
+  code?: string;
+  message?: string;
+  snapshot?: WorldSnapshot;
+  data?: T;
+};
+export type CommandOutput<T> = { result: "accepted" | "already_processed"; data?: T };
 
 export const buildCommandSchema = z.object({ commandId: z.string().min(8), cityId: z.string(), buildingId: z.enum(["town_hall", "warehouse", "road_depot", "barracks"]), queueType: z.enum(["build", "research"]).default("build") });
 export type BuildCommand = z.infer<typeof buildCommandSchema>;
 export const harvestCommandSchema = z.object({ commandId: z.string().min(8), nodeId: z.string(), cityId: z.string(), amount: z.number().int().positive().max(50) });
-export const routeCommandSchema = z.object({ commandId: z.string().min(8), sourceCityId: z.string(), destinationCityId: z.string() });
+export const routeCommandSchema = z.object({ commandId: z.string().min(8), sourceCityId: z.string(), destinationKind: z.enum(destinationKinds).optional(), destinationId: z.string().optional(), destinationCityId: z.string().optional() }).superRefine((value, ctx) => {
+  const kind = value.destinationKind ?? (value.destinationCityId ? "city" : undefined);
+  if (!kind) { ctx.addIssue({ code: z.ZodIssueCode.custom, message: "destination is required" }); return; }
+  if (kind === "city" ? !value.destinationId && !value.destinationCityId : !value.destinationId) ctx.addIssue({ code: z.ZodIssueCode.custom, message: "destinationId is required" });
+});
+export type RouteCommand = z.infer<typeof routeCommandSchema>;
 export const caravanCommandSchema = z.object({ commandId: z.string().min(8), routeId: z.string(), cargo: z.object({ wood: z.number().int().nonnegative(), stone: z.number().int().nonnegative(), iron: z.number().int().nonnegative() }) });
 export const escortCommandSchema = z.object({ commandId: z.string().min(8), caravanId: z.string(), armyId: z.string() });
 export const ambushCommandSchema = z.object({ commandId: z.string().min(8), caravanId: z.string(), attackerPlayerId: z.string().optional() });
@@ -197,6 +277,8 @@ export const setFormationCommandSchema = z.object({ commandId: z.string().min(8)
 export type SetFormationCommand = z.infer<typeof setFormationCommandSchema>;
 export const mergeArmyCommandSchema = z.object({ commandId: z.string().min(8), sourceArmyId: z.string(), targetArmyId: z.string() });
 export type MergeArmyCommand = z.infer<typeof mergeArmyCommandSchema>;
+export const cancelArmyOrderCommandSchema = z.object({ commandId: z.string().min(8), armyId: z.string() });
+export type CancelArmyOrderCommand = z.infer<typeof cancelArmyOrderCommandSchema>;
 
 // === PHASE 4: ALLIANCE & DIPLOMACY COMMAND SCHEMAS ===
 export const createAllianceCommandSchema = z.object({ commandId: z.string().min(8), name: z.string().min(2).max(30), tag: z.string().min(2).max(5) });
@@ -207,13 +289,27 @@ export const leaveAllianceCommandSchema = z.object({ commandId: z.string().min(8
 export type LeaveAllianceCommand = z.infer<typeof leaveAllianceCommandSchema>;
 export const contributeAllianceCommandSchema = z.object({ commandId: z.string().min(8), cityId: z.string(), resources: z.object({ wood: z.number().int().nonnegative(), stone: z.number().int().nonnegative(), iron: z.number().int().nonnegative() }) });
 export type ContributeAllianceCommand = z.infer<typeof contributeAllianceCommandSchema>;
+export const manageAllianceMemberCommandSchema = z.object({ commandId: z.string().min(8), targetPlayerId: z.string(), action: z.enum(["promote", "demote", "kick"]) });
+export const setAllianceNoticeCommandSchema = z.object({ commandId: z.string().min(8), notice: z.string().max(200) });
+export const openAllianceVoteCommandSchema = z.object({ commandId: z.string().min(8), candidatePlayerId: z.string() });
+export const castAllianceVoteCommandSchema = z.object({ commandId: z.string().min(8), voteId: z.string(), vote: z.boolean() });
+export const adminCloseSeasonSchema = z.object({ reason: z.string().trim().min(3).max(500) });
+
+export const seasonArchiveSchema = z.object({
+  seasons: z.array(z.object({ seasonId: z.string(), closedAt: z.string(), rankings: z.array(z.object({ playerId: z.string(), displayName: z.string(), factionId: z.enum(factionIds), rank: z.number().int(), overall: z.number(), scores: scoreSchema })) })),
+  profile: z.object({ crossSeasonReputation: z.number().int(), title: z.string().nullable(), badge: z.string().nullable(), cityGlow: z.boolean(), crown: z.boolean(), legacyRecords: z.array(z.object({ id: z.string(), seasonId: z.string(), recordType: z.string(), payload: z.unknown() })) }),
+});
+export type SeasonArchive = z.infer<typeof seasonArchiveSchema>;
 
 export const proposeTreatyCommandSchema = z.object({ commandId: z.string().min(8), targetPlayerId: z.string(), treatyType: z.enum(treatyTypes), durationSeconds: z.number().int().positive().optional() });
 export type ProposeTreatyCommand = z.infer<typeof proposeTreatyCommandSchema>;
 export const respondTreatyCommandSchema = z.object({ commandId: z.string().min(8), treatyId: z.string(), accept: z.boolean() });
 export type RespondTreatyCommand = z.infer<typeof respondTreatyCommandSchema>;
 export const breakTreatyCommandSchema = z.object({ commandId: z.string().min(8), treatyId: z.string() });
-export type BreakTreatyCommand = z.infer<typeof breakTreatyCommandSchema>;
+export type BreakTreatyCommand = z.infer<typeof breakTreatyCommandSchema>;export const launchSpyCommandSchema = z.object({ commandId: z.string().min(8), targetPlayerId: z.string(), missionType: z.enum(["scout", "sabotage", "steal"]) });
+export type LaunchSpyCommand = z.infer<typeof launchSpyCommandSchema>;
+export const counterIntelCommandSchema = z.object({ commandId: z.string().min(8) });
+export type CounterIntelCommand = z.infer<typeof counterIntelCommandSchema>;
 
 export type ClientMessage = { type: "BUILD_START"; payload: BuildCommand }
   | { type: "ATTACK"; payload: AttackCommand }
@@ -227,13 +323,18 @@ export type ClientMessage = { type: "BUILD_START"; payload: BuildCommand }
   | { type: "CONTRIBUTE_ALLIANCE"; payload: ContributeAllianceCommand }
   | { type: "PROPOSE_TREATY"; payload: ProposeTreatyCommand }
   | { type: "RESPOND_TREATY"; payload: RespondTreatyCommand }
-  | { type: "BREAK_TREATY"; payload: BreakTreatyCommand };
+  | { type: "BREAK_TREATY"; payload: BreakTreatyCommand }
+  | { type: "LAUNCH_SPY"; payload: LaunchSpyCommand }
+  | { type: "COUNTER_INTEL"; payload: CounterIntelCommand };
   
 export type ServerMessage = { type: "SNAPSHOT"; payload: WorldSnapshot } 
   | { type: "ERROR"; code: string; message: string } 
   | { type: "EVENT"; event: string; payload: unknown }
   | { type: "BATTLE_REPORT"; payload: BattleReport }
-  | { type: "TREATY_UPDATE"; payload: Treaty };
+  | { type: "ATTACK_CANCELED"; payload: { armyId: string; targetArmyId: string; reason: "target_destroyed" | "target_frozen" } }
+  | { type: "TREATY_UPDATE"; payload: Treaty }
+  | { type: "SPY_REPORT"; payload: SpyMission }
+  | { type: "WORLD_EVENT"; payload: WorldEvent };
 
 export const seasonWeights = { military: 0.4, economy: 0.35, diplomacy: 0.25 } as const;
 
@@ -259,5 +360,61 @@ export function diplomacyScore(stats: {
   const treatyScore = Math.min(300, Math.max(0, stats.treatiesHonored * 30 - stats.treatiesViolated * 100));
   const cooperationScore = Math.min(300, stats.activeTreaties * 50 + Math.floor(100 * Math.log(1 + stats.allianceContribution / 100)));
   return Math.min(1000, Math.max(0, reputationScore + treatyScore + cooperationScore));
+}
+
+// === PHASE 7B: GAME RULES CATALOG (server authoritative, client for display) ===
+export const gameRules = {
+  buildings: {
+    town_hall: { id: "town_hall", name: "Tòa thị chính", description: "Trung tâm thành phố; nâng cấp mở rộng kho chứa.", cost: { food: 0, wood: 100, stone: 50, iron: 0 }, durationSeconds: 10 },
+    warehouse: { id: "warehouse", name: "Nhà kho", description: "Tăng sức chứa nguyên liệu của thành phố.", cost: { food: 0, wood: 80, stone: 25, iron: 0 }, durationSeconds: 8 },
+    road_depot: { id: "road_depot", name: "Trạm tiếp tế", description: "Mở tuyến vận tải; tăng hồi phục tiếp tế quân đội gần khu.", cost: { food: 0, wood: 120, stone: 80, iron: 20 }, durationSeconds: 12 },
+    barracks: { id: "barracks", name: "Doanh trại", description: "Cho phép tuyển mộ quân đội trong thành phố.", cost: { food: 0, wood: 150, stone: 100, iron: 50 }, durationSeconds: 15 },
+  } as const,
+  recruitment: {
+    infantry: { id: "infantry", name: "Bộ binh", description: "Cân bằng, mạnh chống cung thủ.", cost: { wood: 50, stone: 30, iron: 10 } },
+    cavalry: { id: "cavalry", name: "Kỵ binh", description: "Nhanh nhẹn, mạnh chống bộ binh.", cost: { wood: 30, stone: 20, iron: 40 } },
+    archer: { id: "archer", name: "Cung thủ", description: "Tầm xa, mạnh chống kỵ binh.", cost: { wood: 40, stone: 10, iron: 20 } },
+  } as const,
+  army: {
+    maxStrengthPerArmy: 500,
+    recruitAmountStep: 10, recruitAmountMin: 10, recruitAmountMax: 50,
+    formationCost: 0,
+  } as const,
+  raiders: {
+    targetCount: 3,
+    respawnDelayMs: 300000,
+    actionIntervalMs: 10000,
+    strengthMin: 30, strengthMax: 60,
+    huntRadius: 3,
+    minTilesFromCity: 4,
+  } as const,
+  market: {
+    name: "Thương cảng Meridian",
+    anchorX: 10, anchorY: 10,
+    minTilesFromCity: 3,
+  } as const,
+  supply: {
+    cycleSeconds: 60,
+    insideCityRadius: 2, insideCityPerMinute: 10,
+    depotRadiusBase: 3, depotRadiusPerLevel: 1, atDepotPerMinute: 15,
+    outsidePerMinute: -5,
+    attritionBelowSupply: 25, attritionStrengthPerMinute: 1, attritionMoralePerMinute: 2,
+    min: 0, max: 100,
+  } as const,
+  cityPlacement: {
+    minX: 2, maxX: 17, minY: 2, maxY: 17,
+    minDistanceBetweenCities: 3,
+    maxDistanceToHubOrNode: 2,
+  } as const,
+} as const;
+
+export type RecruitUnitId = keyof typeof gameRules.recruitment;
+
+// Recruitment is priced per pack of `recruitAmountStep` troops: cost × (amount / step).
+// Single source of truth used by the server to charge and the client to preview.
+export function recruitmentCost(unitType: RecruitUnitId, amount: number): { wood: number; stone: number; iron: number } {
+  const { cost } = gameRules.recruitment[unitType];
+  const multiplier = amount / gameRules.army.recruitAmountStep;
+  return { wood: cost.wood * multiplier, stone: cost.stone * multiplier, iron: cost.iron * multiplier };
 }
 

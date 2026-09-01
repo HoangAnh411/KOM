@@ -1,0 +1,25 @@
+# Caddy serves the client bundle, terminates TLS and proxies /api and /ws to the game server.
+# /metrics, PostgreSQL and Redis are intentionally NOT routed here.
+# Set SITE_ADDRESS (e.g. play.example.com or localhost:8081) in the compose environment.
+
+{$SITE_ADDRESS} {
+	encode gzip
+
+	handle /api/* {
+		reverse_proxy game:3000
+	}
+
+	handle /ws {
+		reverse_proxy game:3000
+	}
+
+	handle /health* {
+		reverse_proxy game:3000
+	}
+
+	handle {
+		root * /srv/client
+		try_files {path} /index.html
+		file_server
+	}
+}

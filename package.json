@@ -1,13 +1,24 @@
 {
   "name": "kingdoms-of-meridian",
   "private": true,
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "build": "npm run build -w @kingdoms/shared && npm run build -w @kingdoms/server && npm run build -w @kingdoms/client",
     "test": "npm run test -w @kingdoms/shared && npm run test -w @kingdoms/server && npm run test -w @kingdoms/client",
     "typecheck": "npm run build -w @kingdoms/shared && npm run typecheck -w @kingdoms/server && npm run typecheck -w @kingdoms/client",
     "dev:server": "npm run dev -w @kingdoms/server",
     "dev:client": "npm run dev -w @kingdoms/client",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "db:migrate": "npm run migrate -w @kingdoms/server",
+    "db:migrate:check": "npm run migrate:check -w @kingdoms/server",
+    "db:migrate:baseline": "npm run migrate:baseline -w @kingdoms/server",
+    "test:postgres": "npm run test:postgres -w @kingdoms/server",
+    "worker:outbox": "npm run worker:outbox -w @kingdoms/server",
+    "test:loadtest:seed": "npm run test:loadtest:seed -w @kingdoms/server",
+    "test:loadtest:verify": "npm run test:loadtest:verify -w @kingdoms/server",
+    "dev:web": "node scripts/dev-web.mjs"
   }
 }

@@ -1,17 +1,27 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
-import type { Army, BattleReport, Formation, TerrainType, UnitType, FactionId } from "@kingdoms/shared";
-import type { GameState, Player, MilitaryStats } from "./types.js";
+import type { Army, AttackOrder, BattleReport, Formation, TerrainType, UnitType, FactionId } from "@kingdoms/shared";
+import { recruitmentCost } from "@kingdoms/shared";
+import type { GameState } from "./types.js";
 import { resolveBattle } from "./battle-engine.js";
 
-const recruitmentCosts = {
-  infantry: { wood: 50, stone: 30, iron: 10 },
-  cavalry: { wood: 30, stone: 20, iron: 40 },
-  archer: { wood: 40, stone: 10, iron: 20 },
-};
+function assertActivePlayer(state: GameState, playerId: string): void { if (state.players.find(player => player.id === playerId)?.status === "banned") throw new Error("ACCOUNT_BANNED"); }
+function assertActiveTarget(state: GameState, playerId: string | null | undefined, frozen?: boolean): void { if (frozen || (playerId && state.players.find(player => player.id === playerId)?.status === "banned")) throw new Error("TARGET_FROZEN"); }
+
+export type AttackOrderCancellation = { orderId: string; armyId: string; targetArmyId: string; reason: "target_destroyed" | "target_frozen"; at: string };
 
 export class CombatRepository {
   private commands = new Set<string>();
+  // Tick-resolved battles and auto-canceled pursuit orders, drained once per
+  // tick by the store (ledger) and the HTTP layer (WebSocket broadcast).
+  private reportsToBroadcast: BattleReport[] = [];
+  private pendingCancellations: AttackOrderCancellation[] = [];
+
+  drainReports(): BattleReport[] { const out = this.reportsToBroadcast; this.reportsToBroadcast = []; return out; }
+  drainCancellations(): AttackOrderCancellation[] { const out = this.pendingCancellations; this.pendingCancellations = []; return out; }
+
+  capture(): { commands: string[] } { return { commands: [...this.commands] }; }
+  restore(capture: { commands: string[] }): void { this.commands = new Set(capture.commands); }
   
   constructor(private readonly pool?: Pool) {}
 
@@ -62,12 +72,13 @@ export class CombatRepository {
   }
 
   async persist(client: PoolClient, state: GameState): Promise<void> {
+    await client.query("DELETE FROM armies WHERE kingdom_id = $1 AND NOT (id = ANY($2::uuid[]))", [state.kingdom.id, state.armies.map(army => army.id)]);
     for (const army of state.armies) {
       await client.query(
-        `INSERT INTO armies (id, player_id, kingdom_id, x, y, unit_type, strength, morale, formation, target_x, target_y, supply) 
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
-         ON CONFLICT (id) DO UPDATE SET x=EXCLUDED.x, y=EXCLUDED.y, strength=EXCLUDED.strength, morale=EXCLUDED.morale, formation=EXCLUDED.formation, target_x=EXCLUDED.target_x, target_y=EXCLUDED.target_y, supply=EXCLUDED.supply`,
-        [army.id, army.ownerPlayerId, state.kingdom.id, army.x, army.y, army.unitType, army.strength, army.morale, army.formation, army.targetX ?? null, army.targetY ?? null, army.supply]
+        `INSERT INTO armies (id, player_id, kingdom_id, x, y, unit_type, strength, morale, formation, target_x, target_y, supply, owner_type, npc_kind, source_world_event_id, next_action_at, target_army_id, attack_order_id, attack_seed, attack_issued_at, last_supply_at, frozen, frozen_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+         ON CONFLICT (id) DO UPDATE SET player_id=EXCLUDED.player_id, x=EXCLUDED.x, y=EXCLUDED.y, strength=EXCLUDED.strength, morale=EXCLUDED.morale, formation=EXCLUDED.formation, target_x=EXCLUDED.target_x, target_y=EXCLUDED.target_y, supply=EXCLUDED.supply, owner_type=EXCLUDED.owner_type, npc_kind=EXCLUDED.npc_kind, source_world_event_id=EXCLUDED.source_world_event_id, next_action_at=EXCLUDED.next_action_at, target_army_id=EXCLUDED.target_army_id, attack_order_id=EXCLUDED.attack_order_id, attack_seed=EXCLUDED.attack_seed, attack_issued_at=EXCLUDED.attack_issued_at, last_supply_at=EXCLUDED.last_supply_at, frozen=EXCLUDED.frozen, frozen_at=EXCLUDED.frozen_at`,
+        [army.id, army.ownerPlayerId, state.kingdom.id, army.x, army.y, army.unitType, army.strength, army.morale, army.formation, army.targetX ?? null, army.targetY ?? null, army.supply, army.ownerType, army.npcKind ?? null, army.sourceWorldEventId ?? null, army.nextActionAt ?? null, army.attackOrder?.targetArmyId ?? null, army.attackOrder?.id ?? null, army.attackOrder?.seed ?? null, army.attackOrder?.issuedAt ?? null, army.lastSupplyAt ?? null, army.frozen ?? false, army.frozenAt ?? null]
       );
     }
     
@@ -97,27 +108,28 @@ export class CombatRepository {
   }
 
   recruit(commandId: string, cityId: string, unitType: UnitType, amount: number, playerId: string, state: GameState): Army {
+    assertActivePlayer(state, playerId);
     const city = state.cities.find(item => item.id === cityId);
     if (!city || city.playerId !== playerId) throw new Error("CITY_ACCESS_DENIED");
     if ((city.buildings.barracks ?? 0) < 1) throw new Error("BUILDING_REQUIRED");
     
-    const cost = recruitmentCosts[unitType];
-    const multiplier = amount / 10;
-    if (city.resources.wood < cost.wood * multiplier || city.resources.stone < cost.stone * multiplier || city.resources.iron < cost.iron * multiplier) {
+    const cost = recruitmentCost(unitType, amount);
+    if (city.resources.wood < cost.wood || city.resources.stone < cost.stone || city.resources.iron < cost.iron) {
       throw new Error("INSUFFICIENT_RESOURCES");
     }
-    
+
     const playerArmies = state.armies.filter(a => a.ownerPlayerId === playerId);
     if (playerArmies.length >= 5) throw new Error("ARMY_CAP_REACHED");
-    
+
     if (!this.claim(commandId)) throw new Error("already_processed");
-    
-    city.resources.wood -= cost.wood * multiplier;
-    city.resources.stone -= cost.stone * multiplier;
-    city.resources.iron -= cost.iron * multiplier;
+
+    city.resources.wood -= cost.wood;
+    city.resources.stone -= cost.stone;
+    city.resources.iron -= cost.iron;
     
     const army: Army = {
       id: randomUUID(),
+      ownerType: "player",
       ownerPlayerId: playerId,
       x: city.x,
       y: city.y,
@@ -125,24 +137,29 @@ export class CombatRepository {
       strength: amount,
       morale: 100,
       formation: "line",
-      supply: 100
+      supply: 100,
+      lastSupplyAt: new Date().toISOString()
     };
     state.armies.push(army);
     return army;
   }
 
   moveArmy(commandId: string, armyId: string, targetX: number, targetY: number, playerId: string, state: GameState): string {
+    assertActivePlayer(state, playerId);
     const army = state.armies.find(a => a.id === armyId);
     if (!army || army.ownerPlayerId !== playerId) throw new Error("ARMY_ACCESS_DENIED");
     if (army.strength <= 0) throw new Error("ARMY_DESTROYED");
     if (!this.claim(commandId)) return "already_processed";
-    
+
+    // A manual move supersedes any pursuit order.
+    army.attackOrder = undefined;
     army.targetX = targetX;
     army.targetY = targetY;
     return "accepted";
   }
 
   setFormation(commandId: string, armyId: string, formation: Formation, playerId: string, state: GameState): string {
+    assertActivePlayer(state, playerId);
     const army = state.armies.find(a => a.id === armyId);
     if (!army || army.ownerPlayerId !== playerId) throw new Error("ARMY_ACCESS_DENIED");
     if (!this.claim(commandId)) return "already_processed";
@@ -151,6 +168,7 @@ export class CombatRepository {
   }
 
   mergeArmies(commandId: string, sourceId: string, targetId: string, playerId: string, state: GameState): string {
+    assertActivePlayer(state, playerId);
     const source = state.armies.find(a => a.id === sourceId);
     const target = state.armies.find(a => a.id === targetId);
     if (!source || !target || source.ownerPlayerId !== playerId || target.ownerPlayerId !== playerId) throw new Error("ARMY_ACCESS_DENIED");
@@ -171,32 +189,59 @@ export class CombatRepository {
     return "accepted";
   }
 
-  attack(commandId: string, attackerArmyId: string, defenderArmyId: string, playerId: string, state: GameState, diplomacy?: any): BattleReport {
+  attack(commandId: string, attackerArmyId: string, defenderArmyId: string, playerId: string, state: GameState, diplomacy?: any): BattleReport | { pursuit: AttackOrder } {
+    assertActivePlayer(state, playerId);
     const attacker = state.armies.find(a => a.id === attackerArmyId);
     const defender = state.armies.find(a => a.id === defenderArmyId);
-    
+
     if (!attacker || attacker.ownerPlayerId !== playerId) throw new Error("ARMY_ACCESS_DENIED");
     if (!defender) throw new Error("TARGET_NOT_FOUND");
+    assertActiveTarget(state, defender.ownerPlayerId, defender.frozen);
     if (attacker.ownerPlayerId === defender.ownerPlayerId) throw new Error("INVALID_TARGET");
-    if (attacker.x !== defender.x || attacker.y !== defender.y) throw new Error("NOT_ON_SAME_TILE");
     if (attacker.strength <= 0 || defender.strength <= 0) throw new Error("ARMY_DESTROYED");
-    
-    const attackerPlayer = state.players.find(p => p.id === attacker.ownerPlayerId)!;
-    const defenderPlayer = state.players.find(p => p.id === defender.ownerPlayerId)!;
-    
+
     if (!this.claim(commandId)) throw new Error("already_processed");
-    
+
     const seed = Array.from(commandId).reduce((val, char) => (val * 31 + char.charCodeAt(0)) >>> 0, 7);
+    if (attacker.x === defender.x && attacker.y === defender.y) {
+      // Immediate resolution: the HTTP layer broadcasts this report via onCommitted.
+      return this.resolveEncounter(attacker, defender, seed, state, diplomacy, commandId, false);
+    }
+    // Different tile: validate now, resolve the chase later on the same tile
+    // with the original seed. One order per army — a new attack replaces it.
+    const order: AttackOrder = { id: commandId, armyId: attacker.id, targetArmyId: defender.id, seed, targetX: defender.x, targetY: defender.y, issuedAt: new Date().toISOString() };
+    attacker.attackOrder = order;
+    attacker.targetX = defender.x;
+    attacker.targetY = defender.y;
+    return { pursuit: order };
+  }
+
+  cancelArmyOrder(commandId: string, armyId: string, playerId: string, state: GameState): string {
+    assertActivePlayer(state, playerId);
+    const army = state.armies.find(a => a.id === armyId);
+    if (!army || army.ownerPlayerId !== playerId) throw new Error("ARMY_ACCESS_DENIED");
+    // Covers both a pursuit order and a manual move: an issued order is
+    // cancelable regardless of which kind created it.
+    if (!army.attackOrder && army.targetX === undefined && army.targetY === undefined) throw new Error("NO_ATTACK_ORDER");
+    if (!this.claim(commandId)) return "already_processed";
+    army.attackOrder = undefined;
+    army.targetX = undefined;
+    army.targetY = undefined;
+    return "accepted";
+  }
+
+  resolveEncounter(attacker: Army, defender: Army, seed: number, state: GameState, diplomacy?: any, commandId?: string, broadcast = true): BattleReport {
+    const attackerPlayer = attacker.ownerPlayerId ? state.players.find(p => p.id === attacker.ownerPlayerId) : undefined;
+    const defenderPlayer = defender.ownerPlayerId ? state.players.find(p => p.id === defender.ownerPlayerId) : undefined;
     const terrain = state.terrainMap[`${attacker.x},${attacker.y}`] ?? "plains";
-    
     const input = {
-      attacker: { unitType: attacker.unitType, strength: attacker.strength, morale: attacker.morale, formation: attacker.formation, supply: attacker.supply, factionId: attackerPlayer.factionId },
-      defender: { unitType: defender.unitType, strength: defender.strength, morale: defender.morale, formation: defender.formation, supply: defender.supply, factionId: defenderPlayer.factionId },
+      attacker: { unitType: attacker.unitType, strength: attacker.strength, morale: attacker.morale, formation: attacker.formation, supply: attacker.supply, factionId: attackerPlayer?.factionId ?? "ravager" as FactionId },
+      defender: { unitType: defender.unitType, strength: defender.strength, morale: defender.morale, formation: defender.formation, supply: defender.supply, factionId: defenderPlayer?.factionId ?? "ravager" as FactionId },
       terrain,
       seed
     };
     
-          if (diplomacy) {
+      if (diplomacy && commandId && attacker.ownerPlayerId && defender.ownerPlayerId) {
         const violation = diplomacy.checkAttackViolation(attacker.ownerPlayerId, defender.ownerPlayerId, state);
         if (violation) diplomacy.breakTreaty(commandId + "-violate", violation.id, attacker.ownerPlayerId, state);
       }
@@ -210,8 +255,10 @@ export class CombatRepository {
       tileY: attacker.y,
       terrain,
       attacker: {
-        playerId: attackerPlayer.id,
+        ownerType: attacker.ownerType,
+        playerId: attacker.ownerPlayerId,
         armyId: attacker.id,
+        npcKind: attacker.npcKind,
         unitType: attacker.unitType,
         formation: attacker.formation,
         strengthBefore: attacker.strength,
@@ -221,8 +268,10 @@ export class CombatRepository {
         supplyBefore: attacker.supply
       },
       defender: {
-        playerId: defenderPlayer.id,
+        ownerType: defender.ownerType,
+        playerId: defender.ownerPlayerId,
         armyId: defender.id,
+        npcKind: defender.npcKind,
         unitType: defender.unitType,
         formation: defender.formation,
         strengthBefore: defender.strength,
@@ -244,49 +293,73 @@ export class CombatRepository {
     defender.morale = output.defender.moraleAfter;
     
     // Update stats
-    const attStats = state.militaryThroughput[attackerPlayer.id] ??= { victories: 0, defeats: 0, draws: 0, strengthDestroyed: 0, strengthLost: 0, tilesControlled: 0, successfulDefenses: 0 };
-    const defStats = state.militaryThroughput[defenderPlayer.id] ??= { victories: 0, defeats: 0, draws: 0, strengthDestroyed: 0, strengthLost: 0, tilesControlled: 0, successfulDefenses: 0 };
+    const attStats = attackerPlayer ? (state.militaryThroughput[attackerPlayer.id] ??= { victories: 0, defeats: 0, draws: 0, strengthDestroyed: 0, strengthLost: 0, tilesControlled: 0, successfulDefenses: 0 }) : undefined;
+    const defStats = defenderPlayer ? (state.militaryThroughput[defenderPlayer.id] ??= { victories: 0, defeats: 0, draws: 0, strengthDestroyed: 0, strengthLost: 0, tilesControlled: 0, successfulDefenses: 0 }) : undefined;
     
     const attLost = report.attacker.strengthBefore - report.attacker.strengthAfter;
     const defLost = report.defender.strengthBefore - report.defender.strengthAfter;
     
-    attStats.strengthLost += attLost;
-    attStats.strengthDestroyed += defLost;
-    defStats.strengthLost += defLost;
-    defStats.strengthDestroyed += attLost;
+    if (attStats) { attStats.strengthLost += attLost; attStats.strengthDestroyed += defLost; }
+    if (defStats) { defStats.strengthLost += defLost; defStats.strengthDestroyed += attLost; }
     
     if (output.victor === "attacker") {
-      attStats.victories++;
-      defStats.defeats++;
+      if (attStats) attStats.victories++;
+      if (defStats) defStats.defeats++;
     } else if (output.victor === "defender") {
-      defStats.victories++;
-      defStats.successfulDefenses++;
-      attStats.defeats++;
+      if (defStats) { defStats.victories++; defStats.successfulDefenses++; }
+      if (attStats) attStats.defeats++;
     } else {
-      attStats.draws++;
-      defStats.draws++;
+      if (attStats) attStats.draws++;
+      if (defStats) defStats.draws++;
     }
     
     state.battleReports.push(report);
-    
+    if (broadcast) this.reportsToBroadcast.push(report);
+
     // Clean up destroyed armies
     if (attacker.strength === 0) state.armies = state.armies.filter(a => a.id !== attacker.id);
     if (defender.strength === 0) state.armies = state.armies.filter(a => a.id !== defender.id);
-    
+
     return report;
   }
 
-  tick(state: GameState): boolean {
+  tick(state: GameState, diplomacy?: any): boolean {
     let changed = false;
     for (const army of state.armies) {
+      if (army.frozen || (army.ownerPlayerId && state.players.find(player => player.id === army.ownerPlayerId)?.status === "banned")) continue;
       if (army.strength <= 0) continue;
-      
+
       // Morale recovery (slowly regains up to 100 if supplied)
       if (army.supply >= 50 && army.morale < 100) {
         army.morale = Math.min(100, army.morale + 2);
         changed = true;
       }
-      
+
+      // Pursuit: chase the target's live position each tick; a dead, vanished
+      // or frozen target cancels the order (banned armies pause because the
+      // loop above skips them and resume unchanged after unban).
+      if (army.attackOrder) {
+        const order = army.attackOrder;
+        const target = state.armies.find(army => army.id === order.targetArmyId);
+        const targetGone = !target || target.strength <= 0;
+        const targetFrozen = target ? target.frozen || Boolean(target.ownerPlayerId && state.players.find(player => player.id === target.ownerPlayerId)?.status === "banned") : false;
+        if (targetGone || targetFrozen) {
+          const reason = targetGone ? "target_destroyed" : "target_frozen";
+          army.attackOrder = undefined;
+          army.targetX = undefined;
+          army.targetY = undefined;
+          this.pendingCancellations.push({ orderId: order.id, armyId: army.id, targetArmyId: order.targetArmyId, reason, at: new Date().toISOString() });
+          changed = true;
+        } else {
+          order.targetX = target.x;
+          order.targetY = target.y;
+          if (army.x !== target.x || army.y !== target.y) {
+            army.targetX = target.x;
+            army.targetY = target.y;
+          }
+        }
+      }
+
       // Movement
       if (army.targetX !== undefined && army.targetY !== undefined) {
         if (army.x !== army.targetX || army.y !== army.targetY) {
@@ -294,7 +367,7 @@ export class CombatRepository {
           for (let step = 0; step < speed; step++) {
             if (army.x !== army.targetX) army.x += army.x < army.targetX ? 1 : -1;
             else if (army.y !== army.targetY) army.y += army.y < army.targetY ? 1 : -1;
-            
+
             if (army.x === army.targetX && army.y === army.targetY) {
               army.targetX = undefined;
               army.targetY = undefined;
@@ -305,6 +378,20 @@ export class CombatRepository {
         } else {
           army.targetX = undefined;
           army.targetY = undefined;
+        }
+      }
+
+      // Same tile: resolve the chase with the order's original seed and
+      // re-check treaties at actual combat (not at order issue time).
+      if (army.attackOrder) {
+        const order = army.attackOrder;
+        const target = state.armies.find(army => army.id === order.targetArmyId);
+        if (target && army.x === target.x && army.y === target.y) {
+          army.attackOrder = undefined;
+          army.targetX = undefined;
+          army.targetY = undefined;
+          this.resolveEncounter(army, target, order.seed, state, diplomacy, order.id);
+          changed = true;
         }
       }
     }

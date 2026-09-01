@@ -1,0 +1,17 @@
+node_modules
+**/node_modules
+dist
+apps/client/dist
+apps/server/dist
+packages/shared/dist
+coverage
+test-results
+test-results-e2e
+playwright-report
+.git
+.env
+.env.*
+infra/backup
+backups
+*.log
+results

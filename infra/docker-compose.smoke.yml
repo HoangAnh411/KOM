@@ -1,0 +1,9 @@
+# Offline smoke-test override: serve Caddy on a configurable high host port.
+# Caddy still terminates local HTTPS; game keeps the production password-auth gate.
+services:
+  game:
+    environment:
+      CLIENT_ORIGIN: https://localhost:${SMOKE_PORT:-18081}
+  caddy:
+    ports: !override
+      - "${SMOKE_PORT:-18081}:8081"

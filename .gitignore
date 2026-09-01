@@ -3,5 +3,10 @@ dist/
 dist-web/
 .env
 .env.*
+!infra/.env.prod.example
+infra/backup/prometheus.token
 coverage/
+test-results/
+test-results-e2e/
+playwright-report/
 *.log

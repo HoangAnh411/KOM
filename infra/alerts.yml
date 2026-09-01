@@ -1,0 +1,32 @@
+groups:
+  - name: kingdoms-closed-beta
+    rules:
+      - alert: KingdomsGameDown
+        expr: up{job="kingdoms-game"} == 0
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: "Kingdoms game server is unavailable" }
+      - alert: KingdomsTickLag
+        expr: kingdom_tick_lag_ms > 2000
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: "Authoritative game tick is more than two seconds behind" }
+      - alert: KingdomsPersistenceErrors
+        expr: increase(kingdom_persistence_errors_total[5m]) > 0
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: "Database persistence/readiness errors detected" }
+      - alert: KingdomsWebSocketDisconnectBurst
+        expr: increase(kingdom_websocket_disconnects_total[5m]) > 50
+        for: 1m
+        labels: { severity: warning }
+        annotations: { summary: "Unusual WebSocket disconnect burst" }
+      - alert: KingdomsOutboxBacklog
+        expr: outbox_backlog >= 100 or outbox_oldest_event_age_seconds > 30
+        for: 1m
+        labels: { severity: critical }
+        annotations: { summary: "Outbox is not draining within the beta gate" }
+      - alert: KingdomsOutboxDeadLetter
+        expr: increase(outbox_dlq_transitions_total[5m]) > 0
+        labels: { severity: warning }
+        annotations: { summary: "An outbox event entered the dead-letter stream" }

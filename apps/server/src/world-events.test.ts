@@ -1,0 +1,9 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { GameStore } from "./store.js";
+
+test("mob migration spawn is deterministic for the same seed", () => { const first = new GameStore(); const second = new GameStore(); const a = first.worldEvents.spawn(first.snapshot, "mob_migration", 4242, 1_000); const b = second.worldEvents.spawn(second.snapshot, "mob_migration", 4242, 1_000); assert.deepEqual(a.affectedTiles, b.affectedTiles); const traits = (store: GameStore, eventId: string) => store.snapshot.armies.filter(army => army.sourceWorldEventId === eventId).map(({ x, y, unitType, strength }) => ({ x, y, unitType, strength })); assert.deepEqual(traits(first, a.id), traits(second, b.id)); assert.ok(traits(first, a.id).length >= 2); });
+
+test("NPC encounter uses shared battle reports and the event ledger", () => { const store = new GameStore(); const now = 10_000; const event = store.worldEvents.spawn(store.snapshot, "mob_migration", 99, now); const mob = store.snapshot.armies.find(army => army.sourceWorldEventId === event.id)!; const target = store.snapshot.armies.find(army => army.ownerType === "player")!; target.x = mob.x; target.y = mob.y; mob.nextActionAt = new Date(0).toISOString(); store.worldEvents.tick(store.snapshot, now + 1); assert.ok(store.snapshot.battleReports.some(report => report.attacker.armyId === mob.id)); const audit = store.ledger.all().find(item => item.eventType === "world_event.npc_battle"); assert.equal(audit?.aggregateId, event.id); assert.equal(typeof (audit?.payload as { seed: unknown }).seed, "number"); });
+
+test("expired migration removes surviving NPC armies", () => { const store = new GameStore(); const event = store.worldEvents.spawn(store.snapshot, "mob_migration", 7, 1_000); event.endsAt = new Date(1_001).toISOString(); store.worldEvents.tick(store.snapshot, 2_000); assert.equal(store.snapshot.armies.some(army => army.sourceWorldEventId === event.id), false); });

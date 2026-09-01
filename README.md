@@ -6,35 +6,45 @@ Toàn bộ tài liệu dự án nằm trong thư mục `docs/`; bắt đầu t�
 
 ## Chạy local
 
-Yêu cầu Node.js 22+ và npm 10+.
+Yêu cầu Node.js 22+ (khuyên dùng 24+ cho chạy test TypeScript trực tiếp) và npm 10+.
+
+### Chế độ in-memory (nhanh, không cần database)
 
 ```powershell
 npm install
+npm run build
+npm run dev:web   # chạy đồng thời server (watch) + Vite dev server
+```
+
+Mở `http://localhost:5173`, đăng nhập bằng dev account và mở thêm một browser tab với tên khác để thấy các city/caravan dùng chung. Không có PostgreSQL/Redis thì server chỉ chạy in-memory với `AUTH_MODE=dev` — dữ liệu mất khi khởi động lại.
+
+### Chế độ persisted (PostgreSQL + Redis)
+
+```powershell
 docker compose -f infra/docker-compose.yml up -d
 $env:DATABASE_URL = "postgres://kingdoms:kingdoms@localhost:5432/kingdoms"
 $env:REDIS_URL = "redis://localhost:6379"
 npm run build
-npm run dev:server
+npm run db:migrate   # chạy toàn bộ migration trong infra/migrations/ theo thứ tự
+npm run dev:web
 ```
 
-Migration hiện được cung cấp tại `infra/migrations/001_initial.sql`; chạy file này trước khi bật persistence PostgreSQL. Nếu chưa cấu hình database/Redis, server vẫn chạy in-memory để thử UI.
+Password mode (`AUTH_MODE=password`) bắt buộc PostgreSQL. Chạy riêng từng phần nếu cần: `npm run dev:server` / `npm run dev:client`.
 
-Trong terminal thứ hai:
+## Kiểm thử
 
-```powershell
-npm run dev:client
-```
-
-Mở `http://localhost:5173`, đăng nhập bằng dev account và mở thêm một browser tab với tên khác để thấy các city/caravan dùng chung.
+- `npm test` — unit test toàn bộ workspace (server, shared, client).
+- `npm run test:postgres` — integration test với PostgreSQL (cần database, tự bỏ qua nếu thiếu).
+- `npm run test:e2e` — Playwright end-to-end trên môi trường dev in-memory (reset thế giới giữa các project).
 
 ## MVP interfaces
 
 - `POST /api/auth/dev`: tạo hoặc lấy dev player và token.
 - `GET /api/bootstrap`: lấy snapshot có auth bearer token.
-- `POST /api/commands/build`: gửi command xây dựng đã được server kiểm tra.
+- `POST /api/commands/*`: mọi command (build, harvest, routes, caravans, recruit, attack, cancel-army-order, onboarding/ack, alliance, treaty, spy…) trả về `CommandResponse` chia sẻ `{ commandId, result: accepted|already_processed|rejected, acceptedAt?, snapshot?, data? }` (`code` khi rejected); client áp snapshot ngay từ `snapshot` và xem WebSocket như kênh phụ.
 - `GET /health`: health check.
 - `GET /metrics`: Prometheus-compatible metrics.
-- `ws://localhost:3000/ws?token=...`: snapshot và realtime updates.
+- `ws://localhost:3000/ws`: gửi message `AUTH` (token) sau khi connect để nhận snapshot, battle report và realtime updates; đóng mã `4401` khi token hết hạn/khoá account.
 
 Build queues là hai queue xây dựng và một queue nghiên cứu cho mỗi city. Không có speed-up, power item hoặc mua trực tiếp score trong MVP.
 

@@ -52,6 +52,14 @@ Faction thay đổi decision space, không chỉ cộng vài phần trăm attack
 - Alliance dùng contribution diminishing returns, voting, term limit và audit log.
 
 ## Tình báo và world events
+### Phase 5 implementation baseline
+
+- Spy mission gồm `scout`, `sabotage`, `steal`; cost mặc định lần lượt 50, 150, 100 iron, có duration và cooldown server-side.
+- Accuracy = `baseAccuracy × 1.2` cho Veiled Concord, giới hạn tối đa 1. Veiled giảm 20% cost và 15% cooldown.
+- Counter-intel kéo dài 30 phút; interception chance là 30%, hoặc 52% với Veiled Concord.
+- Scout chỉ trả report cho actor; resource estimate có noise theo accuracy. Steal bị giới hạn tối đa 100 wood, stone và iron cho mỗi mission.
+- World events hiện hỗ trợ drought (harvest ×0.5), plague (mất strength/morale theo tick), earthquake (giảm một building level), và gold rush (harvest ×2); event tự hết hạn.
+- World event spawn mặc định có xác suất `1/600` mỗi tick, không chồng event đang hoạt động.
 
 - Spy report có độ chính xác, cost, duration và cooldown.
 - Sabotage/misinformation luôn ghi audit event và có counter-intelligence.

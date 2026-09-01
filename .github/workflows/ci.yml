@@ -23,11 +23,43 @@ jobs:
         ports: ["6379:6379"]
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 22
           cache: npm
-      - run: npm install
-      - run: npm run typecheck
-      - run: npm run build
-      - run: npm test
+
+      - name: gate 1 - npm ci
+        run: npm ci
+
+      - name: create kingdoms_test database
+        run: |
+          sudo apt-get update && sudo apt-get install -y postgresql-client
+          PGPASSWORD=kingdoms psql -h localhost -U kingdoms -d postgres -c 'CREATE DATABASE kingdoms_test;'
+
+      - name: gate 2 - migration 001-latest on a fresh database
+        run: DATABASE_URL=postgres://kingdoms:kingdoms@localhost:5432/kingdoms_test npm run db:migrate
+
+      - name: gate 3 - migrations are idempotent (second run) and checksums match
+        run: |
+          DATABASE_URL=postgres://kingdoms:kingdoms@localhost:5432/kingdoms_test npm run db:migrate
+          DATABASE_URL=postgres://kingdoms:kingdoms@localhost:5432/kingdoms_test npm run db:migrate:check
+
+      - name: gate 4 - typecheck and build
+        run: |
+          npm run typecheck
+          npm run build
+
+      - name: gate 5 - PostgreSQL restart/multi-instance integration
+        run: TEST_DATABASE_URL=postgres://kingdoms:kingdoms@localhost:5432/kingdoms_test TEST_REDIS_URL=redis://localhost:6379 npm run test:postgres
+
+      - name: gate 6 - unit and regression tests
+        run: npm test
+
+      - name: gate 7 - Playwright desktop and mobile
+        run: |
+          npx playwright install --with-deps chromium
+          npm run test:e2e
+
+      - name: gate 8 - git diff --check
+        run: git diff --check
