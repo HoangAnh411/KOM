@@ -1,0 +1,163 @@
+/* Kingdoms of Meridian — UI primitives.
+ *
+ * Four things only: panel, button, status chip, icon, plus two typography
+ * utilities. Everything reads from tokens.css; there are no literals here.
+ *
+ * Class names are mirrored in `ui/variants.ts` and the pairing is asserted by
+ * `ui-primitives.test.ts`, so a typo in either file fails the build instead of
+ * silently rendering an unstyled element.
+ */
+
+/* ── PANEL ─────────────────────────────────────────────────────────────────
+ * Depth is layering plus a 1px catch-light on the top edge. No gradients: a
+ * gradient reads as glass, and this UI is meant to read as a lit map table. */
+.kom-panel {
+  --kom-panel-pad: var(--kom-space-5);
+  --kom-panel-accent: transparent;
+  display: flex;
+  flex-direction: column;
+  background: var(--kom-surface);
+  border: 1px solid var(--kom-border-subtle);
+  border-left: 3px solid var(--kom-panel-accent);
+  border-radius: var(--kom-radius-lg);
+  box-shadow: var(--kom-edge-highlight), var(--kom-shadow-panel);
+  color: var(--kom-text-body);
+  overflow: hidden;
+}
+.kom-panel--compact { --kom-panel-pad: var(--kom-space-4); }
+.kom-panel--flush { box-shadow: none; background: none; border-color: transparent; }
+
+.kom-panel--accent-brass { --kom-panel-accent: var(--kom-primary); }
+.kom-panel--accent-teal { --kom-panel-accent: var(--kom-allied); }
+.kom-panel--accent-amber { --kom-panel-accent: var(--kom-state-warning-border); }
+.kom-panel--accent-crimson { --kom-panel-accent: var(--kom-hostile); }
+.kom-panel--accent-violet { --kom-panel-accent: var(--kom-espionage); }
+.kom-panel--accent-slate { --kom-panel-accent: var(--kom-neutral); }
+
+.kom-panel__header {
+  display: flex;
+  align-items: baseline;
+  gap: var(--kom-space-4);
+  padding: var(--kom-panel-pad);
+  border-bottom: 1px solid var(--kom-border-subtle);
+}
+.kom-panel__heading {
+  display: flex;
+  align-items: center;
+  gap: var(--kom-space-3);
+  margin: 0;
+  color: var(--kom-text-accent);
+  font-size: var(--kom-text-lg);
+  font-weight: var(--kom-weight-medium);
+  line-height: var(--kom-leading-tight);
+}
+.kom-panel__meta { color: var(--kom-text-hint); font-size: var(--kom-text-xs); }
+.kom-panel__actions { display: flex; gap: var(--kom-space-2); margin-left: auto; }
+.kom-panel__body { padding: var(--kom-panel-pad); display: flex; flex-direction: column; gap: var(--kom-space-4); }
+.kom-panel__footer {
+  display: flex;
+  align-items: center;
+  gap: var(--kom-space-3);
+  flex-wrap: wrap;
+  padding: var(--kom-panel-pad);
+  border-top: 1px solid var(--kom-border-subtle);
+  background: var(--kom-surface-sunken);
+}
+/* ── BUTTON ────────────────────────────────────────────────────────────────
+ * Padding matches the shipped `button` rule so migrating a button never moves
+ * anything around it. */
+.kom-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--kom-space-3);
+  padding: 11px 12px;
+  border: 1px solid transparent;
+  border-radius: var(--kom-radius-md);
+  font: inherit;
+  font-size: var(--kom-text-sm);
+  font-weight: var(--kom-weight-bold);
+  line-height: var(--kom-leading-tight);
+  cursor: pointer;
+  transition: background var(--kom-motion-fast) var(--kom-ease-out),
+              border-color var(--kom-motion-fast) var(--kom-ease-out);
+}
+.kom-btn:focus-visible { outline: none; box-shadow: var(--kom-focus-ring); }
+.kom-btn--compact { padding: var(--kom-space-3) var(--kom-space-4); font-size: var(--kom-text-xs); }
+.kom-btn--block { width: 100%; }
+
+.kom-btn--primary { background: var(--kom-primary); color: var(--kom-on-primary); }
+.kom-btn--primary:hover:not(:disabled) { background: var(--kom-primary-soft); }
+.kom-btn--secondary { background: var(--kom-surface-raised); color: var(--kom-text); border-color: var(--kom-border-strong); }
+.kom-btn--secondary:hover:not(:disabled) { border-color: var(--kom-primary); }
+.kom-btn--ghost { background: none; color: var(--kom-text-link); }
+.kom-btn--ghost:hover:not(:disabled) { background: var(--kom-surface-hover); color: var(--kom-text); }
+.kom-btn--destructive { background: var(--kom-hostile-deep); color: var(--kom-on-hostile); }
+.kom-btn--destructive:hover:not(:disabled) { background: var(--kom-hostile); color: var(--kom-on-primary); }
+
+/* Disabled drops the fill entirely rather than fading it. A 45%-opacity brass
+ * button is still brass-coloured and still looks pressable, and its text lands
+ * near 3:1 against the panel; an unfilled dashed shape reads as gated at a
+ * glance and keeps hint text at ~7:1.
+ *
+ * `opacity: 1` is not redundant: the shipped sheet still carries
+ * `button:disabled { opacity: .45 }`, and a `.kom-btn` is a `button`. Without
+ * this the two treatments would stack and fade the hint back below 3:1. */
+.kom-btn:disabled, .kom-btn--disabled {
+  background: var(--kom-surface-wash);
+  color: var(--kom-text-hint);
+  border: 1px dashed var(--kom-border-strong);
+  opacity: 1;
+  cursor: not-allowed;
+}
+/* A gate is the button plus the reason it cannot be pressed. A disabled button
+ * is not focusable, so the reason has to be visible text — `aria-describedby`
+ * alone would be announced to nobody. */
+.kom-btn-gate { display: inline-flex; flex-direction: column; gap: var(--kom-space-1); align-items: flex-start; }
+.kom-btn-reason { color: var(--kom-text-hint); font-size: var(--kom-text-xs); line-height: var(--kom-leading-normal); }
+/* ── STATUS ────────────────────────────────────────────────────────────────
+ * One chip shape, eight states. Each state sets three locals so a banner or a
+ * panel accent can reuse the same triple without redefining the colours. */
+.kom-status {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--kom-space-3);
+  padding: var(--kom-space-2) var(--kom-space-4);
+  border: 1px solid var(--kom-status-border);
+  border-radius: var(--kom-radius-pill);
+  background: var(--kom-status-fill);
+  color: var(--kom-status-text);
+  font-size: var(--kom-text-xs);
+  font-weight: var(--kom-weight-bold);
+  line-height: var(--kom-leading-tight);
+  white-space: nowrap;
+}
+.kom-status__dot { width: 8px; height: 8px; border-radius: 50%; background: currentColor; flex: none; }
+.kom-status--block { display: flex; width: 100%; border-radius: var(--kom-radius-md); white-space: normal; }
+
+.kom-status--pending { --kom-status-fill: var(--kom-state-pending-fill); --kom-status-border: var(--kom-state-pending-border); --kom-status-text: var(--kom-state-pending-text); }
+.kom-status--uncertain { --kom-status-fill: var(--kom-state-uncertain-fill); --kom-status-border: var(--kom-state-uncertain-border); --kom-status-text: var(--kom-state-uncertain-text); }
+.kom-status--rejected { --kom-status-fill: var(--kom-state-rejected-fill); --kom-status-border: var(--kom-state-rejected-border); --kom-status-text: var(--kom-state-rejected-text); }
+.kom-status--frozen { --kom-status-fill: var(--kom-state-frozen-fill); --kom-status-border: var(--kom-state-frozen-border); --kom-status-text: var(--kom-state-frozen-text); }
+.kom-status--protocol-blocked { --kom-status-fill: var(--kom-state-protocol-blocked-fill); --kom-status-border: var(--kom-state-protocol-blocked-border); --kom-status-text: var(--kom-state-protocol-blocked-text); }
+.kom-status--success { --kom-status-fill: var(--kom-state-success-fill); --kom-status-border: var(--kom-state-success-border); --kom-status-text: var(--kom-state-success-text); }
+.kom-status--warning { --kom-status-fill: var(--kom-state-warning-fill); --kom-status-border: var(--kom-state-warning-border); --kom-status-text: var(--kom-state-warning-text); }
+.kom-status--hostile { --kom-status-fill: var(--kom-state-hostile-fill); --kom-status-border: var(--kom-state-hostile-border); --kom-status-text: var(--kom-state-hostile-text); }
+
+/* Only `pending` animates, and only because "the server has not answered yet"
+ * is the one state where stillness is indistinguishable from a hung client. */
+.kom-status--pending .kom-status__dot { animation: kom-pulse var(--kom-motion-slow) var(--kom-ease-out) infinite alternate; }
+@keyframes kom-pulse { to { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) {
+  .kom-status--pending .kom-status__dot { animation: none; }
+  .kom-btn { transition: none; }
+}
+
+/* ── ICON & TYPOGRAPHY ─────────────────────────────────────────────────────
+ * Icons inherit colour so one glyph serves every semantic state. */
+.kom-icon { width: var(--kom-icon-md); height: var(--kom-icon-md); flex: none; }
+.kom-icon--sm { width: var(--kom-icon-sm); height: var(--kom-icon-sm); }
+/* Resource counters and countdowns retick every second; proportional digits
+ * make the whole row shuffle sideways as they do. */
+.kom-num { font-variant-numeric: tabular-nums; }
+.kom-meta { color: var(--kom-text-hint); font-size: var(--kom-text-xs); line-height: var(--kom-leading-normal); }
