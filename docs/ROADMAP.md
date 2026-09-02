@@ -8,7 +8,7 @@ Kingdoms of Meridian — Tiến trình và Roadmap
 
 Đã xác nhận typecheck, build, unit/regression, PostgreSQL restart/multi-instance integration và Playwright đều pass. Từ 7C suite Playwright là Chromium desktop (project `mobile` đã bỏ; `password-auth` gated `E2E_PROD_SMOKE=1`) — xem mục “Test matrix” của Phase 7C. Auth/session PostgreSQL, frozen moderation, world-event NPC, alliance vote và season archive đã có acceptance coverage.
 
-Roadmap này **chưa có section cho Phase 7D**, dù 7D đã thêm gate `verify:web-beta` (`npm audit --audit-level=high` + `test:prod-smoke`) và `drill:web-beta`. Hai việc còn treo cần owner quyết: (1) thêm section 7D với goal/checklist/tiêu chí đóng, (2) `verify:web-beta` + `drill:web-beta` có vào `.github/workflows/ci.yml` hay cố ý giữ là gate chạy tay vì cần Docker.
+Roadmap này có section Phase 7D bên dưới (viết sau khi đọc lại code, vì `f6085a4` không sửa roadmap). `verify:web-beta` (`npm audit --audit-level=high` + `test:prod-smoke`) và `drill:web-beta` đã được nối vào `.github/workflows/ci.yml`: `npm audit` thành gate 10 của job `verify`, còn hai việc cần Docker tách ra hai job riêng (`prod-smoke`, `recovery-drill`). Hai job đó **chưa quan sát được xanh** — máy contributor không có Docker.
 
 ### Đã hoàn thành
 
@@ -142,7 +142,7 @@ Sau mỗi milestone phải chạy verification và cập nhật docs/GAME-DESIGN
 - [X] Load-test harness k6: 100 WS 15 phút, 10 cmd/s, reconnect burst, duplicate commandId; seed/verify CLI chỉ nhận DB hậu tố `_loadtest`.
 - [ ] Chạy full load test 15 phút và lưu report trước beta.
 - [X] Ban/unban baseline, atomic audit/session revoke, frozen entities và action guards; abuse detection nâng cao còn deferred.
-- [X] CI thành 9 gates: `npm ci` → migrate fresh → idempotency+checksum → typecheck/build → PostgreSQL integration → unit/regression → Playwright Chromium desktop (7C) → `check:bundle` → `git diff --check`.
+- [X] CI thành 10 gates: `npm ci` → migrate fresh → idempotency+checksum → typecheck/build → PostgreSQL integration → unit/regression → Playwright Chromium desktop (7C) → `check:bundle` → `git diff --check` → `npm audit --audit-level=high`. Hai việc cần Docker (`test:prod-smoke`, `drill:web-beta`) là job riêng — xem Phase 7D.
 - [X] Restore drill log trong operations runbook (trước beta). — chạy 2026-09-02 qua `drill:web-beta`: 3/3 pass, RPO 0 ms, RTO 5795 ms; kết quả ở mục "Kết quả drill" của `docs/OPERATIONS.md`, báo cáo đầy đủ ở `infra/backup/drill-report.md`. Caveat đã ghi trong runbook: drill dùng `docker compose exec postgres pg_dump`, nên `infra/backup/backup.sh` / `restore.sh` vẫn chưa được kiểm chứng.
 - [ ] Security review auth, permissions, input và secrets.
 
@@ -206,6 +206,25 @@ Sau mỗi milestone phải chạy verification và cập nhật docs/GAME-DESIGN
 - [ ] Manual acceptance: onboarding walkthrough, phiên 30–60 phút, không raw ID / native prompt/confirm, không jank.
 
 **Tiêu chí hoàn thành:** toàn bộ automated gate xanh (`verify:web-alpha` = typecheck/build/test/test:postgres/test:e2e/check:bundle/diff-check) và phiên manual không có blocker.
+
+## Phase 7D — Production/Beta hardening
+
+**Mục tiêu:** đưa stack production thật vào vòng kiểm chứng tự động — dựng đúng compose prod để test, chứng minh khôi phục được sau sự cố, và bịt các lỗ hổng vận hành mà alpha local không nhìn thấy. 7D **không** thêm gameplay.
+
+Landing ở `f6085a4` (2026-09-02). Roadmap không được commit đó sửa, nên section này được viết sau khi đọc lại code.
+
+- [X] Gate `verify:web-beta` = `verify:web-alpha` + `npm audit --audit-level=high` + `test:prod-smoke`.
+- [X] `scripts/smoke-prod.mjs`: dựng `infra/docker-compose.prod.yml` + `docker-compose.smoke.yml` (Caddy TLS + PostgreSQL + Redis + game + outbox), chạy `e2e/password-auth.spec.ts` (register → build → reload giữ session) và assert `/health/ready`, `/metrics`, `/api/dev/*` trả 404 từ ngoài.
+- [X] `scripts/drill-web-beta.mjs`: 3 drill tự động — Redis kill, game kill (outbox sống độc lập), backup → drop → restore có sentinel row; báo cáo ghi `infra/backup/drill-report.md`.
+- [X] Security: Pino `redact` cho authorization/cookie/token; refresh cookie `Path=/api/auth`; origin check chặn cả request **thiếu** `Origin`; Caddy thêm CSP/HSTS/Referrer-Policy/Permissions-Policy/nosniff/X-Frame-Options.
+- [X] Rate limiter **fail-closed**: Redis không dùng được ở production thì throw `DEPENDENCY_UNAVAILABLE` → HTTP 503, không cho request đi qua.
+- [X] Metrics `http_requests_total`, `http_auth_failures_total`, `kingdom_websocket_auth_failures_total` + alert `KingdomsAuthFailures` trong `infra/alerts.yml`.
+- [X] Broadcast coalesce: `requestBroadcast()` bật cờ, tick gửi một snapshot — thay cho fan-out full snapshot mỗi command.
+- [X] `verify:web-beta` và `drill:web-beta` vào `.github/workflows/ci.yml`: `npm audit` là gate 10 của job `verify`; `test:prod-smoke` và `drill:web-beta` là hai job riêng vì cần Docker — `prod-smoke` chạy trên `main`/`workflow_dispatch`/schedule, `recovery-drill` chạy `workflow_dispatch` + cron hằng tháng và upload `drill-report.md` làm artifact. **Chưa từng chạy xanh trên runner** — hai job này chưa quan sát được ở máy contributor (không có Docker).
+- [ ] `infra/backup/backup.sh` và `restore.sh` chưa được kiểm chứng lần nào: drill dùng `docker compose exec postgres pg_dump` chứ không gọi hai script đã commit (custom format, retention 7 daily + 4 weekly, checksum vào `backup.log`, guard `BACKUP_ALLOW_LOCAL`). Drill kỳ sau (2026-10-02) nên đi qua đúng hai script đó.
+- [ ] Rate-limit bucket dùng chung — **đã sửa sau 7D**, xem `feat/rate-limit-buckets`: 7D sửa hành vi `rate-limit.ts` nhưng không sửa key, nên mọi command vẫn đếm chung `write:<playerId>`.
+
+**Tiêu chí hoàn thành:** `npm run verify:web-beta` xanh trên một runner có Docker; drill hằng tháng chạy và kết quả (RPO/RTO) vào `docs/OPERATIONS.md`; không route vận hành nào (`/metrics`, `/health/ready`, `/api/dev/*`) lộ ra ngoài Caddy.
 
 ## Phase 8 — Đa nền tảng và phát hành
 
