@@ -1,12 +1,14 @@
 Kingdoms of Meridian — Tiến trình và Roadmap
 
-> Cập nhật lần cuối: 2026-09-01
+> Cập nhật lần cuối: 2026-09-02
 
 ## Trạng thái hiện tại
 
-**Phase 5, Phase 6, Phase 7A và Phase 7B (Web Playable Alpha, đóng ngày 2026-09-01): hoàn thành local + PostgreSQL integration + browser E2E gate. Đang chạy Phase 7C — Web Closed Alpha (desktop polish), chờ phiên manual acceptance cuối.**
+**Phase 5, Phase 6, Phase 7A và Phase 7B (Web Playable Alpha, đóng ngày 2026-09-01): hoàn thành local + PostgreSQL integration + browser E2E gate. Phase 7C: toàn bộ mục automated đã xanh, còn đúng một mục manual acceptance (mục cuối của Phase 7C bên dưới). Phase 7D — production/beta hardening — đã landing ở `f6085a4` (2026-09-02).**
 
-Đã xác nhận typecheck, build, unit/regression, PostgreSQL restart/multi-instance integration và Playwright desktop/mobile đều pass. Auth/session PostgreSQL, frozen moderation, world-event NPC, alliance vote và season archive đã có acceptance coverage.
+Đã xác nhận typecheck, build, unit/regression, PostgreSQL restart/multi-instance integration và Playwright đều pass. Từ 7C suite Playwright là Chromium desktop (project `mobile` đã bỏ; `password-auth` gated `E2E_PROD_SMOKE=1`) — xem mục “Test matrix” của Phase 7C. Auth/session PostgreSQL, frozen moderation, world-event NPC, alliance vote và season archive đã có acceptance coverage.
+
+Roadmap này **chưa có section cho Phase 7D**, dù 7D đã thêm gate `verify:web-beta` (`npm audit --audit-level=high` + `test:prod-smoke`) và `drill:web-beta`. Hai việc còn treo cần owner quyết: (1) thêm section 7D với goal/checklist/tiêu chí đóng, (2) `verify:web-beta` + `drill:web-beta` có vào `.github/workflows/ci.yml` hay cố ý giữ là gate chạy tay vì cần Docker.
 
 ### Đã hoàn thành
 
@@ -141,7 +143,7 @@ Sau mỗi milestone phải chạy verification và cập nhật docs/GAME-DESIGN
 - [ ] Chạy full load test 15 phút và lưu report trước beta.
 - [X] Ban/unban baseline, atomic audit/session revoke, frozen entities và action guards; abuse detection nâng cao còn deferred.
 - [X] CI thành 9 gates: `npm ci` → migrate fresh → idempotency+checksum → typecheck/build → PostgreSQL integration → unit/regression → Playwright Chromium desktop (7C) → `check:bundle` → `git diff --check`.
-- [ ] Restore drill log trong operations runbook (trước beta).
+- [X] Restore drill log trong operations runbook (trước beta). — chạy 2026-09-02 qua `drill:web-beta`: 3/3 pass, RPO 0 ms, RTO 5795 ms; kết quả ở mục "Kết quả drill" của `docs/OPERATIONS.md`, báo cáo đầy đủ ở `infra/backup/drill-report.md`. Caveat đã ghi trong runbook: drill dùng `docker compose exec postgres pg_dump`, nên `infra/backup/backup.sh` / `restore.sh` vẫn chưa được kiểm chứng.
 - [ ] Security review auth, permissions, input và secrets.
 
 **Tiêu chí hoàn thành:** có SLO, load profile, alert và recovery khi worker/gateway restart.
@@ -190,7 +192,7 @@ Sau mỗi milestone phải chạy verification và cập nhật docs/GAME-DESIGN
 
 **Mục tiêu:** bản alpha web khép kín trên desktop: shell HUD kiểu game, command pipeline chống mất lệnh, validation trước khi gửi, map Pixi theo lớp, protocol versioning và battle history phân trang.
 
-- [X] Desktop shell: top bar 56px (tài nguyên/score/đếm ngược mùa/connection pill), nav rail 64px, map trung tâm, context panel 360px, action bar 72px; dưới 1024px hiện thông báo “viewport desktop chưa được hỗ trợ”.
+- [X] Desktop shell: top bar 56px (tài nguyên/score/đếm ngược mùa/connection pill), nav rail 64px, map trung tâm, context panel 360px, action bar 72px; dưới 1024px hiện thông báo “viewport desktop chưa được hỗ trợ”. — **superseded**: shell này (và cả thông báo “viewport desktop chưa được hỗ trợ”) không còn trong code. Hiện tại là Situation Room: `apps/client/src/layout.ts` có 3 band (`compact` <1024px, `medium` ≥1024px, `wide` ≥1440px), map luôn mounted và giữ một track chính, hai column (kingdom/activity) collapse được — ở band `compact` chúng thành flyout loại trừ nhau thay vì chặn viewport.
 - [X] GameProvider: selection/interaction/active panel/connection/pending commands; `runCommand` với commandId client-mint, dedupe trùng lệnh đang bay dùng chung Promise/kết quả thật, timeout 10s → “uncertain” + nút “Thử lại” tái dùng cùng id và chặn double-retry, pending lưu sessionStorage theo player, logout xoá.
 - [X] Toasts tự đóng sau 4s và không chặn pointer (không đè lên UI để click).
 - [X] Validation trước khi gửi: logistics (cargo ≤ sức chứa depot, cargo ≤ kho, harvest ≤ còn lại, route/depot hợp lệ) và action bar (ownership, frozen, strength, tile, unit type, merge ≤ 500).
@@ -200,7 +202,7 @@ Sau mỗi milestone phải chạy verification và cập nhật docs/GAME-DESIGN
 - [X] `GET /api/battles` keyset pagination (limit mặc định 20, clamp 1–50, cursor base64url `{createdAt,id}` với ISO timestamp + UUID strict, chỉ thấy trận mình tham gia); migration 014 partial index cho attacker/defender.
 - [X] Phá hiệp ước bằng modal React có focus trap + Escape + mô tả “−150 danh tiếng”, thay cho `confirm()` native.
 - [X] Drawer nâng cao (alliance/espionage/events/archive/diplomacy) lazy-load khi mở lần đầu.
-- [X] Test matrix: client unit 35, server unit 102, PostgreSQL (014 fresh/rerun/checksum + `/api/battles` dùng index + phân trang + cursor invalid + sống sót restart; chỉ bật integration bằng `RUN_POSTGRES_INTEGRATION` trong runner để gate chạy lặp an toàn), Playwright Chromium-only 16 scenario = 11 gốc + 5 regression 7C (double-submit dedupe không gửi HTTP thứ hai và nhận cùng kết quả thật, send fail → uncertain + “Thử lại” tái dùng cùng commandId/chặn double-retry, reload khôi phục pending uncertain, battle report chỉ tới participant, treaty modal focus trap/Escape/−150) + reset ở setup project và trước mỗi Chromium scenario (world riêng để khỏi chạm trần ~16 ô đặt thành phố trong một run, battle E2E dùng target dev có xác thực và vị trí deterministic để không phụ thuộc mob tự di chuyển/hết hạn, config env-driven `PLAYWRIGHT_API`/`PLAYWRIGHT_WEB`, webServer bật máy chủ riêng trên port do `PLAYWRIGHT_API` chỉ định), `check:bundle` ≤ 500 KiB, CI gate 8 chuyên cho bundle.
+- [X] Test matrix: client unit 76, server unit 117 (102 pass + 15 skip vì gate PostgreSQL), PostgreSQL (014 fresh/rerun/checksum + `/api/battles` dùng index + phân trang + cursor invalid + sống sót restart; chỉ bật integration bằng `RUN_POSTGRES_INTEGRATION` trong runner để gate chạy lặp an toàn), Playwright 18 test / 10 file = 10 gốc + 1 `[reset-world]` setup + 5 regression 7C + 2 layout Situation Room; `password-auth` là project riêng, chỉ chạy khi `E2E_PROD_SMOKE=1`. Năm regression 7C (double-submit dedupe không gửi HTTP thứ hai và nhận cùng kết quả thật, send fail → uncertain + “Thử lại” tái dùng cùng commandId/chặn double-retry, reload khôi phục pending uncertain, battle report chỉ tới participant, treaty modal focus trap/Escape/−150) + reset ở setup project và trước mỗi Chromium scenario (world riêng để khỏi chạm trần ~16 ô đặt thành phố trong một run, battle E2E dùng target dev có xác thực và vị trí deterministic để không phụ thuộc mob tự di chuyển/hết hạn, config env-driven `PLAYWRIGHT_API`/`PLAYWRIGHT_WEB`, webServer bật máy chủ riêng trên port do `PLAYWRIGHT_API` chỉ định), `check:bundle` ≤ 500 KiB, CI gate 8 chuyên cho bundle.
 - [ ] Manual acceptance: onboarding walkthrough, phiên 30–60 phút, không raw ID / native prompt/confirm, không jank.
 
 **Tiêu chí hoàn thành:** toàn bộ automated gate xanh (`verify:web-alpha` = typecheck/build/test/test:postgres/test:e2e/check:bundle/diff-check) và phiên manual không có blocker.
