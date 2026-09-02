@@ -21,6 +21,10 @@
     "test:loadtest:verify": "npm run test:loadtest:verify -w @kingdoms/server",
     "check:bundle": "node scripts/check-bundle.mjs",
     "verify:web-alpha": "npm run typecheck && npm run build && npm test && npm run test:postgres && npm run test:e2e && npm run check:bundle && git diff --check",
-    "dev:web": "node scripts/dev-web.mjs"
+    "verify:web-beta": "npm audit --audit-level=high && npm run typecheck && npm run build && npm test && npm run test:postgres && npm run test:e2e && npm run test:prod-smoke && npm run check:bundle && git diff --check",
+    "dev:web": "node scripts/dev-web.mjs",
+    "test:prod-smoke": "node scripts/smoke-prod.mjs",
+    "test:load:full": "k6 run e2e/loadtest/loadtest.js",
+    "drill:web-beta": "node scripts/drill-web-beta.mjs"
   }
 }

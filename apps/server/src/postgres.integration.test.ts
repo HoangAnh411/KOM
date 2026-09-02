@@ -83,7 +83,7 @@ test("a failed persist rolls back combat/onboarding claims; retry with the same 
   } finally {
     (server.store as any).persistState = originalPersist;
   }
-  assert.equal(failed.statusCode, 400, failed.body);
+  assert.equal(failed.statusCode, 500, failed.body);
   assert.equal((failed.json() as { result: string }).result, "rejected");
   assert.equal(server.store.snapshot.armies.filter(army => army.ownerPlayerId === session.player.id).length, 0, "failed attempt left no army behind");
 

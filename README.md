@@ -8,6 +8,9 @@ Toàn bộ tài liệu dự án nằm trong thư mục `docs/`; bắt đầu t�
 
 Yêu cầu Node.js 22+ (khuyên dùng 24+ cho chạy test TypeScript trực tiếp) và npm 10+.
 
+Các lệnh `npm run dev:server`, `npm run dev:client` và `npm run dev:web`
+được chạy trên máy host trong PowerShell, không chạy bên trong container Docker.
+
 ### Chế độ in-memory (nhanh, không cần database)
 
 ```powershell
@@ -30,6 +33,10 @@ npm run dev:web
 ```
 
 Password mode (`AUTH_MODE=password`) bắt buộc PostgreSQL. Chạy riêng từng phần nếu cần: `npm run dev:server` / `npm run dev:client`.
+
+Ở chế độ persisted, Docker chỉ cung cấp PostgreSQL và Redis; server/client dev vẫn
+chạy trong PowerShell để giữ watch mode và hot reload. Các biến `DATABASE_URL` và
+`REDIS_URL` phải được đặt trong chính cửa sổ PowerShell chạy server (hoặc `dev:web`).
 
 ## Kiểm thử
 

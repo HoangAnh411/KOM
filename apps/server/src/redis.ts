@@ -36,6 +36,7 @@ export async function redisPing(): Promise<boolean> {
 
 export async function redisClose(): Promise<void> {
   if (client) {
+    if (connecting) await connecting;
     // quit() waits for a QUIT ack that some servers never send; disconnect() always releases the socket
     await client.disconnect().catch(() => undefined);
     client = null;

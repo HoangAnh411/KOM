@@ -2,13 +2,37 @@
 
 ## Local quick start
 
+Không cần Docker nếu chỉ muốn phát triển nhanh bằng state in-memory. Chạy cả hai
+process trong một cửa sổ PowerShell:
+
+```powershell
+npm install
+npm run dev:web
+```
+
+Hoặc chạy riêng ở hai cửa sổ PowerShell:
+
+```powershell
+# Terminal 1
+npm run dev:server
+
+# Terminal 2
+npm run dev:client
+```
+
+Chỉ bật Docker khi cần dữ liệu persisted qua PostgreSQL/Redis. Docker chạy các
+dependency; hai npm dev process vẫn chạy trên host:
+
 ```powershell
 npm install
 docker compose -f infra/docker-compose.yml up -d
+$env:DATABASE_URL = "postgres://kingdoms:kingdoms@localhost:5432/kingdoms"
+$env:REDIS_URL = "redis://localhost:6379"
 npm run db:migrate
 ```
 
-Chạy server và client ở hai terminal:
+Sau đó chạy server/client trong cùng PowerShell đã đặt biến môi trường, hoặc đặt
+lại hai biến trên trong terminal chạy server:
 
 ```powershell
 npm run dev:server

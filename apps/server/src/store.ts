@@ -96,7 +96,7 @@ export class GameStore {
   }
   get snapshot(): GameState { return this.state; } findPlayer(id: string): Player | undefined { return this.state.players.find(player => player.id === id); } findCity(id: string): CityState | undefined { return this.state.cities.find(city => city.id === id); }
   get databasePool(): Pool | undefined { return this.pool; }
-  async close(): Promise<void> { if (this.pool) await this.pool.end(); }
+  async close(): Promise<void> { if (this.pool && !this.pool.ended) { await this.pool.end(); } }
   createRegisteredPlayer(displayName: string, factionId: FactionId): { player: Player; city: CityState } { const player: Player = { id: randomUUID(), displayName, factionId, kingdomId: this.state.kingdom.id, crossSeasonReputation: 0, status: "active" }; const placement = cityPlacement(this.state, this.logistics); const city = makeCity(player.id, `${factions[factionId].name} City`, placement.x, placement.y); this.state.players.push(player); this.state.cities.push(city); this.recalculateScores(); return { player, city }; }
   rollbackRegisteredPlayer(playerId: string): void { this.state.players = this.state.players.filter(player => player.id !== playerId); this.state.cities = this.state.cities.filter(city => city.playerId !== playerId); delete this.state.scores[playerId]; delete this.state.diplomacyThroughput[playerId]; delete this.state.militaryThroughput[playerId]; }
   isPlayerFrozen(playerId: string | null | undefined): boolean { return Boolean(playerId && this.findPlayer(playerId)?.status === "banned"); }

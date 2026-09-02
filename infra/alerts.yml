@@ -30,3 +30,8 @@ groups:
         expr: increase(outbox_dlq_transitions_total[5m]) > 0
         labels: { severity: warning }
         annotations: { summary: "An outbox event entered the dead-letter stream" }
+      - alert: KingdomsAuthFailures
+        expr: increase(http_auth_failures_total[5m]) > 50 or increase(kingdom_websocket_auth_failures_total[5m]) > 50
+        for: 1m
+        labels: { severity: warning }
+        annotations: { summary: "High rate of authentication failures" }

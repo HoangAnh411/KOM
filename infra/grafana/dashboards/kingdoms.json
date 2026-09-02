@@ -7,7 +7,9 @@
     { "type": "timeseries", "title": "Command p95 (ms)", "id": 3, "gridPos": { "h": 8, "w": 9, "x": 15, "y": 0 }, "targets": [{ "expr": "histogram_quantile(0.95, sum by (le) (rate(kingdom_command_duration_ms_bucket[5m])))", "refId": "A" }] },
     { "type": "stat", "title": "Outbox backlog", "id": 4, "gridPos": { "h": 8, "w": 6, "x": 0, "y": 8 }, "targets": [{ "expr": "outbox_backlog", "refId": "A" }] },
     { "type": "timeseries", "title": "Outbox oldest event (s)", "id": 5, "gridPos": { "h": 8, "w": 9, "x": 6, "y": 8 }, "targets": [{ "expr": "outbox_oldest_event_age_seconds", "refId": "A" }] },
-    { "type": "timeseries", "title": "Persistence errors", "id": 6, "gridPos": { "h": 8, "w": 9, "x": 15, "y": 8 }, "targets": [{ "expr": "increase(kingdom_persistence_errors_total[5m])", "refId": "A" }] }
+    { "type": "timeseries", "title": "Persistence errors", "id": 6, "gridPos": { "h": 8, "w": 9, "x": 15, "y": 8 }, "targets": [{ "expr": "increase(kingdom_persistence_errors_total[5m])", "refId": "A" }] },
+    { "type": "timeseries", "title": "HTTP Auth Failures", "id": 7, "gridPos": { "h": 8, "w": 9, "x": 0, "y": 16 }, "targets": [{ "expr": "increase(http_auth_failures_total[5m])", "refId": "A" }] },
+    { "type": "timeseries", "title": "WS Auth Failures", "id": 8, "gridPos": { "h": 8, "w": 9, "x": 9, "y": 16 }, "targets": [{ "expr": "increase(kingdom_websocket_auth_failures_total[5m])", "refId": "A" }] }
   ],
   "schemaVersion": 39,
   "tags": ["kingdoms", "closed-beta"],

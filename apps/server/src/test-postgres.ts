@@ -9,6 +9,7 @@ if (!/^[a-z0-9_]+_test$/.test(url.pathname.slice(1))) throw new Error(`test data
 process.env.TEST_DATABASE_URL = process.env.TEST_DATABASE_URL ?? baseUrl;
 process.env.DATABASE_URL = baseUrl; // migrations and the app read DATABASE_URL
 process.env.RUN_POSTGRES_INTEGRATION = "1"; // npm test stays unit-only even when TEST_DATABASE_URL exists
+process.env.REDIS_URL = ""; // disable rate limiting for integration tests
 console.log(`resetting test database ${url.host}${url.pathname}`);
 
 const admin = new Pool({ connectionString: baseUrl, max: 1 });

@@ -35,7 +35,7 @@ if (isProduction) {
   if (env.CLIENT_ORIGIN) {
     try {
       const origin = new URL(env.CLIENT_ORIGIN);
-      if (origin.protocol !== "https:" || origin.pathname !== "/" && origin.pathname !== "") violations.push("CLIENT_ORIGIN must be a bare HTTPS origin in production");
+      if ((origin.protocol !== "https:" && origin.hostname !== "localhost") || origin.pathname !== "/" && origin.pathname !== "") violations.push("CLIENT_ORIGIN must be a bare HTTPS origin in production");
     } catch {
       violations.push("CLIENT_ORIGIN is not a valid URL in production");
     }

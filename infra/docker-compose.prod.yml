@@ -21,7 +21,7 @@ services:
       context: ..
       dockerfile: infra/Dockerfile
       target: server
-    env_file: ../.env.prod
+    env_file: ${KINGDOMS_ENV_FILE:-../.env.prod}
     environment:
       DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     command: ["node", "apps/server/dist/migrate.js", "up"]
@@ -37,7 +37,7 @@ services:
       dockerfile: infra/Dockerfile
       target: server
     restart: unless-stopped
-    env_file: ../.env.prod
+    env_file: ${KINGDOMS_ENV_FILE:-../.env.prod}
     environment:
       NODE_ENV: production
       AUTH_MODE: password
@@ -68,7 +68,7 @@ services:
       dockerfile: infra/Dockerfile
       target: server
     restart: unless-stopped
-    env_file: ../.env.prod
+    env_file: ${KINGDOMS_ENV_FILE:-../.env.prod}
     environment:
       NODE_ENV: production
       AUTH_MODE: password

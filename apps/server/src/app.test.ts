@@ -156,73 +156,76 @@ test("season archive requires auth and admin close is disabled or token protecte
 
 test("GET /api/battles: participant-only history with keyset pagination (in-memory path)", async () => {
   const server = createServer();
-  const login = (displayName: string) => server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName, factionId: "meridian" } });
-  const [a, b, c] = [await login("Battle Viewer A"), await login("Battle Viewer B"), await login("Battle Viewer C")];
-  const playerA = a.json() as { token: string; player: { id: string } };
-  const playerB = b.json() as { player: { id: string } };
-  const playerC = c.json() as { player: { id: string } };
-  const bId = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
-  const report = (id: string, attackerId: string, defenderId: string, resolvedAt: string): BattleReport => ({
-    id, kingdomId: "k1", seasonId: "s1", tileX: 3, tileY: 4, terrain: "plains" as const, victor: "attacker" as const, seed: 1, resolvedAt, rounds: [],
-    attacker: { ownerType: "player", playerId: attackerId, armyId: `${id}-a`, unitType: "infantry", formation: "line", strengthBefore: 100, strengthAfter: 50, moraleBefore: 70, moraleAfter: 60, supplyBefore: 100 },
-    defender: { ownerType: "player", playerId: defenderId, armyId: `${id}-d`, unitType: "archer", formation: "line", strengthBefore: 90, strengthAfter: 30, moraleBefore: 70, moraleAfter: 55, supplyBefore: 100 },
-  });
-  // r1-r3: A fights B; r4: B vs C; r5: C attacks A; r6 is A vs B with a timestamp tie to r2 (id desc breaks it).
-  // Cursor values must be UUIDs (the API validates them), so fixtures use deterministic v4-space ids.
-  server.store.snapshot.battleReports = [
-    report(bId(1), playerA.player.id, playerB.player.id, "2026-09-01T01:00:00.000Z"),
-    report(bId(2), playerA.player.id, playerB.player.id, "2026-09-01T02:00:00.000Z"),
-    report(bId(3), playerA.player.id, playerB.player.id, "2026-09-01T03:00:00.000Z"),
-    report(bId(4), playerB.player.id, playerC.player.id, "2026-09-01T04:00:00.000Z"),
-    report(bId(5), playerC.player.id, playerA.player.id, "2026-09-01T05:00:00.000Z"),
-    report(bId(6), playerA.player.id, playerB.player.id, "2026-09-01T02:00:00.000Z"),
-  ];
-  const get = (token: string, query = "") => server.app.inject({ method: "GET", url: `/api/battles${query}`, headers: { authorization: `Bearer ${token}` } });
+  try {
+    const login = (displayName: string) => server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName, factionId: "meridian" } });
+    const [a, b, c] = [await login("Battle Viewer A"), await login("Battle Viewer B"), await login("Battle Viewer C")];
+    const playerA = a.json() as { token: string; player: { id: string } };
+    const playerB = b.json() as { player: { id: string } };
+    const playerC = c.json() as { player: { id: string } };
+    const bId = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+    const report = (id: string, attackerId: string, defenderId: string, resolvedAt: string): BattleReport => ({
+      id, kingdomId: "k1", seasonId: "s1", tileX: 3, tileY: 4, terrain: "plains" as const, victor: "attacker" as const, seed: 1, resolvedAt, rounds: [],
+      attacker: { ownerType: "player", playerId: attackerId, armyId: `${id}-a`, unitType: "infantry", formation: "line", strengthBefore: 100, strengthAfter: 50, moraleBefore: 70, moraleAfter: 60, supplyBefore: 100 },
+      defender: { ownerType: "player", playerId: defenderId, armyId: `${id}-d`, unitType: "archer", formation: "line", strengthBefore: 90, strengthAfter: 30, moraleBefore: 70, moraleAfter: 55, supplyBefore: 100 },
+    });
+    // r1-r3: A fights B; r4: B vs C; r5: C attacks A; r6 is A vs B with a timestamp tie to r2 (id desc breaks it).
+    // Cursor values must be UUIDs (the API validates them), so fixtures use deterministic v4-space ids.
+    server.store.snapshot.battleReports = [
+      report(bId(1), playerA.player.id, playerB.player.id, "2026-09-01T01:00:00.000Z"),
+      report(bId(2), playerA.player.id, playerB.player.id, "2026-09-01T02:00:00.000Z"),
+      report(bId(3), playerA.player.id, playerB.player.id, "2026-09-01T03:00:00.000Z"),
+      report(bId(4), playerB.player.id, playerC.player.id, "2026-09-01T04:00:00.000Z"),
+      report(bId(5), playerC.player.id, playerA.player.id, "2026-09-01T05:00:00.000Z"),
+      report(bId(6), playerA.player.id, playerB.player.id, "2026-09-01T02:00:00.000Z"),
+    ];
+    const get = (token: string, query = "") => server.app.inject({ method: "GET", url: `/api/battles${query}`, headers: { authorization: `Bearer ${token}` } });
 
-  assert.equal((await server.app.inject({ method: "GET", url: "/api/battles" })).statusCode, 401, "requires auth");
+    assert.equal((await server.app.inject({ method: "GET", url: "/api/battles" })).statusCode, 401, "requires auth");
 
-  const first = await get(playerA.token);
-  assert.equal(first.statusCode, 200, first.body);
-  const page1 = first.json() as { items: Array<{ id: string; resolvedAt: string }>; nextCursor?: string };
-  // A fights in r1-r3 + r6 (A vs B) and r5 (C attacks A) but not r4 (B vs C).
-  assert.deepEqual(page1.items.map(item => item.id), [bId(5), bId(3), bId(6), bId(2), bId(1)], "newest-first, resolvedAt desc with id desc tie-break");
-  assert.equal(page1.nextCursor, undefined, "default limit 20 covers all 5");
+    const first = await get(playerA.token);
+    assert.equal(first.statusCode, 200, first.body);
+    const page1 = first.json() as { items: Array<{ id: string; resolvedAt: string }>; nextCursor?: string };
+    // A fights in r1-r3 + r6 (A vs B) and r5 (C attacks A) but not r4 (B vs C).
+    assert.deepEqual(page1.items.map(item => item.id), [bId(5), bId(3), bId(6), bId(2), bId(1)], "newest-first, resolvedAt desc with id desc tie-break");
+    assert.equal(page1.nextCursor, undefined, "default limit 20 covers all 5");
 
-  const limited = (await get(playerA.token, "?limit=2")).json() as { items: Array<{ id: string }>; nextCursor: string };
-  assert.deepEqual(limited.items.map(item => item.id), [bId(5), bId(3)]);
-  const second = (await get(playerA.token, `?limit=2&cursor=${encodeURIComponent(limited.nextCursor)}`)).json() as { items: Array<{ id: string }>; nextCursor: string };
-  assert.deepEqual(second.items.map(item => item.id), [bId(6), bId(2)]);
-  const third = (await get(playerA.token, `?limit=2&cursor=${encodeURIComponent(second.nextCursor)}`)).json() as { items: Array<{ id: string }>; nextCursor?: string };
-  assert.deepEqual(third.items.map(item => item.id), [bId(1)]);
-  assert.equal(third.nextCursor, undefined, "last page has no cursor");
+    const limited = (await get(playerA.token, "?limit=2")).json() as { items: Array<{ id: string }>; nextCursor: string };
+    assert.deepEqual(limited.items.map(item => item.id), [bId(5), bId(3)]);
+    const second = (await get(playerA.token, `?limit=2&cursor=${encodeURIComponent(limited.nextCursor)}`)).json() as { items: Array<{ id: string }>; nextCursor: string };
+    assert.deepEqual(second.items.map(item => item.id), [bId(6), bId(2)]);
+    const third = (await get(playerA.token, `?limit=2&cursor=${encodeURIComponent(second.nextCursor)}`)).json() as { items: Array<{ id: string }>; nextCursor?: string };
+    assert.deepEqual(third.items.map(item => item.id), [bId(1)]);
+    assert.equal(third.nextCursor, undefined, "last page has no cursor");
 
-  const pageB = (await get((b.json() as { token: string }).token)).json() as { items: Array<{ id: string }> };
-  assert.deepEqual(pageB.items.map(item => item.id), [bId(4), bId(3), bId(6), bId(2), bId(1)], "B sees B-vs-C and B-vs-A battles");
-  const pageC = (await get((c.json() as { token: string }).token)).json() as { items: Array<{ id: string }> };
-  assert.deepEqual(pageC.items.map(item => item.id), [bId(5), bId(4)], "C sees only own battles");
+    const pageB = (await get((b.json() as { token: string }).token)).json() as { items: Array<{ id: string }> };
+    assert.deepEqual(pageB.items.map(item => item.id), [bId(4), bId(3), bId(6), bId(2), bId(1)], "B sees B-vs-C and B-vs-A battles");
+    const pageC = (await get((c.json() as { token: string }).token)).json() as { items: Array<{ id: string }> };
+    assert.deepEqual(pageC.items.map(item => item.id), [bId(5), bId(4)], "C sees only own battles");
 
-  assert.equal((await get(playerA.token, "?limit=0")).statusCode, 400, "non-positive limit");
-  assert.equal((await get(playerA.token, "?limit=abc")).statusCode, 400, "non-integer limit");
-  const clamped = (await get(playerA.token, "?limit=100")).json() as { items: unknown[] };
-  assert.equal(clamped.items.length, 5, "limit clamped down, not up");
-  const badCursor = await get(playerA.token, "?cursor=not-base64");
-  assert.equal(badCursor.statusCode, 400, "malformed cursor");
-  assert.deepEqual((badCursor.json() as { code: string }).code, "INVALID_CURSOR");
-  // Cursor bodies must carry a real timestamp and a UUID: garbage values used to
-  // leak PostgreSQL errors as 500s.
-  const badDate = Buffer.from(JSON.stringify({ createdAt: "not-a-date", id: "00000000-0000-4000-8000-000000000099" })).toString("base64url");
-  const badDateResponse = await get(playerA.token, `?cursor=${encodeURIComponent(badDate)}`);
-  assert.equal(badDateResponse.statusCode, 400, "unparseable createdAt");
-  assert.deepEqual((badDateResponse.json() as { code: string }).code, "INVALID_CURSOR");
-  const badId = Buffer.from(JSON.stringify({ createdAt: "2026-08-01T00:00:00.000Z", id: "not-a-uuid" })).toString("base64url");
-  const badIdResponse = await get(playerA.token, `?cursor=${encodeURIComponent(badId)}`);
-  assert.equal(badIdResponse.statusCode, 400, "non-UUID id");
-  assert.deepEqual((badIdResponse.json() as { code: string }).code, "INVALID_CURSOR");
-  const impossibleDate = Buffer.from(JSON.stringify({ createdAt: "2020-02-30", id: "00000000-0000-4000-8000-000000000099" })).toString("base64url");
-  const impossibleDateResponse = await get(playerA.token, `?cursor=${encodeURIComponent(impossibleDate)}`);
-  assert.equal(impossibleDateResponse.statusCode, 400, "calendar-invalid timestamps must not reach PostgreSQL");
-  assert.deepEqual((impossibleDateResponse.json() as { code: string }).code, "INVALID_CURSOR");
-  const staleCursor = (await get(playerA.token, `?limit=2&cursor=${encodeURIComponent(Buffer.from(JSON.stringify({ createdAt: "2999-01-01T00:00:00.000Z", id: "00000000-0000-4000-8000-000000000099" })).toString("base64url"))}`)).json() as { items: Array<{ id: string }> };
-  assert.deepEqual(staleCursor.items.map(item => item.id), [bId(5), bId(3)], "unknown cursor restarts from the newest page (stale data tolerance)");
-  await server.app.close();
+    assert.equal((await get(playerA.token, "?limit=0")).statusCode, 400, "non-positive limit");
+    assert.equal((await get(playerA.token, "?limit=abc")).statusCode, 400, "non-integer limit");
+    const clamped = (await get(playerA.token, "?limit=100")).json() as { items: unknown[] };
+    assert.equal(clamped.items.length, 5, "limit clamped down, not up");
+    const badCursor = await get(playerA.token, "?cursor=not-base64");
+    assert.equal(badCursor.statusCode, 400, "malformed cursor");
+    assert.deepEqual((badCursor.json() as { code: string }).code, "INVALID_CURSOR");
+    // Cursor bodies must carry a real timestamp and a UUID: garbage values used to
+    // leak PostgreSQL errors as 500s.
+    const badDate = Buffer.from(JSON.stringify({ createdAt: "not-a-date", id: "00000000-0000-4000-8000-000000000099" })).toString("base64url");
+    const badDateResponse = await get(playerA.token, `?cursor=${encodeURIComponent(badDate)}`);
+    assert.equal(badDateResponse.statusCode, 400, "unparseable createdAt");
+    assert.deepEqual((badDateResponse.json() as { code: string }).code, "INVALID_CURSOR");
+    const badId = Buffer.from(JSON.stringify({ createdAt: "2026-08-01T00:00:00.000Z", id: "not-a-uuid" })).toString("base64url");
+    const badIdResponse = await get(playerA.token, `?cursor=${encodeURIComponent(badId)}`);
+    assert.equal(badIdResponse.statusCode, 400, "non-UUID id");
+    assert.deepEqual((badIdResponse.json() as { code: string }).code, "INVALID_CURSOR");
+    const impossibleDate = Buffer.from(JSON.stringify({ createdAt: "2020-02-30", id: "00000000-0000-4000-8000-000000000099" })).toString("base64url");
+    const impossibleDateResponse = await get(playerA.token, `?cursor=${encodeURIComponent(impossibleDate)}`);
+    assert.equal(impossibleDateResponse.statusCode, 400, "calendar-invalid timestamps must not reach PostgreSQL");
+    assert.deepEqual((impossibleDateResponse.json() as { code: string }).code, "INVALID_CURSOR");
+    const staleCursor = (await get(playerA.token, `?limit=2&cursor=${encodeURIComponent(Buffer.from(JSON.stringify({ createdAt: "2999-01-01T00:00:00.000Z", id: "00000000-0000-4000-8000-000000000099" })).toString("base64url"))}`)).json() as { items: Array<{ id: string }> };
+    assert.deepEqual(staleCursor.items.map(item => item.id), [bId(5), bId(3)], "unknown cursor restarts from the newest page (stale data tolerance)");
+  } finally {
+    await server.app.close();
+  }
 });

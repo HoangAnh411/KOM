@@ -44,6 +44,7 @@ export default defineConfig({
     // projects run, so reset.spec never re-runs inside them.
     { name: "reset-world", testMatch: /e2e\/reset\.spec\.ts/ },
     // Phase 7C ships desktop-first; mobile viewport specs land in Phase 8.
-    { name: "chromium", testIgnore: /e2e\/reset\.spec\.ts/, use: { ...devices["Desktop Chrome"] }, dependencies: ["reset-world"] }
+    { name: "chromium", testIgnore: /e2e\/(reset|password-auth)\.spec\.ts/, use: { ...devices["Desktop Chrome"] }, dependencies: ["reset-world"] },
+    ...(process.env.E2E_PROD_SMOKE === "1" ? [{ name: "password-auth", testMatch: /e2e\/password-auth\.spec\.ts/, use: { ...devices["Desktop Chrome"], ignoreHTTPSErrors: true } }] : [])
   ]
 });
