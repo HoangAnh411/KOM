@@ -85,6 +85,55 @@ test("early-rejected commands (unauthenticated, banned, rate-limited) conform to
   await server.app.close();
 });
 
+test("command rate-limit buckets are independent per command group", async () => {
+  const server = createServer();
+  const login = await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Bucket Player", factionId: "meridian" } });
+  const session = login.json() as { token: string; player: { id: string }; snapshot: { cities: Array<{ id: string; playerId: string }> } };
+  const cityId = session.snapshot.cities.find(city => city.playerId === session.player.id)!.id;
+  const headers = { authorization: `Bearer ${session.token}` };
+  const post = (url: string, payload: object) => server.app.inject({ method: "POST", url, headers, payload });
+  // Payloads below are deliberately incomplete: the limiter runs before schema parsing, so a 400
+  // still consumes the bucket. Only the 429/non-429 boundary is under test here.
+  for (let index = 1; index <= 5; index++) {
+    assert.notEqual((await post("/api/commands/spy/launch", { commandId: `bucket-spy-${index}` })).statusCode, 429, `spy ${index} stays inside the spy bucket`);
+  }
+  assert.equal((await post("/api/commands/spy/launch", { commandId: "bucket-spy-6" })).statusCode, 429);
+  // The spy bucket is spent; a build is a different bucket and must still be accepted.
+  const build = await post("/api/commands/build", { commandId: "bucket-build-1", cityId, buildingId: "warehouse", queueType: "build" });
+  assert.equal(build.statusCode, 200, "an exhausted spy bucket must not reject a build command");
+  // attack and formation share the combat bucket (10/min), so the eleventh combat command is the
+  // first to be rejected — and it must not touch what is left of the write bucket.
+  for (let index = 1; index <= 10; index++) {
+    const url = index % 2 === 0 ? "/api/commands/attack" : "/api/commands/formation";
+    assert.notEqual((await post(url, { commandId: `bucket-combat-${index}` })).statusCode, 429, `combat ${index} stays inside the combat bucket`);
+  }
+  assert.equal((await post("/api/commands/attack", { commandId: "bucket-combat-11" })).statusCode, 429);
+  assert.notEqual((await post("/api/commands/harvest", { commandId: "bucket-write-2" })).statusCode, 429, "an exhausted combat bucket must not reject a logistics command");
+  await server.app.close();
+});
+
+test("authenticated read routes share one read bucket and stay open for a normal client", async () => {
+  const server = createServer();
+  const login = await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Read Bucket Player", factionId: "bastion" } });
+  const session = login.json() as { token: string };
+  const headers = { authorization: `Bearer ${session.token}` };
+  const get = (url: string) => server.app.inject({ method: "GET", url, headers });
+  // 60/min across the three reads: a bootstrap + battle-history + archive round trip on every
+  // reconnect stays far inside it, so only a scripted flood is refused.
+  for (let index = 1; index <= 20; index++) {
+    assert.equal((await get("/api/bootstrap")).statusCode, 200, `bootstrap ${index} stays inside the read bucket`);
+    assert.equal((await get("/api/battles")).statusCode, 200, `battles ${index} stays inside the read bucket`);
+    assert.equal((await get("/api/season-history")).statusCode, 200, `archive ${index} stays inside the read bucket`);
+  }
+  const limited = await get("/api/bootstrap");
+  assert.equal(limited.statusCode, 429);
+  assert.deepEqual(limited.json(), { code: "RATE_LIMITED" });
+  // The read bucket is separate from the write bucket, so reads never lock a player out of play.
+  const other = await server.app.inject({ method: "GET", url: "/api/bootstrap" });
+  assert.equal(other.statusCode, 401, "an unauthenticated read is still rejected before the limiter");
+  await server.app.close();
+});
+
 test("logistics REST flow supports retry-safe commands", async () => {
   const server = createServer();
   const login = await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Logistics Player", factionId: "meridian" } });
