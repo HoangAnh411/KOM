@@ -34,7 +34,10 @@ Ba bước. Không mở nhóm C/D/E/F/G lúc này.
 |---|---|---|---|
 | **0** | **Z.1** — đưa 43 file redesign Situation Room vào git | Đó là công việc đã hoàn thành nhưng chỉ tồn tại trong working tree, không xuất hiện ở roadmap hay plan cũ. Rủi ro lớn hơn mọi mục roadmap còn lại | **Xong** — nhánh `feat/situation-room`, 4 commit |
 | **1** | **Z.2 → Z.4** — làm tài liệu khớp code | Doc-only, không chạm file nóng, nên không cần chờ owner; và đóng được một checkbox roadmap thật (`[144]` — drill đã chạy, chỉ thiếu ghi vào runbook) | **Xong** — nhánh `docs/truth-pass`, 3 commit |
-| **2** | **P0.1** — tách rate-limit bucket | Task server duy nhất nên làm ngay: 7D vừa chạm `rate-limit.ts` nên khả năng xung đột thấp nhất, và limiter fail-closed làm 429-sai-bucket dễ nổ hơn trước. Mở đường cho B.1 `[145]` | **Chưa bắt đầu** — ⚠️ chạm `app.ts`, ping owner trước |
+| **2** | **P0.1** — tách rate-limit bucket | Task server duy nhất nên làm ngay: 7D vừa chạm `rate-limit.ts` nên khả năng xung đột thấp nhất, và limiter fail-closed làm 429-sai-bucket dễ nổ hơn trước. Mở đường cho B.1 `[145]` | **Xong** — nhánh `feat/rate-limit-buckets`, `d1212b4` |
+| **3** | Mở rộng theo yêu cầu owner ("làm hết tất cả"): **N.1**, **N.2**, nửa tự động của **A.1**, **E.3-pre**, ba việc dọn nhỏ | Đều là việc đã có đủ dữ kiện để làm đúng, không cần quyết định thiết kế mới. Những mục còn lại bị chặn bởi Docker/`k6`/quyết định gameplay thì **không** làm dở dang | **Xong** — cùng nhánh, `acf454a` `10c153d` `afa072b` `4817d1a` |
+
+Còn chặn thật, đã báo thay vì làm dở: **P0.4** (sức chứa thế giới — quyết định gameplay, OQ #2), **P0.5 + B.3** `[141]` (không `k6`), **B.2b** + hai job CI mới (không Docker), **A.1** phần phiên tay 30–60 phút (người phải chạy), nhóm **D** (owner chốt hướng persistence), phần lớn **Phase 8** và **G.2–G.5** (bundle ID, signing, license).
 
 Lý do **không** đảo Bước 1 lên trước Bước 0: mọi verification của Bước 1 (số test, band layout) đọc từ code trong working tree; nếu tree mất thì tài liệu vừa viết cũng sai theo.
 
@@ -149,25 +152,25 @@ F.4 [230] audit process (độc lập)
 
 ## Nhóm P0 — Prerequisite (không có trong roadmap, chặn mục 141)
 
-### P0.1 — Tách rate-limit bucket theo nhóm command — **Bước 2, làm tiếp theo**
+### P0.1 — Tách rate-limit bucket theo nhóm command ✅ `d1212b4`
 
 `app.ts:98` dùng chung key `write:${playerId}` cho mọi command nhưng caller truyền limit khác nhau: spy 5, combat 10, default 20. Counter dùng chung nên sau 6 lệnh build, lệnh spy kế tiếp bị 429 vì 7 > 5. `attack` không truyền limit → chạy ở 20/phút trong khi `set-formation` ở 10, ngược logic. 7D sửa *hành vi* `rate-limit.ts` (fail-closed) nhưng **không** sửa key, nên 429 sai bucket giờ càng dễ nổ ra ngoài. `docs/API.md` sau Z.4 đã ghi đúng hiện trạng "dùng chung counter" và trỏ tới task này là bản sửa.
 
-**Thiết kế tối thiểu:** thêm tham số bucket cho helper `command()` (`"write" | "combat" | "spy"`, default `"write"`), key thành `${bucket}:${playerId}`; đưa `attack` sang bucket combat. Giữ nguyên HTTP 429 + code `RATE_LIMITED` để contract test trong `app.test.ts` không đổi.
+**Đã làm khác thiết kế ban đầu, và vì sao:** thay vì thêm tham số bucket cho `command()` — tức vẫn để call site khai báo hạn mức, đúng cái đã sinh ra bug — bảng `rateBuckets` (write 20 / combat 10 / spy 5 / read 60) và `commandBuckets` khai báo **tập trung** trong `app.ts`, còn tham số `rlLimit` bị bỏ hẳn ở 9 call site. Một limit không còn cách nào lệch khỏi counter nó tiêu. Hai việc phát sinh sửa kèm vì cùng vùng code: ba GET có auth vào bucket `read` (trả lời OQ #7), và `rateLimited()` phân biệt `RATE_LIMITED` với `DEPENDENCY_UNAVAILABLE` — trước đó Redis chết ở production làm `command()` throw **ngoài** `try` của nó, không có `setErrorHandler`, nên trả HTTP 500 trong khi `API.md` hứa 503.
 
 **Acceptance criteria:**
-- [ ] Bucket riêng cho từng nhóm: `write:`, `combat:`, `spy:` + `${playerId}`
-- [ ] `attack` nằm ở bucket combat, cùng `set-formation`
-- [ ] Tiêu hết hạn mức spy không ảnh hưởng hạn mức build và ngược lại
-- [ ] Mã lỗi và HTTP status không đổi (429 / `RATE_LIMITED`)
-- [ ] `docs/API.md` mục hạn mức cập nhật lại cho khớp code sau khi đổi (Z.4 đã ghi hiện trạng; PR này ghi trạng thái mới)
+- [X] Bucket riêng cho từng nhóm: `write:`, `combat:`, `spy:` (+ `read:`) + `${playerId}`
+- [X] `attack` nằm ở bucket combat, cùng `set-formation`
+- [X] Tiêu hết hạn mức spy không ảnh hưởng hạn mức build và ngược lại
+- [X] Mã lỗi và HTTP status không đổi cho trường hợp quá hạn mức (429 / `RATE_LIMITED`); 503 chỉ xuất hiện khi dependency chết
+- [X] `docs/API.md` mục hạn mức ghi trạng thái mới, có nguyên tắc "một bucket = một hạn mức"
 
 **Verification:**
-- [ ] `npm test -w @kingdoms/server` — test mới trong `rate-limit.test.ts` xen kẽ spy/build khẳng định bucket không tràn sang nhau; contract 429 sẵn có trong `app.test.ts` vẫn xanh; 102 pass giữ nguyên
-- [ ] `npm run typecheck`; các gate còn lại báo riêng (`test:postgres` không chạy được ở máy này)
+- [X] `npm test -w @kingdoms/server` — 121 test: 106 pass, 0 fail, 15 skip (postgres-gated). Test mới: bucket độc lập trong `rate-limit.test.ts`; trong `app.test.ts` spy cạn không chặn build, read thứ 61 trả 429, read không auth vẫn 401
+- [X] `npm run typecheck` sạch; `test:postgres` không chạy được ở máy này (báo riêng, không gộp vào `verify:web-alpha`)
 
-**Dependencies:** None (nhưng ⚠️ chạm `app.ts` → ping owner trước) · **Scope:** S
-**Files:** `apps/server/src/app.ts`, `apps/server/src/rate-limit.test.ts`, `docs/API.md`
+**Dependencies:** None (⚠️ chạm `app.ts`; owner đã cho phép mở phạm vi) · **Scope:** S
+**Files:** `apps/server/src/app.ts`, `apps/server/src/rate-limit.test.ts`, `apps/server/src/app.test.ts`, `docs/API.md`
 
 ### P0.2 — Bỏ full-table reload của event ledger khỏi command path
 
@@ -251,16 +254,16 @@ Scenario `commands` trong `e2e/loadtest/loadtest.js` chạy `constant-arrival-ra
 Owner đang ở 7D nên **rất có thể mục này thuộc phần owner tự chạy** — xác nhận trước (Open Question #1). Phần contributor làm được: biến dòng 204 thành checklist chạy được, và tự động hoá phần kiểm tra được.
 
 **Acceptance criteria:**
-- [ ] `docs/ACCEPTANCE-7C.md`: walkthrough 8 bước onboarding (lấy từ `onboardingSteps` trong `packages/shared`), kịch bản phiên 30–60 phút, bảng tick cho 3 tiêu chí ở dòng 204 — không lộ raw ID, không dùng native `prompt()`/`confirm()`, không jank
-- [ ] Phần tự động: assert không còn `prompt(` / `confirm(` trong `apps/client/src` (7C đã thay bằng form + modal, cần test chốt lại để không tái phát)
-- [ ] Kết quả phiên ghi lại: ngày, người chạy, blocker. Sạch thì tick dòng 204
+- [X] `docs/ACCEPTANCE-7C.md`: walkthrough 8 bước onboarding (lấy từ `onboardingSteps` trong `packages/shared`), kịch bản phiên 30–60 phút, bảng tick cho 3 tiêu chí ở dòng 204 — không lộ raw ID, không dùng native `prompt()`/`confirm()`, không jank. Cố ý **loại** những gì test tự động đã phủ, để phiên tay chỉ đi phần máy không đo được
+- [X] Phần tự động: `apps/client/src/no-native-dialogs.test.ts` quét toàn bộ `apps/client/src`, bỏ comment trước khi quét (comment giải thích vì sao `confirm()` không còn không được làm đỏ test) và có test tự kiểm regex để guard không im lặng chết
+- [ ] Kết quả phiên ghi lại: ngày, người chạy, blocker. Sạch thì tick dòng 204 — **người phải chạy**, không tự tick
 
 **Verification:**
-- [ ] `npm run verify:web-alpha` xanh trước phiên
-- [ ] `npm run dev:web` rồi chạy hết checklist
+- [X] `npm test -w @kingdoms/client` — 78/78, gồm 2 test mới của guard
+- [ ] `npm run dev:web` rồi chạy hết checklist (owner)
 
 **Dependencies:** None · **Scope:** S
-**Files:** `docs/ACCEPTANCE-7C.md` (mới), `apps/client/src/*.test.ts`, `docs/ROADMAP.md`
+**Files:** `docs/ACCEPTANCE-7C.md` (mới ✅), `apps/client/src/no-native-dialogs.test.ts` (mới ✅), `docs/ROADMAP.md`
 
 ## Nhóm B — Pre-beta Phase 7A
 
@@ -436,13 +439,14 @@ Làm trước trong Phase 8 vì gate `check:bundle` (500 KiB/chunk, manifest-bas
 
 **Verify:** build + devtools Application panel; test SW registration · **Deps:** E.1 · **Scope:** M
 
-### E.3-pre — Kiểm band `compact` trong browser (phần rẻ nhất của E.3, làm được ngay)
+### E.3-pre — Kiểm band `compact` trong browser (phần rẻ nhất của E.3) ✅ `afa072b`
 Situation Room (Z.1) **đã có** band `compact` <1024px: `layout.ts` biến hai column thành flyout và `toggleSurface` cho chúng loại trừ nhau, thay vì chặn viewport như rào 7C. Rào "viewport desktop chưa được hỗ trợ" **không còn trong `apps/client/src`**. Nhưng `e2e/situation-room.spec.ts` chỉ đi qua 1920/1440/1280/1024, nên band `compact` **chưa từng được chạy trong browser lần nào**.
-- [ ] Thêm một size thứ năm (<1024px) vào vòng lặp viewport đã có
-- [ ] **Không** copy-paste assertion: ở `compact`, `map.x === kingdom.w` sai vì column là flyout phủ lên map chứ không phải một track của grid → cần nhánh assertion riêng cho band này
-- [ ] Khẳng định hai column loại trừ nhau: mở `activity` thì `kingdom` đóng
+- [X] Thêm một size thứ năm (<1024px) vào vòng lặp viewport đã có — 900x800
+- [X] **Không** copy-paste assertion: ở `compact`, `map.x === kingdom.w` pass vì cả hai bằng 0, tức pass vì lý do sai → band này khẳng định `map.x === 0` và `map.w === viewport` khi đóng, còn flyout thì neo lên trên map (`kingdom.x === map.x`, `activity` neo phải) mà không cắt bớt box của map
+- [X] Khẳng định hai column loại trừ nhau: mở `activity` thì `kingdom` đóng
+- [X] Phát sinh: `login()` nhận `contextVisible` vì mốc "shell đã dựng" ở compact không thể là column kingdom (nó đóng sẵn) mà phải là nút toggle trong header
 
-**Verify:** `npx playwright test e2e/situation-room.spec.ts` (port 3100/5174 nếu stack dev của owner đang chạy) · **Deps:** Z.1 · **Scope:** S
+**Verify:** ✅ `afa072b` — full suite trên port 3100/5174: **19/19 pass**. Wait cho `.map canvas` nới lên 15 s sau khi thấy nó timeout 5 s một lần ở cuối run (import động chunk pixi + WebGL context); test không hề khẳng định canvas tới nhanh · **Deps:** Z.1 · **Scope:** S
 
 ### E.3 — [215] Touch controls, safe area và viewport nhỏ
 Tách 3 PR: (a) touch pan/zoom trên map Pixi, (b) layout responsive, (c) e2e mobile project. Phần (b) đã được Situation Room làm gần hết — xem E.3-pre.
@@ -534,10 +538,13 @@ Thứ tự bắt buộc: style guide → chọn pack → credits. Chọn pack tr
 
 ## Việc dọn nhỏ (kèm vào PR liên quan, không phải mục roadmap)
 
-- [ ] `militaryScore()` bỏ im lặng `strengthDestroyed` / `strengthLost` / `defeats` — hoặc dùng, hoặc bỏ khỏi call site
-- [ ] `buildingCosts` trong `store.ts` trùng `gameRules.buildings` ở `packages/shared` (nguy cơ drift)
-- [ ] `infra/migrations/README.md` dừng ở `011`, thiếu `012`–`014`
+Ba mục đầu xong trong `4817d1a`; kết luận của mục 1 khác đề bài ban đầu nên ghi lại đây.
+
+- [X] `militaryScore()` bỏ im lặng `strengthDestroyed` / `strengthLost` / `defeats` → **không phải code chết**: `combat.ts:296-310` cộng, `combat.ts:98-99` persist, `combat.ts:66-67` đọc lại, `analytics.ts:16` phát đi, `types.ts:12` khai báo. Chúng chỉ nằm ngoài công thức điểm — nghĩa là hôm nay thua trận không mất điểm. Đó là luật chơi (`docs/GAME-DESIGN.md`), owner quyết, **không** phải bug để tự sửa; nên chỉ thu hẹp fallback ở call site về đúng 4 field công thức đọc và ghi comment nói rõ vì sao
+- [X] `buildingCosts` trong `store.ts` trùng `gameRules.buildings` → derive từ shared, thêm test đi qua từng building đối chiếu `cost` và `durationSeconds`
+- [X] `infra/migrations/README.md` dừng ở `011` → phát hiện thêm: hướng dẫn `psql -f` từng file **bỏ qua runner của 7A**, để `schema_migrations` rỗng và khiến `db:migrate:check` báo toàn bộ pending. README giờ chỉ sang `npm run db:migrate`, giữ manifest `001`–`014`
 - [ ] Suite Chromium mặc định vẫn chạy in-memory (`AUTH_MODE=dev`); `e2e/password-auth.spec.ts` của 7D chạy thật với PostgreSQL nhưng chỉ khi `E2E_PROD_SMOKE=1` và không nằm trong CI
+- [ ] **Mới:** `.map canvas` timeout 5 s một lần ở cuối full-suite run (19 test) → đã nới riêng wait đó lên 15 s. Nếu tái diễn thì nghi vấn tiếp theo là số WebGL context sống đồng thời của Chromium, không phải layout
 
 ## Risks and Mitigations
 
@@ -546,7 +553,8 @@ Thứ tự bắt buộc: style guide → chọn pack → credits. Chọn pack tr
 | 43 file redesign mất do lệnh git sai | ~~High~~ | **Đã xử:** Z.1 commit theo lớp lên nhánh riêng trước mọi việc khác; không `reset --hard`, không `clean -f`, không `stash drop` |
 | Nhánh `feat/situation-room` chưa được owner review, càng để lâu càng lệch `main` | Medium | Báo owner sớm; nhánh đứng độc lập, không chạm `store.ts`/`app.ts`/`shared` nên rebase rẻ |
 | Sửa dòng đã tick trong roadmap bị hiểu là viết lại lịch sử | Medium | Giữ tick, chỉ thêm "superseded" + sự thật hiện tại; không bỏ tick mục nào |
-| P0.1 xung đột với việc owner đang làm trên `app.ts` | Medium | Ping owner trước; PR nhỏ, chỉ thêm tham số bucket + đổi key, giữ nguyên 429/`RATE_LIMITED` |
+| P0.1 xung đột với việc owner đang làm trên `app.ts` | Medium | Nhánh riêng `feat/rate-limit-buckets`, không push; diff gọn (một bảng bucket + đổi key + bỏ tham số `rlLimit`), giữ nguyên 429/`RATE_LIMITED` cho trường hợp quá hạn mức |
+| Hai job CI mới (`prod-smoke`, `recovery-drill`) chưa từng chạy | Medium | Ghi rõ "wired, chưa quan sát xanh" ở cả `todo.md` và mục N.2; gating `if:` giới hạn ở main/dispatch/cron nên PR thường không bị chặn bởi job chưa kiểm chứng |
 | Nhóm D bắt đầu như một PR duy nhất | High | Checkpoint 4 chặn: phải decompose theo domain và có số đo baseline trước |
 | Báo cáo gate mạnh hơn thực tế (`test:postgres` chỉ skip) | Medium | Luôn báo từng gate riêng; không dùng chữ "`verify:web-alpha` xanh" ở máy này |
 | Chạy e2e trúng port stack dev của owner | Low | Xác định chủ port bằng `netstat -ano` trước; nếu đang chạy thì dùng config tạm 3100/5174 |
