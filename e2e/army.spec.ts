@@ -9,24 +9,25 @@ test.beforeEach(async ({ request }) => { await request.post(`${api}/api/dev/rese
 test("recruit, attack mob, battle report and cancel pursuit", async ({ page, request }, testInfo) => {
   test.skip(testInfo.project.name === "mobile", "desktop-sized HUD interaction");
   await page.goto("/");
-  await page.locator("input").fill(`Army E2E ${testInfo.project.name} ${Date.now()}`);
-  await page.locator("form button").click();
-  await expect(page.locator(".hud")).toBeVisible();
+  await page.getByPlaceholder("Tên người chơi").fill(`Army E2E ${testInfo.project.name} ${Date.now()}`);
+  await page.getByRole("button", { name: "Vào kingdom" }).click();
+  await expect(page.getByRole("complementary", { name: "Bảng điều khiển" })).toBeVisible();
 
   // --- Build the barracks (~15s) ---
   const barracksResponse = page.waitForResponse(response => response.url().endsWith("/api/commands/build"));
-  await page.locator(".actions button").nth(2).click();
+  await page.getByRole("button", { name: "Xây trại lính" }).click();
   expect((await barracksResponse).ok()).toBeTruthy();
   await expect(page.getByText("Build queues: 0/2")).toBeVisible({ timeout: 25000 });
 
   // --- Recruit 10 cavalry (cheapest affordable unit) ---
-  await page.locator(".army-panel-footer button").click();
-  await expect(page.getByRole("dialog", { name: "Tuyển quân" })).toBeVisible();
-  await page.locator(".recruit-choice input").nth(1).check(); // cavalry
+  await page.getByRole("button", { name: "Tuyển quân mới" }).click();
+  const recruitModal = page.getByRole("dialog", { name: "Tuyển quân" });
+  await expect(recruitModal).toBeVisible();
+  await recruitModal.getByRole("radio", { name: /^Kỵ binh/ }).check();
   const recruitResponse = page.waitForResponse(response => response.url().endsWith("/api/commands/recruit"));
-  await page.locator(".modal-card button", { hasText: "Tuyển 10" }).click();
+  await recruitModal.getByRole("button", { name: /^Tuyển 10/ }).click();
   expect((await recruitResponse).ok()).toBeTruthy();
-  const armyRow = page.locator(".army-row").first();
+  const armyRow = page.getByTestId("army-row").first();
   await expect(armyRow).toContainText("Kỵ binh · 10");
   await expect(armyRow).toContainText("Chờ lệnh");
 
@@ -36,20 +37,21 @@ test("recruit, attack mob, battle report and cancel pursuit", async ({ page, req
   const prepared = await request.post(`${api}/api/dev/battle-target`, { headers: { authorization: `Bearer ${session.token}` } });
   expect(prepared.ok()).toBeTruthy();
   const targetArmyId = ((await prepared.json()) as { targetArmyId: string }).targetArmyId;
-  await armyRow.locator("button", { hasText: "Tấn công" }).click();
-  const targets = page.locator(".modal-card select").locator("option");
-  await expect.poll(async () => await targets.count(), { timeout: 15000 }).toBeGreaterThan(1);
-  await page.locator(".modal-card select").selectOption(targetArmyId);
+  await armyRow.getByRole("button", { name: "Tấn công" }).click();
+  const attackModal = page.getByRole("dialog", { name: "Tấn công" });
+  const targetSelect = attackModal.getByLabel("Mục tiêu tấn công");
+  await expect.poll(async () => await targetSelect.locator("option").count(), { timeout: 15000 }).toBeGreaterThan(1);
+  await targetSelect.selectOption(targetArmyId);
   const attackResponse = page.waitForResponse(response => response.url().endsWith("/api/commands/attack"));
-  await page.locator(".modal-card button", { hasText: "Ra lệnh tấn công" }).click();
+  await attackModal.getByRole("button", { name: "Ra lệnh tấn công" }).click();
   expect((await attackResponse).ok()).toBeTruthy();
   await expect(armyRow).toContainText("Đang tấn công", { timeout: 10000 });
 
   // --- The mob fights back: a battle report modal should arrive via WebSocket ---
   const reportModal = page.getByRole("dialog", { name: "Báo cáo trận đánh" });
   await expect(reportModal).toBeVisible({ timeout: 25000 });
-  await reportModal.locator("button", { hasText: "Đóng" }).click();
+  await reportModal.getByRole("button", { name: "Đóng" }).click();
 
   // --- Battle resolved: any surviving army is idling again, dead armies are gone ---
-  await expect(page.locator(".army-row", { hasText: "Đang tấn công" })).toHaveCount(0, { timeout: 15000 });
+  await expect(page.getByTestId("army-row").filter({ hasText: "Đang tấn công" })).toHaveCount(0, { timeout: 15000 });
 });

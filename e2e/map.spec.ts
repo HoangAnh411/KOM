@@ -10,10 +10,11 @@ test("map pan, zoom and focus-my-city interaction smoke", async ({ page }, testI
   page.on("pageerror", error => errors.push(String(error)));
   page.on("console", message => { if (message.type() === "error") errors.push(message.text()); });
   await page.goto("/");
-  await page.locator("input").fill(`Map E2E ${testInfo.project.name} ${Date.now()}`);
-  await page.locator("form button").click();
-  await expect(page.locator(".hud")).toBeVisible();
-  const canvas = page.locator(".map canvas");
+  await page.getByPlaceholder("Tên người chơi").fill(`Map E2E ${testInfo.project.name} ${Date.now()}`);
+  await page.getByRole("button", { name: "Vào kingdom" }).click();
+  await expect(page.getByRole("complementary", { name: "Bảng điều khiển" })).toBeVisible();
+  // Pixi owns the canvas element, so the test anchors on the React container it mounts into.
+  const canvas = page.getByTestId("world-map").locator("canvas");
   await expect(canvas).toBeVisible();
   await page.waitForTimeout(500);
 
@@ -38,7 +39,7 @@ test("map pan, zoom and focus-my-city interaction smoke", async ({ page }, testI
   expect(panned.length).toBeGreaterThan(1000);
 
   // Focus button recenters on the player's city.
-  await page.locator(".map-toolbar button").click();
+  await page.getByRole("button", { name: "Về thành phố của tôi" }).click();
   await page.waitForTimeout(400);
   const focused = await canvas.screenshot({ path: "test-results-e2e/map-focused.jpg" });
   expect(focused.length).toBeGreaterThan(1000);

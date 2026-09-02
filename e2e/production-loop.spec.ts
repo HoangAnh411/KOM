@@ -6,14 +6,14 @@ test.beforeEach(async ({ request }) => { await request.post(`${api}/api/dev/rese
 const adminHeaders = { authorization: "Bearer playwright-admin-token" };
 
 async function login(page: Page, name: string): Promise<{ token: string; player: { id: string } }> {
-  await page.goto("/"); await page.locator("input").fill(name); await page.locator("form button").click(); await expect(page.locator(".hud")).toBeVisible();
+  await page.goto("/"); await page.getByPlaceholder("Tên người chơi").fill(name); await page.getByRole("button", { name: "Vào kingdom" }).click(); await expect(page.getByRole("complementary", { name: "Bảng điều khiển" })).toBeVisible();
   return page.evaluate(() => JSON.parse(sessionStorage.getItem("kingdoms-session")!) as { token: string; player: { id: string } });
 }
 
 test("moderation freezes the HUD before revoking realtime auth", async ({ page, request }, testInfo) => {
   const session = await login(page, `Frozen E2E ${testInfo.project.name} ${Date.now()}`);
   const ban = await request.post(`${api}/api/admin/player/ban`, { headers: adminHeaders, data: { playerId: session.player.id, reason: "playwright moderation" } }); expect(ban.ok()).toBeTruthy();
-  await expect(page.locator(".frozen-banner")).toContainText("đóng băng"); await expect(page.locator(".hud")).toHaveClass(/hud-frozen/);
+  await expect(page.getByText(/Tài khoản đang bị khóa/)).toContainText("đóng băng"); await expect(page.getByRole("complementary", { name: "Bảng điều khiển" })).toHaveAttribute("data-frozen", "true");
   const unban = await request.post(`${api}/api/admin/player/unban`, { headers: adminHeaders, data: { playerId: session.player.id, reason: "playwright cleanup" } }); expect(unban.ok()).toBeTruthy();
 });
 
@@ -29,8 +29,8 @@ test("alliance leader vote reaches a passed state", async ({ page, request }, te
 
 test("mob migration is rendered with spawned NPC armies", async ({ page }, testInfo) => {
   await login(page, `NPC E2E ${testInfo.project.name} ${Date.now()}`);
-  await page.locator(".drawer summary").click();
-  const event = page.locator(".event-mob_migration").first(); await expect(event).toBeVisible({ timeout: 10_000 });
+  await page.getByTestId("advanced-drawer-toggle").click();
+  const event = page.getByTestId("world-event").filter({ hasText: "mob_migration" }).first(); await expect(event).toBeVisible({ timeout: 10_000 });
   // The shared e2e world grows player armies that can kill wandering mobs, so only the
   // mob-count row itself is asserted here; deterministic spawn counts live in unit tests.
   await expect(event).toContainText(/bọn xâm lược/);
@@ -38,6 +38,6 @@ test("mob migration is rendered with spawned NPC armies", async ({ page }, testI
 
 test("season close is visible in the archive UI", async ({ page, request }, testInfo) => {
   await login(page, `Archive E2E ${testInfo.project.name} ${Date.now()}`); const closed = await request.post(`${api}/api/admin/season/close`, { headers: adminHeaders, data: { reason: "playwright season archive" } }); expect(closed.ok()).toBeTruthy();
-  await page.locator(".drawer summary").click();
-  await page.locator(".archive-panel button").click(); await expect(page.locator(".archive-panel details").first()).toBeVisible();
+  await page.getByTestId("advanced-drawer-toggle").click();
+  await page.getByRole("button", { name: "Nạp lịch sử mùa" }).click(); await expect(page.getByTestId("archive-season").first()).toBeVisible();
 });
