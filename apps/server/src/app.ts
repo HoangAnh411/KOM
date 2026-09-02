@@ -45,8 +45,16 @@ import { GameStore } from "./store.js";
 import { AuthRepository, REFRESH_MS, dummyPasswordHash, hashPassword, normalizeUsername, validateCredentials, verifyPassword } from "./auth.js";
 import { redisPing, redisClose } from "./redis.js";
 
+// proxy-addr turns a hop count into exactly this predicate — trust the first `hops`
+// addresses, which are the proxies we run, and read the client from the next one — but
+// Fastify's option type takes the predicate and not the number, so it is spelled out.
+// See `config.ts`: the boolean `true` here would trust the whole X-Forwarded-For chain
+// and make `request.ip` a client-supplied string.
+const trustedHops = config.trustProxy;
+const trustProxy = trustedHops === false ? false : (_address: string, hop: number) => hop < trustedHops;
+
 export function createServer(): { app: FastifyInstance; store: GameStore; start: () => Promise<void>; stop: () => Promise<void> } {
-  const app = Fastify({ logger: { redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]', 'token', 'refreshToken', 'accessToken'] }, bodyLimit: 64 * 1024, requestTimeout: 15_000, trustProxy: config.trustProxy }); let store = new GameStore(); const limiter = new RateLimiter(); const auth = new AuthRepository(store.databasePool); const devTokens = new Map<string, string>(); const clients = new Map<WebSocket, string>(); const registry = new Registry(); collectDefaultMetrics({ register: registry, prefix: "kingdom_" }); let stateLoaded = false; let lastTickCompletedAt = 0; let shuttingDown = false;
+  const app = Fastify({ logger: { redact: ['req.headers.authorization', 'req.headers.cookie', 'res.headers["set-cookie"]', 'token', 'refreshToken', 'accessToken', 'password', 'passwordHash', 'req.body.password'] }, bodyLimit: 64 * 1024, requestTimeout: 15_000, trustProxy }); let store = new GameStore(); const limiter = new RateLimiter(); const auth = new AuthRepository(store.databasePool); const devTokens = new Map<string, string>(); const clients = new Map<WebSocket, string>(); const registry = new Registry(); collectDefaultMetrics({ register: registry, prefix: "kingdom_" }); let stateLoaded = false; let lastTickCompletedAt = 0; let shuttingDown = false;
   (app as any).decorateReply("setCookie", function (this: any, name: string, value: string, options: any) { const parts = [`${name}=${value}`, "HttpOnly", `SameSite=${options.sameSite ?? "Strict"}`, `Path=${options.path ?? "/api/auth"}`]; if (options.maxAge) parts.push(`Max-Age=${options.maxAge}`); if (options.secure) parts.push("Secure"); this.header("set-cookie", parts.join("; ")); return this; });
   (app as any).decorateReply("clearCookie", function (this: any, name: string, options: any) { this.header("set-cookie", `${name}=; Max-Age=0; HttpOnly; SameSite=Strict; Path=${options.path ?? "/api/auth"}`); return this; });
   const commandCounter = new Counter({ name: "kingdom_commands_total", help: "Accepted and rejected game commands", labelNames: ["command", "result"], registers: [registry] });
@@ -86,7 +94,20 @@ export function createServer(): { app: FastifyInstance; store: GameStore; start:
     // Alpha privacy: a viewer only sees their own battle reports in the
     // snapshot, capped to the 20 most recent.
     const battleReports = (viewerId ? store.snapshot.battleReports.filter(report => report.attacker.playerId === viewerId || report.defender.playerId === viewerId) : store.snapshot.battleReports).slice(-20);
-    return { protocolVersion: PROTOCOL_VERSION, kingdom: store.snapshot.kingdom, season: { id: store.snapshot.season.id, status: store.snapshot.season.status, endsAt: store.snapshot.season.endsAt }, cities: store.snapshot.cities.map(city => ({ ...city, playerName: store.findPlayer(city.playerId)?.displayName ?? "Unknown" })), caravans: store.logistics.caravans(), armies: store.snapshot.armies, heroes: store.snapshot.heroes, scores: store.snapshot.scores, factionCatalog: factions, logistics: store.logistics.snapshot(), battleReports, terrainMap: store.snapshot.terrainMap, alliances: store.snapshot.alliances, allianceVotes: store.snapshot.allianceVotes, treaties: store.snapshot.treaties, spyMissions: store.snapshot.spyMissions.filter(m => !viewerId || m.actorPlayerId === viewerId), worldEvents: store.snapshot.worldEvents, onboarding: store.onboarding.progressFor(viewerId) };
+    // A city's interior is what espionage is priced to reveal: `scout` returns resources
+    // and buildings blurred by accuracy (`espionage.ts:60-62`), on a cooldown, for iron.
+    // Sending every city's real stock to every client made that mission pointless and
+    // handed out the economy of players nobody had scouted. Battle reports and spy
+    // missions on the lines around this one were already viewer-scoped; cities were the
+    // collection that was missed. Foreign entries keep what the map legitimately shows —
+    // position, owner, name, frozen — and lose the interior. Zeroing rather than dropping
+    // the fields keeps `WorldSnapshot` one shape, and no client panel reads a foreign
+    // city's stock (they resolve their own city by `playerId` first).
+    const cities = store.snapshot.cities.map(city => {
+      const named = { ...city, playerName: store.findPlayer(city.playerId)?.displayName ?? "Unknown" };
+      return viewerId && city.playerId !== viewerId ? { ...named, resources: { food: 0, wood: 0, stone: 0, iron: 0 }, buildings: {}, queues: [] } : named;
+    });
+    return { protocolVersion: PROTOCOL_VERSION, kingdom: store.snapshot.kingdom, season: { id: store.snapshot.season.id, status: store.snapshot.season.status, endsAt: store.snapshot.season.endsAt }, cities, caravans: store.logistics.caravans(), armies: store.snapshot.armies, heroes: store.snapshot.heroes, scores: store.snapshot.scores, factionCatalog: factions, logistics: store.logistics.snapshot(), battleReports, terrainMap: store.snapshot.terrainMap, alliances: store.snapshot.alliances, allianceVotes: store.snapshot.allianceVotes, treaties: store.snapshot.treaties, spyMissions: store.snapshot.spyMissions.filter(m => !viewerId || m.actorPlayerId === viewerId), worldEvents: store.snapshot.worldEvents, onboarding: store.onboarding.progressFor(viewerId) };
   };
   let pendingBroadcast = false; const requestBroadcast = () => { pendingBroadcast = true; };
   const send = (socket: WebSocket, message: ServerMessage) => { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message)); }; const doBroadcast = () => { for (const [client, playerId] of clients) send(client, { type: "SNAPSHOT", payload: getSnapshot(playerId) }); };

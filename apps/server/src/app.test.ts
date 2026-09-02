@@ -29,6 +29,34 @@ test("accepted commands are recorded in the event ledger", async () => {
   await server.app.close();
 });
 
+// A `scout` mission costs iron, sits behind a cooldown, and returns resources plus
+// buildings blurred by accuracy. All of that was theatre while the snapshot shipped every
+// city's real stock to every client, so this pins the boundary: your own interior is
+// yours, everyone else's is what the map legitimately shows.
+test("a snapshot hides other players' city interiors but keeps the map readable", async () => {
+  type Session = { token: string; player: { id: string } };
+  type City = { id: string; playerId: string; playerName: string; x: number; y: number; frozen?: boolean; resources: Record<string, number>; buildings: Record<string, number>; queues: unknown[] };
+  const server = createServer();
+  const victim = (await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Scout Victim", factionId: "meridian" } })).json() as Session;
+  const viewer = (await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Scout Buyer", factionId: "veiled" } })).json() as Session;
+  const bootstrap = await server.app.inject({ method: "GET", url: "/api/bootstrap", headers: { authorization: `Bearer ${viewer.token}` } });
+  assert.equal(bootstrap.statusCode, 200);
+  const cities = (bootstrap.json() as { snapshot: { cities: City[] } }).snapshot.cities;
+  const own = cities.find(city => city.playerId === viewer.player.id)!;
+  const foreign = cities.find(city => city.playerId === victim.player.id)!;
+  const truth = server.store.snapshot.cities.find(city => city.playerId === victim.player.id)!;
+  assert.deepEqual(own.resources, server.store.snapshot.cities.find(city => city.playerId === viewer.player.id)!.resources, "a viewer still sees their own stock");
+  assert.ok(truth.resources.wood > 0, "the server still holds the real stock — this is a projection, not a wipe");
+  assert.deepEqual(foreign.resources, { food: 0, wood: 0, stone: 0, iron: 0 }, "another player's stock is what espionage sells");
+  assert.deepEqual(foreign.buildings, {}, "another player's build levels are what espionage sells");
+  assert.deepEqual(foreign.queues, [], "a build queue says what its owner is about to field");
+  // The map draws foreign cities from these fields and the target lists filter on
+  // `frozen`, so redacting the interior must not blank the city itself.
+  assert.equal(foreign.id, truth.id); assert.equal(foreign.x, truth.x); assert.equal(foreign.y, truth.y);
+  assert.equal(foreign.playerName, "Scout Victim"); assert.equal(foreign.frozen, truth.frozen);
+  await server.app.close();
+});
+
 test("command responses conform to the shared CommandResponse contract", async () => {
   const server = createServer();
   const login = await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Contract Player", factionId: "meridian" } });
