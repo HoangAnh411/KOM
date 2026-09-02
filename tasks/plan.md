@@ -28,7 +28,7 @@ Ngoài roadmap, bản audit trước tìm được **5 blocker trong code** khi�
 
 ## Thứ tự thực thi (chốt 2026-09-02)
 
-Ba bước. Không mở nhóm C/D/E/F/G lúc này.
+Năm bước, ba bước đầu là kế hoạch gốc và hai bước sau là phần owner mở phạm vi. Không mở nhóm C/D/E/F/G lúc này.
 
 | Bước | Nội dung | Vì sao đứng ở đây | Trạng thái |
 |---|---|---|---|
@@ -36,6 +36,7 @@ Ba bước. Không mở nhóm C/D/E/F/G lúc này.
 | **1** | **Z.2 → Z.4** — làm tài liệu khớp code | Doc-only, không chạm file nóng, nên không cần chờ owner; và đóng được một checkbox roadmap thật (`[144]` — drill đã chạy, chỉ thiếu ghi vào runbook) | **Xong** — nhánh `docs/truth-pass`, 3 commit |
 | **2** | **P0.1** — tách rate-limit bucket | Task server duy nhất nên làm ngay: 7D vừa chạm `rate-limit.ts` nên khả năng xung đột thấp nhất, và limiter fail-closed làm 429-sai-bucket dễ nổ hơn trước. Mở đường cho B.1 `[145]` | **Xong** — nhánh `feat/rate-limit-buckets`, `d1212b4` |
 | **3** | Mở rộng theo yêu cầu owner ("làm hết tất cả"): **N.1**, **N.2**, nửa tự động của **A.1**, **E.3-pre**, ba việc dọn nhỏ | Đều là việc đã có đủ dữ kiện để làm đúng, không cần quyết định thiết kế mới. Những mục còn lại bị chặn bởi Docker/`k6`/quyết định gameplay thì **không** làm dở dang | **Xong** — cùng nhánh, `acf454a` `10c153d` `afa072b` `4817d1a` |
+| **4** | **B.1** `[145]` — security review auth / permissions / input / secrets | Dependency duy nhất của nó (P0.1) vừa xong ở Bước 2, và P0.1 đã dời hai finding cũ (bucket dùng chung, GET không hạn mức) ra khỏi phạm vi review nên review có baseline đúng. Đọc code phát hiện thêm **hai lỗ High chưa từng được ghi ở đâu** | **Xong** — cùng nhánh, `docs/SECURITY-REVIEW.md` + hai bản sửa High kèm test |
 
 Còn chặn thật, đã báo thay vì làm dở: **P0.4** (sức chứa thế giới — quyết định gameplay, OQ #2), **P0.5 + B.3** `[141]` (không `k6`), **B.2b** + hai job CI mới (không Docker), **A.1** phần phiên tay 30–60 phút (người phải chạy), nhóm **D** (owner chốt hướng persistence), phần lớn **Phase 8** và **G.2–G.5** (bundle ID, signing, license).
 
@@ -267,22 +268,33 @@ Owner đang ở 7D nên **rất có thể mục này thuộc phần owner tự c
 
 ## Nhóm B — Pre-beta Phase 7A
 
-### B.1 — [145] Security review auth / permissions / input / secrets
+### B.1 — [145] Security review auth / permissions / input / secrets ✅ **xong**
+
+`docs/SECURITY-REVIEW.md` đã viết; `[145]` đã tick. Kết quả: 10 finding, hai High **đã sửa kèm test hồi quy**, một Low hardening đã sửa, hai Medium trỏ về P0.2/P0.3 đã có task, một Medium + hai Low để owner quyết.
 
 **Acceptance criteria:**
-- [ ] `docs/SECURITY-REVIEW.md` phủ 4 trục: **auth** (session rotation, refresh cookie `sameSite: strict`, close 4401, `timingSafeEqual` cho admin token), **permissions** (ownership guard, frozen/banned, permission matrix alliance/treaty, `/api/battles` chỉ thấy trận mình tham gia), **input** (Zod ở mọi command, `bodyLimit: 64*1024`, `requestTimeout: 15_000`), **secrets** (Zod production gate, `METRICS_TOKEN`, không log credential)
-- [ ] Mỗi phát hiện có severity + `file:line` + đề xuất sửa
-- [ ] Finding mức cao có test hồi quy trong `security.test.ts`
-- [ ] Hạn mức thật đã đối chiếu với `docs/API.md` (kết quả Z.4 + P0.1)
-- [ ] Xử lý hai finding đã có sẵn từ Z.4: (a) **không GET route nào bị rate-limit** — `/api/bootstrap`, `/api/season-history`, `/api/battles` không có hạn mức nào (7 call site `rateLimited(` đều là POST); (b) bucket write dùng chung cho mọi command (P0.1). Việc **có** thêm read limit hay không là quyết định của owner, không tự thêm trong PR review
-- [ ] Re-baseline theo code sau 7D: 7D đã tự xử log redaction, cookie `Path=/api/auth`, chặn request thiếu Origin, limiter fail-closed, che `/metrics` `/health/ready` `/api/dev/*` ở Caddy, security headers → review chỉ còn phần chưa được xử lý
+- [X] `docs/SECURITY-REVIEW.md` phủ 4 trục: **auth** (scrypt `N=131072`, sha256 digest, `timingSafeEqual`, `dummyPasswordHash`, refresh rotation thu hồi cả `family_id`, `FOR UPDATE`), **permissions** (matrix 22 hành động, mỗi dòng có `file:line`; guard nằm ở tầng domain nên không route nào bỏ sót được), **input** (26 command POST đều Zod, `bodyLimit` 64 KB, `requestTimeout` 15 s, SQL tham số hoá), **secrets** (production gate, `METRICS_TOKEN`, Pino redact)
+- [X] Mỗi phát hiện có severity + `file:line` + đề xuất sửa
+- [X] Finding mức cao có test hồi quy: **S-1** ở `security.test.ts` (`x-forwarded-for: "1.2.3.4, 203.0.113.9"` từ peer `172.18.0.5` → `request.ip === "203.0.113.9"`) + `config.test.ts` (`"trustProxy":1` cho `TRUST_PROXY=true`, từ chối `"0"`/`"yes"`); **S-2** ở `app.test.ts` (viewer thấy kho của mình, thấy 0/`{}`/`[]` ở city người khác, `store.snapshot` vẫn giữ số thật, `id`/`x`/`y`/`playerName`/`frozen` không bị blank)
+- [X] Hạn mức thật đã đối chiếu `docs/API.md` — mục "Rate limit" của review dẫn `app.ts:102-105` và mọi key IP-based có `file:line`
+- [X] Hai finding từ Z.4 đã xử: (a) GET không có hạn mức → P0.1 cho ba GET bucket `read` 60/phút; (b) bucket write dùng chung → P0.1 tách `write`/`combat`/`spy`
+- [X] Re-baseline theo code sau 7D: review chỉ ghi phần **chưa** được xử lý, và có riêng mục "kiểm soát đã xác nhận" để những gì 7D làm đúng không bị báo lại thành finding
 
-**Verification:**
-- [ ] `npm test -w @kingdoms/server`
+**Hai finding cao đã sửa:**
+- **S-1 (High)** `TRUST_PROXY` là boolean nên tới `proxy-addr` thành "tin cả chuỗi `X-Forwarded-For`", và `proxy-addr` khi đó trả entry **ngoài cùng bên trái** — thứ client tự ghi, vì Caddy *append* peer address chứ không thay thế. Mọi hạn mức theo IP (`login` 5/15m, `register` 3/h, `refresh` 30/m, `admin` 10/m + 5/m) bị vô hiệu bằng cách đổi một header, tức lockout credential stuffing tắt hẳn. Sửa: `TRUST_PROXY` thành **số hop** (`config.trustProxy: false | number`), `app.ts` biến số hop thành đúng predicate `proxy-addr` compile ra (`hop < trustedHops`) vì kiểu của Fastify nhận predicate mà không nhận `number`.
+- **S-2 (High)** `getSnapshot()` phát `resources`/`buildings`/`queues` thật của **mọi** city qua `/api/bootstrap`, mọi response command và mọi broadcast — trong khi mission `scout` tốn iron, có cooldown, bị counter-intel chặn và làm mờ theo `accuracy` để bán đúng ba field đó. Là **thiếu sót chứ không phải thiết kế**: `battleReports` và `spyMissions` ngay cạnh đã lọc theo viewer, `cities` là collection duy nhất bị bỏ sót. Sửa: city người khác giữ phần map hợp pháp hiển thị, nội thất về 0/`{}`/`[]`. Zero thay vì bỏ field nên `WorldSnapshot` giữ một shape, không sửa `packages/shared`, không sửa client — đã kiểm cả 8 panel đều resolve city của chính mình qua `playerId`.
+
+**Verification (đã chạy):**
+- [X] `npm test -w @kingdoms/server` → **124 test, 109 pass, 0 fail, 15 skip** (postgres-gated), tăng từ 121/106/15
+- [X] `npm run typecheck` sạch cả ba workspace
+- [X] E2E 19/19 pass trên port 3100/5174 (không chạm stack dev của owner)
+- [ ] `test:postgres` **không chạy được ở máy này** (không Docker, không `DATABASE_URL`) → báo cáo là skipped, **không** viết `verify:web-alpha` xanh
 - [ ] Owner review lại tài liệu
 
-**Dependencies:** P0.1 · **Scope:** M
-**Files:** `docs/SECURITY-REVIEW.md` (mới), `apps/server/src/security.test.ts`, `docs/ROADMAP.md`
+**Dependencies:** P0.1 (xong) · **Scope:** M
+**Files:** `docs/SECURITY-REVIEW.md` (mới), `docs/API.md` (mục `## World snapshot`), `docs/ROADMAP.md` (tick `[145]`, ghi chú `TRUST_PROXY` ở dòng security baseline), `apps/server/src/{app,config}.ts`, `apps/server/src/{app,config,security}.test.ts`, `.env.example`
+
+**Việc còn treo cho owner** (đã vào Open questions #10, #11): tiền đề không gian của `ambush` (S-5, là luật chơi), có bắt buộc `TRUST_PROXY` ở production không (S-9, guard đó có thể chặn boot một deployment tôi không kiểm chứng được), xác nhận S-1 trên stack thật có Docker. Ba Low còn lại (S-7 admin route không Zod, S-8 trần WS connection, S-10 status `ADMIN_DISABLED` lệch) đã vào mục "việc dọn nhỏ".
 
 ### B.2 — [144] Restore drill + log vào runbook ✅ → **đóng ở Z.2**
 
@@ -307,7 +319,7 @@ Drill đã chạy thật ngày 2026-09-02 qua `npm run drill:web-beta` (3/3 pass
 **Files:** `docs/OPERATIONS.md`, `docs/ROADMAP.md`, artifact report
 
 ### Checkpoint 2 — sau A.1 + B.1 + B.3
-- [ ] `[204]`, `[141]`, `[145]` tick được, hoặc blocker ghi rõ (`[144]` đã tick ở Z.2/Z.3)
+- [ ] `[204]`, `[141]` tick được, hoặc blocker ghi rõ (`[144]` đã tick ở Z.2/Z.3, `[145]` đã tick ở B.1)
 - [ ] Report load test lưu và link từ `OPERATIONS.md`
 - [ ] Phase 7C đóng; Phase 7A hết mục "trước beta"
 
@@ -568,4 +580,6 @@ Ba mục đầu xong trong `4817d1a`; kết luận của mục 1 khác đề bà
 4. Contributor có quyền chạy prod compose / backup / k6 không? Máy này chưa có Docker và chưa có `k6`.
 5. Misinformation baseline do owner chốt hay contributor đề xuất trong PR (C.1)?
 6. `verify:web-beta` có vào CI không (N.2), hay cố ý giữ là gate chạy tay vì cần Docker-in-Docker?
-7. **Mới:** có thêm rate-limit cho GET route (`/api/bootstrap`, `/api/season-history`, `/api/battles`) không? Hiện **không có** hạn mức nào. Là finding của B.1, không tự sửa.
+7. ~~Có thêm rate-limit cho GET route không?~~ → **đóng trong P0.1**: ba GET có auth dùng chung bucket `read` 60/phút/player. Một vòng reconnect chỉ tốn 3 call nên client bình thường không tới gần trần; đổi số chỉ là sửa một dòng trong `rateBuckets`.
+8. **Mới (S-5):** tiền đề không gian của `ambush` — bán kính bao nhiêu ô? tốn gì? cooldown bao lâu? có sang bucket `combat` 10/phút không? Hiện `ambush` chỉ đòi "không phải caravan của mình", nên một người chơi xoá được 60% hàng của mọi caravan trên map, từ bất kỳ đâu, miễn phí, 20 lần/phút — và hệ thống hộ tống thành vô nghĩa. Đây là luật chơi (`docs/GAME-DESIGN.md`) nên review **không tự đặt**.
+9. **Mới (S-9):** có thêm guard "production phải khai `TRUST_PROXY`" không? Để `false` sau Caddy thì `register:<ip>` 3/giờ thành hạn mức toàn cầu. Không tự thêm vì guard sẽ chặn boot của deployment phơi server trực tiếp mà tôi không kiểm chứng được. Kèm: S-1 cần owner xác nhận một lần trên stack thật Caddy → Fastify (máy này không có Docker nên chỉ chứng minh được nửa Fastify bằng `app.inject`).

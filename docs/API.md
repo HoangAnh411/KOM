@@ -22,7 +22,7 @@ Response gồm `token`, `player` và `snapshot`. Đây là auth development; ch�
 
 Header: `Authorization: Bearer <token>`.
 
-Trả về player hiện tại và world snapshot dùng để khởi tạo client.
+Trả về player hiện tại và world snapshot dùng để khởi tạo client. Snapshot bị giới hạn theo người xem — xem `## World snapshot`.
 
 ### `GET /api/season-history`
 
@@ -50,11 +50,33 @@ Server kiểm tra season, rate-limit, schema, ownership, queue capacity, resourc
 - `/health/ready` là readiness thật: trả 503 kèm `reason` khi đang shutdown (`shutting_down`), chưa nạp state (`state_not_loaded`), PostgreSQL hoặc Redis không ping được (`postgres` / `redis`), hoặc tick trễ hơn `tickMs * 3` (`tick_lag`). Nhiều lỗi cùng lúc trả `reason: "unhealthy"` kèm mảng `checks`.
 - `/metrics` trả Prometheus-compatible metrics. Ở `AUTH_MODE=password` cần `Authorization: Bearer <METRICS_TOKEN>`; ở dev mode không yêu cầu auth. Trong prod compose, Caddy không public `/metrics`, `/health/ready` và `/api/dev/*` ra ngoài.
 
+## World snapshot
+
+Snapshot đi ra qua ba đường — `GET /api/bootstrap`, response của mỗi command, và message
+`SNAPSHOT` trên WebSocket — và **cùng một projection theo người xem** áp cho cả ba. Ba
+collection bị khoá theo `playerId` lấy từ token, không theo tham số client gửi:
+
+- `battleReports`: chỉ trận mà người xem là attacker hoặc defender.
+- `spyMissions`: chỉ mission do chính người xem khởi chạy.
+- `cities`: city của người khác giữ phần bản đồ hợp pháp hiển thị — `id`, `playerId`,
+  `playerName`, `x`, `y`, `name`, `frozen` — nhưng **nội thất bị che**: `resources` về 0,
+  `buildings` thành `{}`, `queues` thành `[]`. Chỉ city của chính người xem mang số thật.
+
+Nội thất city đúng là thứ mission `scout` của `spy/launch` bán: nó tốn iron, có cooldown, làm
+mờ kết quả theo `accuracy` và có thể bị counter-intel chặn. Nên client **không được** đọc
+`resources`/`buildings`/`queues` của city người khác như dữ liệu — số 0 ở đó nghĩa là "chưa
+biết", không phải "trống". Muốn biết thì scout, và đọc kết quả từ report của mission.
+
+Kiểu dữ liệu không đổi: field bị che được zero chứ không bị bỏ, nên `WorldSnapshot` trong
+`packages/shared` giữ đúng một shape và thay đổi này không cần protocol version mới. Quân
+(`armies`) **không** bị che — sức mạnh của quân đang hành quân là thông tin công khai theo
+thiết kế, bản đồ và HUD đều hiển thị.
+
 ## WebSocket
 
 Kết nối: `ws://localhost:3000/ws`, sau đó gửi `{ "type": "AUTH", "token": "<access-token>" }` trong tối đa 5 giây. Token trên query string không được chấp nhận.
 
-Server gửi message `SNAPSHOT` chứa kingdom, season, cities, caravans, armies, heroes, scores, alliance, treaty, spy mission của người xem, world event và faction catalog.
+Server gửi message `SNAPSHOT` chứa kingdom, season, cities, caravans, armies, heroes, scores, alliance, treaty, spy mission của người xem, world event và faction catalog. Nội dung đã qua projection theo người xem như `GET /api/bootstrap` — xem `## World snapshot`.
 
 Gameplay command đi qua REST; WebSocket dùng cho snapshot và battle report realtime sau khi xác thực. Sau khi `AUTH` thành công, server **bỏ qua mọi message client gửi tiếp** (socket vẫn mở) — không có đường command nào qua WS.
 

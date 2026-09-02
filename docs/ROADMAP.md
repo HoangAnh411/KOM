@@ -135,7 +135,7 @@ Sau mỗi milestone phải chạy verification và cập nhật docs/GAME-DESIGN
 - [X] Redis Streams/outbox publisher: migration 012, claim SKIP LOCKED, retry exponential 1s→5m, DLQ sau 10 lỗi, envelope `{id,type,payload,createdAt}`, metrics backlog/age/latency/retry/DLQ.
 - [X] Migration runner: advisory lock, `schema_migrations` + checksum, transaction từng file, `db:migrate` / `db:migrate:check` / `db:migrate:baseline` / `test:postgres`.
 - [X] Env validation bằng Zod + production gate (AUTH_MODE=password, PG/Redis, token ≥32 ký tự, CLIENT_ORIGIN HTTPS).
-- [X] Security baseline: headers, body limit 64 KB, request timeout, trustProxy, exact Origin trên refresh/logout, `/health` + `/health/live` + `/health/ready` (PG/Redis ping + tick lag ≤3 cycles), `/metrics` bảo vệ bằng METRICS_TOKEN, graceful shutdown SIGTERM/SIGINT (WS 1012).
+- [X] Security baseline: headers, body limit 64 KB, request timeout, trustProxy, exact Origin trên refresh/logout, `/health` + `/health/live` + `/health/ready` (PG/Redis ping + tick lag ≤3 cycles), `/metrics` bảo vệ bằng METRICS_TOKEN, graceful shutdown SIGTERM/SIGINT (WS 1012). — `TRUST_PROXY` từ security review giờ là **số hop** chứ không phải boolean (`"true"` vẫn nhận, nghĩa là 1 hop); xem S-1 trong `docs/SECURITY-REVIEW.md`.
 - [X] Production compose: game + outbox worker + PG/Redis + Caddy (TLS, proxy `/api` `/ws`), profile Prometheus/Grafana, secrets qua `.env.prod`.
 - [X] Backup (`pg_dump` daily/7 + weekly/4, checksum, log) và restore drill script; drill trước beta + mỗi tháng.
 - [X] Prometheus/Grafana dashboard và alert rules cho health, tick, WebSocket, persistence, outbox và DLQ; OpenTelemetry traces deferred 7B.
@@ -144,7 +144,7 @@ Sau mỗi milestone phải chạy verification và cập nhật docs/GAME-DESIGN
 - [X] Ban/unban baseline, atomic audit/session revoke, frozen entities và action guards; abuse detection nâng cao còn deferred.
 - [X] CI thành 10 gates: `npm ci` → migrate fresh → idempotency+checksum → typecheck/build → PostgreSQL integration → unit/regression → Playwright Chromium desktop (7C) → `check:bundle` → `git diff --check` → `npm audit --audit-level=high`. Hai việc cần Docker (`test:prod-smoke`, `drill:web-beta`) là job riêng — xem Phase 7D.
 - [X] Restore drill log trong operations runbook (trước beta). — chạy 2026-09-02 qua `drill:web-beta`: 3/3 pass, RPO 0 ms, RTO 5795 ms; kết quả ở mục "Kết quả drill" của `docs/OPERATIONS.md`, báo cáo đầy đủ ở `infra/backup/drill-report.md`. Caveat đã ghi trong runbook: drill dùng `docker compose exec postgres pg_dump`, nên `infra/backup/backup.sh` / `restore.sh` vẫn chưa được kiểm chứng.
-- [ ] Security review auth, permissions, input và secrets.
+- [X] Security review auth, permissions, input và secrets. — `docs/SECURITY-REVIEW.md` (2026-09-02): 10 finding, 2 High đã sửa kèm test hồi quy (`request.ip` do client tự khai làm vô hiệu mọi hạn mức theo IP; snapshot phát nội thất city của mọi người chơi), 1 Low hardening (redact `password`). Ba việc còn treo cho owner: tiền đề của `ambush` (luật chơi), có bắt buộc `TRUST_PROXY` ở production hay không, và xác nhận lại chuỗi Caddy → Fastify trên stack thật (máy contributor không có Docker).
 
 **Tiêu chí hoàn thành:** có SLO, load profile, alert và recovery khi worker/gateway restart.
 
