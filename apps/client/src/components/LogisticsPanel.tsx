@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { gameRules } from "@kingdoms/shared";
 import { useGame } from "../state.js";
 import { caravanReady, cargoWithinCapacity, cargoWithinResources, harvestReady, routeReady } from "../validation.js";
+import { usePanelAnchor } from "../panel-anchors.js";
 
 const nodeNames = { wood: "Rừng", stone: "Mỏ đá", iron: "Mỏ sắt" } as const;
 const cargoOptions = [10, 25, 50] as const;
@@ -31,8 +32,9 @@ export function LogisticsPanel() {
   const caravanCheck = city.frozen ? { ok: false as const, reason: "Thành phố đang bị đóng băng." } : caravanReady(depot, city, cargo);
   const withinCapacity = cargoWithinCapacity(depot, cargo);
   const withinResources = cargoWithinResources(city, cargo);
+  const anchor = usePanelAnchor<HTMLElement>("logistics");
 
-  return <section className="logistics-panel">
+  return <section ref={anchor} className="logistics-panel" aria-label={"Kinh tế & vận tải"}>
     <h2>Kinh tế & vận tải</h2>
 
     <div className="logistics-block">
@@ -68,7 +70,7 @@ export function LogisticsPanel() {
       {activeRoutes.length === 0 && <p className="hint">Chưa có tuyến nào.</p>}
       {activeRoutes.map(route => {
         const target = route.destinationKind === "market" ? (marketHubs.find(hub => hub.id === route.destinationMarketId)?.name ?? "Thương cảng") : sourceName(route.destinationCityId ?? "");
-        return <div className="route-row" key={route.id}>
+        return <div className="route-row" data-testid="route-row" key={route.id}>
           <span>{sourceName(route.sourceCityId)} → {target} ({route.distance} ô, {Math.ceil(route.travelTimeSeconds / 60)} phút)</span>
           <button className="route-select" onClick={() => setRouteId(route.id)}>{routeId === route.id ? "✓ đã chọn" : "Chọn gửi hàng"}</button>
         </div>;
@@ -76,7 +78,7 @@ export function LogisticsPanel() {
     </div>
 
     {routeId && (
-      <div className="logistics-block cargo-editor">
+      <div className="logistics-block cargo-editor" role="group" aria-label="Gửi chuyến hàng">
         <h3>Gửi chuyến hàng</h3>
         <p className="hint">Xuất khẩu qua Thương cảng tính vào điểm kinh tế; hàng đến nơi sau thời gian vận chuyển.</p>
         <div className="cargo-grid">
@@ -99,14 +101,14 @@ export function LogisticsPanel() {
       <h3>Caravan đang chạy</h3>
       {activeCaravans.length === 0 && <p className="hint">Không có caravan nào đang di chuyển.</p>}
       {activeCaravans.map(caravan => (
-        <div className="caravan-row" key={caravan.id}>
+        <div className="caravan-row" data-testid="caravan-row" key={caravan.id}>
           <div>
             <span>{sourceName(caravan.sourceCityId)} → {destinationName(caravan)}</span>
             <span className="hint"> {Math.round(caravan.progress * 100)}% · còn {caravan.arrivesAt ? countdown(caravan.arrivesAt) : "…"}{caravan.cargo ? ` · hàng ${caravan.cargo.wood}g/${caravan.cargo.stone}đ/${caravan.cargo.iron}s` : ""}</span>
           </div>
           {!caravan.escortArmyId && myArmies.length > 0 && (
             <div className="escort-row">
-              <select value={escortId} onChange={event => setEscortId(event.target.value)}>
+              <select value={escortId} onChange={event => setEscortId(event.target.value)} aria-label="Quân hộ tống">
                 <option value="">Chọn quân hộ tống…</option>
                 {myArmies.map(army => <option value={army.id} key={army.id}>QĐ {gameRules.recruitment[army.unitType as keyof typeof gameRules.recruitment].name} ({army.strength})</option>)}
               </select>

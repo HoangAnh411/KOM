@@ -1,75 +1,178 @@
-:root { font-family: Inter, system-ui, sans-serif; color: #f4f7fb; background: #0e1b2d; font-synthesis: none; }
+@import "./styles/tokens.css";
+@import "./styles/primitives.css";
+
+:root { font-family: var(--kom-font-ui); color: var(--kom-text); background: var(--kom-bg-app); font-synthesis: none; }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; }
 main { height: 100vh; position: relative; overflow: hidden; }
 
-/* Phase 7C: desktop shell — top bar 56px, nav rail 64px, map center,
-   context panel 360px, action bar 72px. Below 1024px a notice replaces it. */
-.shell { height: 100vh; display: grid; grid-template-columns: 64px minmax(0, 1fr) 360px; grid-template-rows: 56px minmax(0, 1fr) 72px; }
-.top-bar { grid-column: 1 / -1; grid-row: 1; display: flex; align-items: center; gap: 1rem; padding: 0 1rem; background: #102238; border-bottom: 1px solid #45617d; z-index: 3; }
-.top-bar .brand { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.top-bar .resource-grid { margin-left: auto; margin-right: 1rem; }
-.season { color: #a9bfd5; font-size: .82rem; white-space: nowrap; }
+/* ── SITUATION ROOM SHELL ─────────────────────────────────────────────────────
+ * Five areas: a header that never collapses, three columns, and a command tray.
+ *
+ *   header header header
+ *   kingdom  map  activity
+ *   tray   tray   tray
+ *
+ * The two side columns are variable-width tracks, and the variable is the whole
+ * mechanism: `--kom-col-*` is 0 by default, a band promotes it to a real width,
+ * and `situation-room--<id>-closed` puts it back to 0. So a column has three
+ * states — flyout over the map, open track, collapsed track — and all three are
+ * one declaration apart. Nothing is unmounted and nothing is absolutely
+ * positioned, which is what keeps the map's own box the only thing Pixi has to
+ * follow (see `layout.ts` for why the band lives in CSS and the open/closed
+ * state lives in React).
+ *
+ * There is deliberately no transition on the track widths: animating them would
+ * fire the map's ResizeObserver on every frame of the animation and re-lay out a
+ * WebGL surface 60 times to save one instant of jump. */
+.situation-room {
+  height: 100%;
+  display: grid;
+  --kom-col-kingdom: 0px;
+  --kom-col-activity: 0px;
+  grid-template-columns: var(--kom-col-kingdom) minmax(0, 1fr) var(--kom-col-activity);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas: "header header header" "kingdom map activity" "tray tray tray";
+}
+/* Doubled on purpose: (0,2,0) beats every single-class rule below, so a closed
+   column collapses in every band regardless of source order. */
+.situation-room.situation-room--kingdom-closed { --kom-col-kingdom: 0px; }
+.situation-room.situation-room--activity-closed { --kom-col-activity: 0px; }
+
+.strategic-header { grid-area: header; position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: var(--kom-space-4) var(--kom-space-5); min-height: 56px; padding: var(--kom-space-3) var(--kom-space-5); background: var(--kom-bg-chrome); border-bottom: 1px solid var(--kom-border-strong); z-index: var(--kom-z-chrome); }
+.strategic-header .brand { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.strategic-header .brand span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.strategic-header .resource-grid { margin-left: auto; }
+.header-surfaces { display: flex; gap: var(--kom-space-2); }
+.header-toggle { color: var(--kom-text-muted); }
+/* The inset underline is what makes "open" readable without colour vision: tint
+   and text colour both change, but so does the shape of the control. */
+.header-toggle--on { color: var(--kom-primary); background: var(--kom-primary-tint); box-shadow: inset 0 -2px 0 currentColor; }
+.season { color: var(--kom-text-muted); font-size: .8rem; white-space: nowrap; }
 .connection-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: .76rem; font-weight: 700; white-space: nowrap; }
-.connection-dot { width: 8px; height: 8px; border-radius: 50%; background: #ffb03a; }
-.conn-online .connection-dot { background: #4caf7d; }
-.conn-reconnecting .connection-dot, .conn-connecting .connection-dot { background: #ffb03a; animation: conn-blink 1.1s steps(2, start) infinite; }
-.conn-offline .connection-dot { background: #ff5c57; }
+/* The connection pill is a state read three ways: the fill and text of a state
+   triple carry the pill, and its border step — the saturated one — is what an
+   8px dot needs to stay legible at that size. */
+.connection-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--kom-state-uncertain-border); }
+.conn-online .connection-dot { background: var(--kom-state-success-border); }
+.conn-reconnecting .connection-dot, .conn-connecting .connection-dot { background: var(--kom-state-uncertain-border); animation: conn-blink 1.1s steps(2, start) infinite; }
+.conn-offline .connection-dot { background: var(--kom-state-hostile-border); }
 @keyframes conn-blink { to { visibility: hidden; } }
-.conn-online { background: rgba(76, 175, 125, .18); color: #9be3b8; }
-.conn-reconnecting, .conn-connecting { background: rgba(255, 176, 58, .15); color: #ffd7a1; }
-.conn-offline { background: rgba(255, 92, 87, .16); color: #ffb3a7; }
-.link-button { background: none; color: #8fb0d0; padding: 0; font-size: inherit; }
-.frozen-banner { position: absolute; top: 62px; left: 50%; transform: translateX(-50%); z-index: 6; padding: 8px 14px; border: 1px solid #ff7676; border-radius: 8px; color: #ffd2d2; background: rgba(116, 24, 35, .92); font-size: .82rem; }
+.conn-online { background: var(--kom-state-success-fill); color: var(--kom-state-success-text); }
+.conn-reconnecting, .conn-connecting { background: var(--kom-state-uncertain-fill); color: var(--kom-state-uncertain-text); }
+/* Offline takes a lighter wash than the hostile chip: this pill sits on the top
+   bar, where the chip's deeper blood fill would read as an attack, not a status. */
+.conn-offline { background: var(--kom-hostile-tint); color: var(--kom-state-hostile-text); }
+.link-button { background: none; color: var(--kom-text-link); padding: 0; font-size: inherit; }
+/* Anchored to the header rather than to a hard 62px, because the header is now an
+   `auto` row that gains a line when the resource grid wraps at narrow widths. */
+.frozen-banner { position: absolute; top: calc(100% + var(--kom-space-2)); left: 50%; transform: translateX(-50%); z-index: var(--kom-z-alert); max-width: min(92vw, 560px); padding: 8px 14px; border: 1px solid var(--kom-state-frozen-border); border-radius: 8px; color: var(--kom-state-frozen-text); background: var(--kom-state-frozen-fill); font-size: .82rem; text-align: center; }
 
-.nav-rail { grid-column: 1; grid-row: 2; display: flex; flex-direction: column; gap: 4px; padding: 8px 6px; background: #0d1b2e; border-right: 1px solid #45617d; }
-.nav-rail button { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 8px 4px; font-size: .64rem; background: transparent; color: #a9bfd5; border-radius: 10px; }
-.nav-rail button:hover { background: rgba(255, 255, 255, .06); }
-.nav-rail button.nav-active { background: rgba(240, 209, 90, .14); color: #f0d15a; }
-.nav-icon { font-size: 1.25rem; line-height: 1; }
+/* The old 64px rail, folded into the kingdom column's sticky head. Same buttons,
+   same `nav-active` state, laid out as a row of four chips instead of a column of
+   four — which hands the map back the 64px the rail was holding. */
+.kingdom-nav { display: flex; gap: var(--kom-space-2); margin-top: var(--kom-space-3); }
+.kingdom-nav button { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: var(--kom-space-3) var(--kom-space-1); background: transparent; color: var(--kom-text-muted); border-radius: 10px; }
+.kingdom-nav button:hover { background: var(--kom-surface-hover); }
+.kingdom-nav button.nav-active { background: var(--kom-primary-tint); color: var(--kom-primary); }
+.nav-icon { font-size: 1.05rem; line-height: 1; }
+.nav-label { font-size: .6rem; font-weight: 700; letter-spacing: .01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
+/* The primitives layer rings `.kom-btn`, and the shell's raw <button>s — nav
+   chips, the map toolbar, the tray's inspector controls — would otherwise fall
+   back to the UA outline. Same token, so the ring looks identical everywhere. */
+.kingdom-nav button:focus-visible,
+.map-toolbar button:focus-visible,
+.command-tray button:focus-visible { outline: none; box-shadow: var(--kom-focus-ring); }
 
-.map { grid-column: 2; grid-row: 2; position: relative; overflow: hidden; }
+.map { grid-area: map; position: relative; overflow: hidden; }
 .map canvas { position: absolute; inset: 0; }
-.protocol-banner { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 5; padding: 10px 16px; border: 1px solid #ff8f5c; border-radius: 10px; background: rgba(92, 40, 8, .94); color: #ffe0c2; font-size: .85rem; }
+.protocol-banner { position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: var(--kom-z-banner); padding: 10px 16px; border: 1px solid var(--kom-state-protocol-blocked-border); border-radius: 10px; background: var(--kom-state-protocol-blocked-fill); color: var(--kom-state-protocol-blocked-text); font-size: .85rem; }
 
-.hud { grid-column: 3; grid-row: 2; overflow-y: auto; padding: 14px; border-left: 1px solid #45617d; background: rgba(13, 27, 46, .96); }
+/* Both side columns start life as flyouts: they share the map's grid cell, sit on
+   top of it at the chrome z-index, and pin to their own edge. A band promotes one
+   to a real track further down. Overlaying by grid area instead of by
+   `position: absolute` is what keeps the map's box — and so Pixi's viewport — the
+   single source of truth for how large the map is. */
+.kingdom-column, .activity-column { grid-area: map; z-index: var(--kom-z-chrome); width: min(320px, 100%); overflow-y: auto; overscroll-behavior: contain; background: var(--kom-bg-context); box-shadow: var(--kom-shadow-raised); }
+.kingdom-column { justify-self: start; padding: 0 var(--kom-space-5) var(--kom-space-5); border-right: 1px solid var(--kom-border-strong); }
+.activity-column { justify-self: end; display: flex; flex-direction: column; gap: var(--kom-space-5); padding: var(--kom-space-5); border-left: 1px solid var(--kom-border-strong); }
+/* `[hidden]` is only a UA rule, so the author `display` above would beat it. */
+.kingdom-column[hidden], .activity-column[hidden] { display: none; }
+/* The city you are looking at and the jump chips are the column's own header, not
+   its first panel: they stay put while the panels scroll under them. */
+.kingdom-column__head { position: sticky; top: 0; z-index: 1; margin: 0 calc(var(--kom-space-5) * -1); padding: var(--kom-space-4) var(--kom-space-5) var(--kom-space-3); background: var(--kom-bg-rail); border-bottom: 1px solid var(--kom-border-strong); }
+/* Stacked, not the old baseline row: at 288px the city name and the subtitle
+   side by side left the name ~130px, so every second city wrapped to two lines
+   and the sticky head changed height with the city you were looking at. */
+.kingdom-column__head .hud-title { flex-direction: column; align-items: flex-start; gap: 0; }
+/* The three build shortcuts are laid out for a 360px panel. In a 288px track,
+   three `flex: 1` buttons are 72px wide and "Xây trạm trung chuyển" breaks into
+   four lines, so the row wraps two-up instead. */
+.kingdom-column .actions { flex-wrap: wrap; gap: var(--kom-space-3); }
+.kingdom-column .actions button { flex: 1 1 46%; padding: 8px 6px; font-size: .74rem; }
+/* `revealPanel` scrolls with `block: "start"`, which would tuck the target under
+   that sticky head without this. 118px clears the head measured in a browser at
+   the narrowest track (114px) — title, subtitle and the four nav chips. */
+.kingdom-column > * { scroll-margin-top: 118px; }
 .hud-title { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .hud-title h2 { margin: 0; }
 .hud-frozen .actions, .hud-frozen .alliance-panel, .hud-frozen .espionage-panel, .hud-frozen .diplomacy-panel, .hud-frozen .city-panel, .hud-frozen .logistics-panel, .hud-frozen .army-panel { pointer-events: none; opacity: .5; }
+/* Bridge: `.hud section` is more specific than `.kom-panel`, so a migrated panel
+   would take the old sheet's padding and lose the header/body/footer model. This
+   keeps the column's rhythm and hands padding back to the primitive. It goes away
+   with `.hud section` once the column is assembled from panels. */
+.hud .kom-panel { margin-top: 1rem; padding: 0; }
 
-.action-bar { grid-column: 1 / -1; grid-row: 3; display: flex; align-items: center; gap: .75rem; padding: 0 1rem; z-index: 3; }
-.map-inspector { background: #102238; border-top: 1px solid #45617d; }
+/* Row 3: the contextual command area. The selection inspector is its left half —
+   the same region with the same accessible name, moved out of a floating bar into
+   a full-width row so ordering a move no longer covers the tile being aimed at.
+   The right half is the reserved slot PR5 fills; it holds the height now so the
+   tray does not grow later. */
+.command-tray { grid-area: tray; display: flex; align-items: stretch; min-height: 60px; background: var(--kom-bg-chrome); border-top: 1px solid var(--kom-border-strong); z-index: var(--kom-z-chrome); }
+.command-tray__context { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: var(--kom-space-5); padding: var(--kom-space-3) var(--kom-space-6); }
+.command-tray__reserved { display: none; }
 .map-inspector strong { white-space: nowrap; }
 .map-inspector .hint { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .map-inspector-actions { display: flex; gap: .4rem; align-items: center; }
 .map-inspector-actions select { max-width: 260px; }
 .map-inspector button { padding: 6px 10px; font-size: .78rem; }
-.map-inspector-hint { display: inline-flex; flex-direction: row; align-items: center; gap: .6rem; color: #ffe9a3; }
+.map-inspector-hint { display: inline-flex; flex-direction: row; align-items: center; gap: .6rem; color: var(--kom-primary-soft); }
 
-.viewport-notice { height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1rem; text-align: center; padding: 2rem; }
-.viewport-notice h1 { font-size: 1.8rem; margin: 0; }
+/* The activity column is a placeholder surface until PR4 gives it a real feed, so
+   the skeleton is flat and static: a shimmer here would animate fake content and
+   read as loading, when in truth there is nothing to load yet. */
+.activity-panel { flex: none; }
+.activity-skeleton { list-style: none; margin: var(--kom-space-4) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--kom-space-4); }
+.activity-skeleton li { display: flex; align-items: center; gap: var(--kom-space-4); }
+.activity-skeleton__dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--kom-surface-chip); }
+.activity-skeleton__line { flex: 1; height: 8px; border-radius: 999px; background: var(--kom-surface-chip); }
+.activity-skeleton li:nth-child(2n) .activity-skeleton__line { max-width: 74%; }
+.activity-skeleton li:nth-child(3n) .activity-skeleton__line { max-width: 56%; }
+.activity-empty { margin: var(--kom-space-3) 0 0; color: var(--kom-text-hint); font-size: .85rem; }
 
-.resource-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }.resource-grid div { background: #1b3854; border-radius: 8px; padding: 8px 5px; text-align: center; }.resource-grid span { display: block; color: #a9bfd5; font-size: .7rem; text-align: center; text-transform: uppercase; }.resource-grid strong { font-size: .95rem; }
-h1 { margin-top: 0; font-size: 1.6rem; } h2 { font-size: 1rem; margin-bottom: 6px; } p { color: #c6d3df; font-size: .88rem; }
-button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font: inherit; } button { color: #092034; background: #f0d15a; cursor: pointer; font-weight: 700; } button:disabled { cursor: not-allowed; opacity: .45; }.actions { display: flex; gap: 8px; }.actions button { flex: 1; font-size: .78rem; }
-.scores { display: flex; justify-content: space-between; padding: 10px; background: #1b3854; border-radius: 8px; }.login-card { position: absolute; z-index: 2; top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(420px, calc(100vw - 32px)); display: grid; gap: 12px; padding: 26px; border-radius: 18px; background: #102238; border: 1px solid #45617d; }.login-card input, .login-card select { color: #f4f7fb; background: #1b3854; }.toast { position: fixed; right: 18px; bottom: 86px; z-index: 7; padding: 12px 16px; border-radius: 10px; background: #6b292b; color: #ffb3a7; box-shadow: 0 10px 26px rgba(0, 0, 0, .4); pointer-events: none; }
-.toast-info { background: #1b4a6b; color: #dcefff; border: 1px solid #3d7fa8; }
-.logistics-panel { margin-top: 12px; padding-top: 10px; border-top: 1px solid #45617d; }.logistics-panel button { margin: 3px; padding: 7px 8px; font-size: .72rem; }
-.event-row, .vote-card { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; margin: 6px 0; padding: 8px; border-left: 3px solid #ff5c57; background: rgba(255,255,255,.05); }.event-gold_rush { border-color: #7dff72; }.event-plague { border-color: #c26cff; }.governance-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }.governance-row { display: flex; gap: 6px; }.governance-actions button, .vote-card button, .alliance-panel li button { padding: 5px 7px; font-size: .68rem; }.archive-panel details { margin-top: 7px; color: #c6d3df; }
-.modal-backdrop { position: fixed; inset: 0; z-index: 8; display: flex; align-items: center; justify-content: center; background: rgba(2, 8, 16, .66); }
-.map-toolbar { position: absolute; top: 12px; right: 12px; z-index: 2; }.map-toolbar button { font-size: .78rem; padding: 8px 12px; }
-.modal-card { width: min(440px, calc(100vw - 32px)); max-height: 80vh; overflow-y: auto; padding: 20px; border: 1px solid #45617d; border-radius: 16px; background: #102238; box-shadow: 0 14px 40px rgba(0,0,0,.4); }
-.report-meta { color: #a9bfd5; }.report-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }.report-side { padding: 10px; border-radius: 10px; background: #1b3854; }.report-side p { margin: 4px 0; font-size: .8rem; }.report-rounds { margin-top: 8px; color: #c6d3df; }.report-rounds summary { cursor: pointer; }
-.reputation-cost { color: #ffd2d2; background: rgba(116, 24, 35, .55); border: 1px solid #ff7676; border-radius: 8px; padding: 8px 10px; }
-.destructive { background: #b03a3a; color: #ffe3dd; }
+.resource-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }.resource-grid div { background: var(--kom-surface-raised); border-radius: 8px; padding: 8px 5px; text-align: center; }.resource-grid span { display: block; color: var(--kom-text-muted); font-size: .7rem; text-align: center; text-transform: uppercase; }.resource-grid strong { font-size: .95rem; }
+h1 { margin-top: 0; font-size: 1.6rem; } h2 { font-size: 1rem; margin-bottom: 6px; } p { color: var(--kom-text-body); font-size: .88rem; }
+button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font: inherit; } button { color: var(--kom-on-primary); background: var(--kom-primary); cursor: pointer; font-weight: 700; } button:disabled { cursor: not-allowed; opacity: .45; }.actions { display: flex; gap: 8px; }.actions button { flex: 1; font-size: .78rem; }
+.scores { display: flex; justify-content: space-between; padding: 10px; background: var(--kom-surface-raised); border-radius: 8px; }.login-card { position: absolute; z-index: var(--kom-z-map-overlay); top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(420px, calc(100vw - 32px)); display: grid; gap: 12px; padding: 26px; border-radius: 18px; background: var(--kom-bg-chrome); border: 1px solid var(--kom-border-strong); }.login-card input, .login-card select { color: var(--kom-text); background: var(--kom-surface-raised); }.toast { position: fixed; right: 18px; bottom: 86px; z-index: var(--kom-z-toast); padding: 12px 16px; border-radius: 10px; background: var(--kom-state-rejected-fill); color: var(--kom-state-rejected-text); box-shadow: var(--kom-shadow-raised); pointer-events: none; }
+.toast-info { background: var(--kom-info-fill); color: var(--kom-info-text); border: 1px solid var(--kom-info-border); }
+.logistics-panel { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--kom-border-strong); }.logistics-panel button { margin: 3px; padding: 7px 8px; font-size: .72rem; }
+.event-row, .vote-card { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; margin: 6px 0; padding: 8px; border-left: 3px solid var(--kom-hostile); background: var(--kom-surface-wash); }.event-gold_rush { border-color: var(--kom-event-boon); }.event-plague { border-color: var(--kom-event-blight); }.governance-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }.governance-row { display: flex; gap: 6px; }.governance-actions button, .vote-card button, .alliance-panel li button { padding: 5px 7px; font-size: .68rem; }.archive-panel details { margin-top: 7px; color: var(--kom-text-body); }
+.modal-backdrop { position: fixed; inset: 0; z-index: var(--kom-z-modal); display: flex; align-items: center; justify-content: center; background: var(--kom-scrim); }
+.map-toolbar { position: absolute; top: 12px; right: 12px; z-index: var(--kom-z-map-overlay); }.map-toolbar button { font-size: .78rem; padding: 8px 12px; }
+.modal-card { width: min(440px, calc(100vw - 32px)); max-height: 80vh; overflow-y: auto; padding: 20px; border: 1px solid var(--kom-border-strong); border-radius: 16px; background: var(--kom-bg-chrome); box-shadow: var(--kom-shadow-modal); }
+.report-meta { color: var(--kom-text-muted); }.report-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }.report-side { padding: 10px; border-radius: 10px; background: var(--kom-surface-raised); }.report-side p { margin: 4px 0; font-size: .8rem; }.report-rounds { margin-top: 8px; color: var(--kom-text-body); }.report-rounds summary { cursor: pointer; }
+/* The one surface that quotes a price in reputation: the frozen banner's edge and
+   ink over the hostile chip's lighter wash, so it reads as a cost, not a state. */
+.reputation-cost { color: var(--kom-state-frozen-text); background: var(--kom-state-hostile-fill); border: 1px solid var(--kom-state-frozen-border); border-radius: 8px; padding: 8px 10px; }
+.destructive { background: var(--kom-hostile-deep); color: var(--kom-on-hostile); }
 
 /* Panels (city & logistics & army) */
-.hud section, .hud .logistics-panel, .hud .city-panel { margin-top: 1rem; padding: 1rem; background: rgba(0,0,0,0.2); border-radius: 12px; }
-.hint { color: #9fb8d1; font-size: .85em; line-height: 1.45; margin: .3rem 0; }
-.validation-reason { color: #ffb3a7; }
+.hud section, .hud .logistics-panel, .hud .city-panel { margin-top: 1rem; padding: 1rem; background: var(--kom-surface); border-radius: 12px; }
+.hint { color: var(--kom-text-hint); font-size: .85em; line-height: 1.45; margin: .3rem 0; }
+.validation-reason { color: var(--kom-hostile-soft); }
 .city-panel h2, .logistics-panel h2 { font-size: 1rem; margin: 0 0 .6rem; }
-.city-panel h3, .logistics-panel h3 { font-size: .9rem; margin: 0 0 .5rem; color: #cfe0f0; }
-.building-row, .node-row, .route-row, .caravan-row { padding: .5rem .4rem; border-top: 1px solid rgba(255,255,255,.08); display: flex; flex-direction: column; gap: .3rem; }
+.city-panel h3, .logistics-panel h3 { font-size: .9rem; margin: 0 0 .5rem; color: var(--kom-text-heading); }
+.building-row, .node-row, .route-row, .caravan-row { padding: .5rem .4rem; border-top: 1px solid var(--kom-border-subtle); display: flex; flex-direction: column; gap: .3rem; }
 .building-row:first-of-type { border-top: none; }
 .building-title { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; }
 .building-build { align-self: flex-start; }
@@ -79,38 +182,65 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
 .cargo-grid { display: flex; gap: .6rem; flex-wrap: wrap; margin: .5rem 0; }
 .cargo-grid label { display: inline-flex; gap: .35rem; align-items: center; }
 .cargo-grid strong { min-width: 1.6rem; text-align: center; }
-.export-note { border: 1px dashed #8a6d3b; }
+.export-note { border: 1px dashed var(--kom-border-accent); }
 
 /* Army panel */
-.army-row { padding: .5rem .4rem; border-top: 1px solid rgba(255,255,255,.08); display: flex; flex-direction: column; gap: .35rem; }
+.army-row { padding: .5rem .4rem; border-top: 1px solid var(--kom-border-subtle); display: flex; flex-direction: column; gap: .35rem; }
 .army-row:first-of-type { border-top: none; }
 .army-title, .army-stats, .army-actions { display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; }
 .army-actions select, .army-actions button { font-size: .8rem; }
-.low-supply { color: #ff9d66; font-weight: 700; }
+.low-supply { color: var(--kom-supply-low); font-weight: 700; }
 .army-panel-footer { margin-top: .5rem; display: flex; gap: .4rem; flex-wrap: wrap; }
 .recruit-choice { display: flex; gap: .5rem; align-items: flex-start; margin: .4rem 0; }
 .modal-actions { display: flex; gap: .5rem; justify-content: flex-end; margin-top: .8rem; }
 
 /* Onboarding & advanced drawer */
-.drawer { margin-top: 1rem; padding: .8rem 1rem; background: rgba(0,0,0,0.2); border-radius: 12px; }
-.drawer summary { cursor: pointer; font-weight: 600; color: #cfe0f0; }
-.drawer summary::marker { color: #8fb0d0; }
-.onboarding-panel { margin-top: 1rem; padding: 1rem; background: rgba(0,0,0,0.2); border-radius: 12px; border-left: 3px solid #d8963f; }
-.onboarding-panel.onboarding-done { border-left-color: #4caf7d; }
+.drawer { margin-top: 1rem; padding: .8rem 1rem; background: var(--kom-surface); border-radius: 12px; }
+.drawer summary { cursor: pointer; font-weight: 600; color: var(--kom-text-heading); }
+.drawer summary::marker { color: var(--kom-text-link); }
+.onboarding-panel { margin-top: 1rem; padding: 1rem; background: var(--kom-surface); border-radius: 12px; border-left: 3px solid var(--kom-primary-deep); }
+.onboarding-panel.onboarding-done { border-left-color: var(--kom-allied); }
 .onboarding-list { list-style: none; margin: .5rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .35rem; }
 .onboarding-list li { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
-.step-dot, .step-check { width: 1.15rem; height: 1.15rem; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: .72rem; background: rgba(255,255,255,.12); flex: none; }
-.step-check { background: #1e5631; color: #9be3b8; }
-.step-done .step-label { color: #7fa28f; text-decoration: line-through; }
+.step-dot, .step-check { width: 1.15rem; height: 1.15rem; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: .72rem; background: var(--kom-surface-chip); flex: none; }
+.step-check { background: var(--kom-allied-deep); color: var(--kom-allied-soft); }
+.step-done .step-label { color: var(--kom-allied-muted); text-decoration: line-through; }
 .step-actions { display: inline-flex; gap: .35rem; margin-left: auto; }
 .step-actions button { font-size: .78rem; padding: .2rem .5rem; }
 .spy-launch { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: .5rem; }
+/* Inside a panel footer the row *is* the action band, so the footer owns the
+   spacing and the row takes the full width its selects were sized against. */
+.kom-panel__footer .spy-launch { flex: 1; margin-bottom: 0; }
 .spy-launch select { flex: 1; min-width: 100px; }
-.spy-mission { display: flex; gap: .5rem; align-items: baseline; flex-wrap: wrap; padding: .3rem 0; border-top: 1px solid rgba(255,255,255,.08); }
+.spy-mission { display: flex; gap: .5rem; align-items: baseline; flex-wrap: wrap; padding: .3rem 0; border-top: 1px solid var(--kom-border-subtle); }
 .spy-mission:first-of-type { border-top: none; }
 
 /* Pending command strip */
-.pending-strip { margin-top: 1rem; padding: .8rem 1rem; background: rgba(0,0,0,0.25); border-radius: 12px; }
-.pending-strip h3 { font-size: .85rem; margin: 0 0 .4rem; color: #cfe0f0; }
+.pending-strip { margin-top: 1rem; padding: .8rem 1rem; background: var(--kom-surface-sunken); border-radius: 12px; }
+.pending-strip h3 { font-size: .85rem; margin: 0 0 .4rem; color: var(--kom-text-heading); }
 .pending-row { display: flex; justify-content: space-between; align-items: center; gap: .5rem; font-size: .8rem; padding: .3rem 0; }
 .pending-row button { padding: 3px 8px; font-size: .72rem; }
+
+/* ── BANDS ────────────────────────────────────────────────────────────────────
+ * The same two numbers as `layoutBreakpoints` in `layout.ts`, which
+ * `layout.test.ts` checks against this file as text so the pair cannot drift.
+ *
+ * Each band *promotes* a flyout into a grid track. Written that way — base rules
+ * are the flyout, media rules are the track — the cascade needs no specificity
+ * bump anywhere, only source order, and the compact case is the one that needs no
+ * query at all. */
+@media (min-width: 1024px) {
+  .situation-room { --kom-col-kingdom: 288px; }
+  .kingdom-column { grid-area: kingdom; width: 100%; box-shadow: none; }
+  .command-tray__reserved { display: flex; flex: 0 0 auto; align-items: center; max-width: 34%; margin: 0; padding: var(--kom-space-3) var(--kom-space-6); border-left: 1px dashed var(--kom-border-accent); color: var(--kom-text-hint); font-size: .78rem; }
+}
+
+@media (min-width: 1440px) {
+  .situation-room { --kom-col-activity: 320px; }
+  .activity-column { grid-area: activity; width: 100%; box-shadow: none; }
+  .strategic-header { min-height: 60px; gap: var(--kom-space-4) var(--kom-space-6); padding: var(--kom-space-3) var(--kom-space-6); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .conn-reconnecting .connection-dot, .conn-connecting .connection-dot { animation: none; }
+}
