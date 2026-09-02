@@ -113,6 +113,12 @@ docker compose --env-file .env.prod -f infra/docker-compose.prod.yml -f infra/do
 - `TEST_DATABASE_URL=... ./infra/backup/restore.sh <dump>` — restore vào database mới (`*_test`), chạy `db:migrate:check` và smoke bootstrap (game_state + users + outbox). Yêu cầu stack prod đang chạy.
 - Restore drill phải thực hiện trước closed beta và mỗi tháng; ghi kết quả (file, thời gian, kết quả) vào runbook.
 
+### Kết quả drill
+
+- **2026-09-02** — `npm run drill:web-beta`; báo cáo đầy đủ: [`infra/backup/drill-report.md`](../infra/backup/drill-report.md). 3/3 pass: Redis kill, game kill (outbox chạy độc lập), backup → drop → restore. RPO 0 ms — sentinel row ghi vào `event_ledger` *trước* khi dump vẫn còn sau restore; RTO 5795 ms so với ngưỡng 30 phút.
+- Kỳ hạn kế tiếp: **2026-10-02** (cadence hằng tháng ở trên).
+- Giới hạn của lần drill này: `scripts/drill-web-beta.mjs:120` gọi `docker compose exec postgres pg_dump -f /tmp/dump.sql`, **không** chạy `infra/backup/backup.sh` / `restore.sh`. Vậy nên hai script ở trên — custom format, retention 7 daily + 4 weekly, checksum/size vào `backup.log`, guard `BACKUP_ALLOW_LOCAL` — vẫn chưa được kiểm chứng lần nào; drill tháng sau nên đi qua đúng hai script đó để tick được cả đường cron thật.
+
 ## Load test (Phase 7A)
 
 Môi trường cô lập trên database hậu tố `_loadtest`:
