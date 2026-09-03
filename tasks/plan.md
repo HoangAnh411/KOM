@@ -8,7 +8,7 @@
 
 Người lập kế hoạch này là **contributor**, không phải owner. **Phase 7D đã landing** ở `f6085a4` (2026-09-02, local `main` == `origin/main`): production/beta hardening — `verify:web-beta`, `scripts/smoke-prod.mjs`, `scripts/drill-web-beta.mjs`, rate limiter fail-closed (503 `DEPENDENCY_UNAVAILABLE`), Caddy security headers, auth-failure metrics, broadcast coalesce. Chi tiết ở mục "Phase 7D đã landing" của `tasks/todo.md`. 7D **không** chạm gameplay, không chạm nhóm P0 và **không sửa dòng nào của `docs/ROADMAP.md`**.
 
-**Cập nhật 2026-09-03 — công việc đã ra khỏi một máy.** Toàn bộ commit sau `f6085a4` đã được push và nằm ở **năm PR chưa merge**: #1 `feat/situation-room` (base `main`, 4 commit) → #2 `docs/truth-pass` (base #1, 4 commit) → #3 `feat/rate-limit-buckets` (base #2, 8 commit) → **#5 `perf/command-path`** (base #3, 6 commit: Z.5 + B.1a + P0.2 + P0.3a + P0.3b + docs), cộng #4 `fix/postgres-test-isolation` (base `main`, 1 commit) sửa race làm CI gate 5 đỏ ngẫu nhiên. `main` vẫn đứng ở `f6085a4`; không nhánh nào được merge. Hai gate CI hiện đỏ **không theo quy luật** và cả hai đã chứng minh là flake **có sẵn trên `main`**, không phải regression của stack: gate 5 (`test:postgres` — các file integration chạy song song trên cùng một database, một file `TRUNCATE` giữa assertion của file khác) → PR #4 là bản sửa; gate 7 (Playwright — `map-command.spec.ts` click phải NPC `mob_migration` đứng cùng ô nên inspector hiện NPC thay vì "Bộ binh · 10") **chưa có PR**. Hai job Docker `prod-smoke` / `recovery-drill` không chạy từ push nhánh PR nên vẫn **chưa quan sát được lần nào**; cần `workflow_dispatch`.
+**Cập nhật 2026-09-03 — công việc đã ra khỏi một máy.** Toàn bộ commit sau `f6085a4` đã được push và nằm ở **bảy PR chưa merge**: #1 `feat/situation-room` (base `main`, 4 commit) → #2 `docs/truth-pass` (base #1, 4 commit) → #3 `feat/rate-limit-buckets` (base #2, 8 commit) → **#5 `perf/command-path`** (base #3, 6 commit: Z.5 + B.1a + P0.2 + P0.3a + P0.3b + docs) → **#6 `feat/hud-overhaul`** (base #5, 8 commit: UI-1…UI-7 + docs, cộng `1d9acc1` sửa flake gate 7) → **#7 `feat/espionage-misinformation`** (base #6, C.1), cộng #4 `fix/postgres-test-isolation` (base `main`, 1 commit) sửa race làm CI gate 5 đỏ ngẫu nhiên. `main` vẫn đứng ở `f6085a4`; không nhánh nào được merge. Hai gate CI hay đỏ **không theo quy luật** và cả hai đã chứng minh là flake **có sẵn trên `main`**, không phải regression của stack: gate 5 (`test:postgres` — các file integration chạy song song trên cùng một database, một file `TRUNCATE` giữa assertion của file khác) → PR #4 là bản sửa; gate 7 (Playwright — `map-command.spec.ts` click phải NPC `mob_migration` đứng cùng ô) → **đã sửa ở `1d9acc1`**, nguyên nhân thật là `pickAt()` để thứ tự `snapshot.armies` phân xử thế hoà khoảng cách. Hai job Docker `prod-smoke` / `recovery-drill` không chạy từ push nhánh PR nên chỉ quan sát được qua `workflow_dispatch`.
 
 Mục tiêu ban đầu của tài liệu: mỗi mục `- [ ]` còn lại có một task với acceptance criteria, cách verify và dependency. Bản cập nhật này thêm phần còn thiếu: **thứ tự thực thi** (mục ngay dưới) và nhóm Z — việc phát sinh từ trạng thái thật của repo chứ không từ roadmap.
 
@@ -217,7 +217,7 @@ A.1 [204] manual acceptance ──> đóng Phase 7C
 
 D.1 [130] domain repos ──> D.2 [131] shard kingdom_id ──> D.3 [132] stateless gateway
                                                               └──> D.4 [77] battle worker
-C.1 misinformation (độc lập)
+C.1 misinformation (độc lập) ✅
 C.2 [89] chat/mail/moderation (độc lập; tái dùng ban/frozen sẵn có)
 
 E.3-pre band compact (rẻ, độc lập) ──> E.3 [215] touch/safe-area/viewport
@@ -399,7 +399,7 @@ Scenario `commands` trong `e2e/loadtest/loadtest.js` chạy `constant-arrival-ra
 - [X] `check:bundle` ≤ 500 KiB/chunk — 6/6 chunk trong hạn, lớn nhất `pixi` **465.0 KiB**
 - [X] `test:postgres` báo cáo là **skipped ở máy này** (không có Docker / `DATABASE_URL`) → **không** khẳng định `verify:web-alpha` xanh dựa trên máy contributor; 15 test server skip chính là gate đó. Nó **đã xanh trên CI** (gate 5, run `33707700712` + `33707793916`) — đó là chỗ duy nhất quan sát được, và cũng là phần phủ đúng `store.ts`/`event-ledger.ts` mà P0.2/P0.3 sửa
 - [X] `gh workflow run` để `prod-smoke` + `recovery-drill` có lần quan sát đầu tiên — **xong 2026-09-03**, run `33707793916` (`workflow_dispatch`, ref `perf/command-path`): `verify` 10/10 gate, `prod-smoke` **xanh** (compose prod build thật, `password-auth` 1/1), `recovery-drill` **xanh** (3/3 drill, RPO 0 ms, RTO **4439 ms**, artifact `drill-report`). Kết quả đã vào `docs/OPERATIONS.md` mục "Kết quả drill" và `docs/ROADMAP.md` section 7D
-- [ ] Còn lại cho owner: P0.4 (sức chứa map), S-9, xác nhận S-1 trên stack Caddy thật, S-7, S-8, flake gate 7, thứ tự merge 5 PR, và `infra/backup/backup.sh`/`restore.sh` vẫn chưa được kiểm chứng lần nào (drill đi qua `pg_dump` trực tiếp)
+- [ ] Còn lại cho owner: P0.4 (sức chứa map), S-9, xác nhận S-1 trên stack Caddy thật, S-7, S-8, thứ tự merge **7** PR, và `infra/backup/backup.sh`/`restore.sh` vẫn chưa được kiểm chứng lần nào (drill đi qua `pg_dump` trực tiếp). Flake gate 7 **không còn trong danh sách này** — đã sửa ở `1d9acc1`
 
 ## Nhóm A — Đóng Phase 7C
 
@@ -690,33 +690,35 @@ Phần còn lại, mỗi mục là **một lỗi đã xác định**, không ph�
 | Touch pan/zoom trên map, safe-area inset | **E.3** (Phase 8) — cần project e2e mobile riêng, khác scope desktop HUD |
 | Đổi palette / art direction / asset thật | **G.1** cần owner chốt art style guide trước |
 | Thêm command server mới cho tray | Cố ý: UI-6 chỉ nhóm lại lệnh đã có. Command mới là gameplay, không phải UI |
-| `misinformation` trong drawer espionage | **C.1**, cần server trước |
+| `misinformation` trong drawer espionage | **C.1**, cần server trước — đã xong ở `fb27af7`: picker và câu chi phí suy từ `launchableSpyMissionTypes`, nên không phải sửa drawer lần nữa khi thêm mission type |
 | Sức chứa map | **P0.4** — owner quyết (OQ #2), không liên quan UI |
 | Primitive `Select` thay `<select>` thô | Làm ở đuôi UI-3 nếu rẻ; nếu phải thêm >1 rule CSS mới thì tách task riêng để `emitted.size` của `ui-primitives.test.ts` không bị nới lỏng vội |
 
 ## Nhóm C — Feature debt
 
-### C.1 — Espionage misinformation (caveat dòng 99 + "Bước tiếp theo" #1)
+### C.1 — Espionage misinformation (caveat dòng 99 + "Bước tiếp theo" #1) ✅ `fb27af7`
 
 `docs/GAME-DESIGN.md:65` yêu cầu "Sabotage/misinformation luôn ghi audit event và có counter-intelligence" nhưng `misinformation` **không tồn tại trong code**: `spyMissionTypes` (shared dòng 202) chỉ có `scout`, `sabotage`, `steal`, `counter_intel`. Baseline số liệu cũng chưa định nghĩa → phải chốt trong `GAME-DESIGN.md` cùng PR.
 
 **Thiết kế đề xuất:** mission `misinformation` do A cắm lên B. Khi thành công, mọi `scout` của B nhắm vào A trong thời gian hiệu lực trả số liệu bị bóp méo, deterministic theo `hash(mission.id)` giống ambush/sabotage đang làm; hết hạn tự động; bị `counter_intel` của B chặn với cùng xác suất 30% / 52% Veiled như các mission khác.
 
 **Acceptance criteria:**
-- [ ] `spyMissionTypes` + `launchSpyCommandSchema` (shared dòng 315) nhận `misinformation`; `spyMissionConfig` có cost/duration/cooldown/baseAccuracy
-- [ ] `espionage.tick()` resolve `misinformation`; `resolve()` áp méo lên nhánh `scout` khi hiệu lực còn
-- [ ] Ghi event ledger (audit) và bị intercept bởi counter-intel
-- [ ] Hiệu lực hết hạn deterministic và persist qua restart
-- [ ] Client hiện mission type mới trong drawer espionage
-- [ ] Số liệu mới ghi vào mục "Phase 5 implementation baseline" của `docs/GAME-DESIGN.md`; xoá chữ "misinformation còn thiếu" ở roadmap dòng 99
+- [X] `spyMissionTypes` + `launchSpyCommandSchema` (shared dòng 315) nhận `misinformation`; `spyMissionConfig` có cost/duration/cooldown/baseAccuracy — 120 sắt, 540s, 1800s, 0.45. Enum của schema lấy từ `launchableSpyMissionTypes` (`satisfies ReadonlyArray<Exclude<SpyMissionType, "counter_intel">>`) nên picker của client và validator của server **không thể lệch nhau**
+- [X] `espionage.tick()` resolve `misinformation`; `resolve()` áp méo lên nhánh `scout` khi hiệu lực còn — hệ số `1 ± (0.25 + accuracy × 0.5)`, **dấu** từ `hash(mission.id)`: méo một chiều thì đối thủ chỉ cần chia đôi mọi report là vô hiệu hoá nó
+- [X] Ghi event ledger (audit) và bị intercept bởi counter-intel — audit áp cho **mọi** mission type (`spy.<missionType>.<status>`) cộng `spy.misinformation.consumed` kèm hệ số, vì kết quả resolve trong `tick()` khi không còn command nào để command path ghi hộ. Đóng luôn nửa "sabotage" của yêu cầu cũ; giá là **một dòng** `store.ts` (tạo `EventLedger` trước espionage để inject được) — ngoài danh sách file dưới đây
+- [X] Hiệu lực hết hạn deterministic và persist qua restart — hạn dùng nằm trong `report` (JSONB đã persist + đã reload) nên **không cần migration**; tính từ `completesAt` của mission và so với `completesAt` của scout, không phải `Date.now()`, nên tick muộn không đổi kết quả. `setPlayerFrozen` đẩy hạn ra bằng đúng thời gian bị ban
+- [X] Client hiện mission type mới trong drawer espionage — `<select>` và câu chi phí đều suy từ `launchableSpyMissionTypes`; người bị lừa không thấy dấu hiệu nào, dòng "tin giả còn hiệu lực" chỉ actor đọc được nhờ per-viewer filter `app.ts:110`
+- [X] Số liệu mới ghi vào mục "Phase 5 implementation baseline" của `docs/GAME-DESIGN.md`; xoá chữ "misinformation còn thiếu" ở roadmap dòng 99 (nay là 103) và bỏ mục "Bước tiếp theo" #1 đã xong
 
 **Verification:**
-- [ ] `npm test -w @kingdoms/server` — case mới trong `espionage.test.ts`: success, intercepted, expiry, scout bị méo
-- [ ] `npm run test:postgres` — persist qua restart
-- [ ] `npm run verify:web-alpha`
+- [X] `npm test -w @kingdoms/server` — 8 case mới trong `espionage.test.ts`: success, intercepted, expiry, scout bị méo (cả chiều đọc thấp), unfreeze, audit. Id bị ghi đè `misinfo-1` / `misinfo-2` / `lie-6` để hash ra kết quả biết trước → known-answer, không phải tung xúc xắc. Server **141 → 149** (134 pass + 15 skip, số skip không đổi); shared 3, client 148; typecheck sạch; `build` + `check:bundle` 6/6 ≤ 500 KiB; e2e **28/28** một lần chạy trên 3100/5174
+- [ ] `npm run test:postgres` — persist qua restart: **skipped ở máy này** (không Docker, không `DATABASE_URL`). Đây là bản đầu tiên của stack có sửa file server, nên gate 5 CI là chỗ duy nhất kiểm được việc `espionage_actions.report` sống qua restart
+- [ ] `npm run verify:web-alpha` — **không** khẳng định xanh từ máy contributor; chờ CI của PR
+
+**Bug có sẵn tìm được trên đường đi:** nhánh `scout` trả `buildings: city.buildings` **theo tham chiếu** — một report cũ tự viết lại chính nó khi thành xây thêm, không ai thấy vì con số vẫn "đúng". Giờ luôn copy, méo hay không.
 
 **Dependencies:** None · **Scope:** M
-**Files:** `packages/shared/src/index.ts`, `apps/server/src/espionage.ts`, `apps/server/src/espionage.test.ts`, drawer espionage ở `apps/client/src/`, `docs/GAME-DESIGN.md`
+**Files:** `packages/shared/src/index.ts`, `apps/server/src/espionage.ts`, `apps/server/src/espionage.test.ts`, `apps/server/src/store.ts` (1 dòng, ngoài dự kiến — xem tiêu chí audit), `apps/client/src/vocabulary.ts`, `apps/client/src/components/EspionagePanel.tsx`, `docs/GAME-DESIGN.md`, `docs/ROADMAP.md`
 
 ### C.2 — [89] Chat, mail và moderation boundary
 
@@ -741,7 +743,7 @@ L-sized → tách thành 3 PR:
 **Files:** migration mới trong `infra/migrations/`, module mới trong `apps/server/src/`, `app.ts`, panel mới ở client, `docs/API.md`, `docs/DATABASE.md`
 
 ### Checkpoint 3 — sau C.1 + C.2
-- [ ] Dòng 89 tick; caveat misinformation ở dòng 99 xoá
+- [ ] Dòng 89 tick (C.2 chưa mở); caveat misinformation ở dòng 99 **đã xoá** ở `fb27af7`, nên nửa C.1 của checkpoint này đóng — Phase 5 hết caveat
 - [ ] `verify:web-alpha` xanh, có e2e cho chat/mail
 
 ## Nhóm D — Kiến trúc scale (XL, cần owner chốt hướng)
@@ -928,7 +930,7 @@ Ba mục đầu xong trong `4817d1a`; kết luận của mục 1 khác đề bà
 - [X] `infra/migrations/README.md` dừng ở `011` → phát hiện thêm: hướng dẫn `psql -f` từng file **bỏ qua runner của 7A**, để `schema_migrations` rỗng và khiến `db:migrate:check` báo toàn bộ pending. README giờ chỉ sang `npm run db:migrate`, giữ manifest `001`–`014`
 - [ ] Suite Chromium mặc định vẫn chạy in-memory (`AUTH_MODE=dev`); `e2e/password-auth.spec.ts` của 7D chạy thật với PostgreSQL nhưng chỉ khi `E2E_PROD_SMOKE=1` và không nằm trong CI
 - [ ] **Mới:** `.map canvas` timeout 5 s một lần ở cuối full-suite run (19 test) → đã nới riêng wait đó lên 15 s. Nếu tái diễn thì nghi vấn tiếp theo là số WebGL context sống đồng thời của Chromium, không phải layout
-- [ ] **Mới (2026-09-03, CI gate 7):** `map-command.spec.ts:42` assert `Bộ binh · 10` nhưng NPC `mob_migration` ("Đám di cư · 90") có thể đứng đúng ô spec click, nên inspector hiện NPC → đỏ. Đỏ **trên cả `main`**, không phải regression của stack. Sửa: chọn ô không có NPC, hoặc assert theo `data-testid` của army thay vì text inspector — cả hai là quyết định về ý nghĩa spec nên đang là OQ #11, **chưa có PR**
+- [X] **Mới (2026-09-03, CI gate 7) → xong `1d9acc1`:** `map-command.spec.ts:42` assert `Bộ binh · 10` nhưng NPC `mob_migration` ("Đám di cư · 90") đứng đúng ô spec click, nên inspector hiện NPC → đỏ, đỏ **trên cả `main`**, không phải regression của stack. Hai hướng "sửa spec" là đi vòng: nguyên nhân thật là `pickAt()` phá thế hoà bằng `distSq <`, nên khi hai quân **cùng một ô** người thắng là ai tình cờ đứng trước trong `snapshot.armies` — và quân của chính người chơi không chọn được nữa. `pickAt` nhận thêm `ownPlayerId` **bắt buộc**, ưu tiên quân người chơi khi thế hoà tuyệt đối (khoảng cách vẫn trội hơn quyền sở hữu). Spec không đổi một dòng; 2 test tất định ở `map-geometry.test.ts`
 
 ## Risks and Mitigations
 
@@ -956,10 +958,10 @@ Ba mục đầu xong trong `4817d1a`; kết luận của mục 1 khác đề bà
 2. **Sức chứa thế giới:** mở rộng map cho 100+ người, hay giữ 20×20 và hạ mục tiêu load test? Chặn P0.4 → P0.5 → B.3 `[141]`.
 3. Thứ tự nhóm D (scale server) vs nhóm E (đa nền tảng)?
 4. Contributor có quyền chạy prod compose / backup / k6 không? Máy này chưa có Docker và chưa có `k6`.
-5. Misinformation baseline do owner chốt hay contributor đề xuất trong PR (C.1)?
+5. ~~Misinformation baseline do owner chốt hay contributor đề xuất trong PR (C.1)?~~ → **contributor đề xuất, ship ở `fb27af7`**, số nằm trong "Phase 5 implementation baseline" của `docs/GAME-DESIGN.md` để owner sửa một chỗ: 120 sắt, 540s, 1800s, accuracy 0.45, hiệu lực 20 phút, méo `1 ± (0.25 + accuracy × 0.5)` hai chiều. Một ràng buộc xin đừng đổi khi cân bằng lại: **hiệu lực < cooldown**, nếu không thì cắm lại được trước khi lời cũ hết hạn và một người chơi bị bịt mắt vĩnh viễn — `espionage.test.ts` giữ luật đó.
 6. `verify:web-beta` có vào CI không (N.2), hay cố ý giữ là gate chạy tay vì cần Docker-in-Docker?
 7. ~~Có thêm rate-limit cho GET route không?~~ → **đóng trong P0.1**: ba GET có auth dùng chung bucket `read` 60/phút/player. Một vòng reconnect chỉ tốn 3 call nên client bình thường không tới gần trần; đổi số chỉ là sửa một dòng trong `rateBuckets`.
 8. ~~**(S-5)** tiền đề không gian của `ambush`~~ → **đóng 2026-09-03, owner chốt**: phải có quân trong bán kính Manhattan **3 ô** quanh vị trí caravan hiện tại, và `ambush` sang bucket **`combat`** (10/phút). Không thêm cost tài nguyên, không thêm cooldown ở vòng này. Bản thực thi là B.1a; vì caravan không có `x`/`y` nên guard phải mirror phép lerp của client (`apps/client/src/map.ts:322-335`).
 9. **Mới (S-9):** có thêm guard "production phải khai `TRUST_PROXY`" không? Để `false` sau Caddy thì `register:<ip>` 3/giờ thành hạn mức toàn cầu. Không tự thêm vì guard sẽ chặn boot của deployment phơi server trực tiếp mà tôi không kiểm chứng được. Kèm: S-1 cần owner xác nhận một lần trên stack thật Caddy → Fastify (máy này không có Docker nên chỉ chứng minh được nửa Fastify bằng `app.inject`).
-10. **Mới (2026-09-03):** thứ tự merge **5** PR. Đề xuất: **#4 trước** (nó sửa gate 5 nên cả stack xanh theo, và base là `main` nên không phải rebase gì), rồi #1 → #2 → #3 → **#5** theo đúng thứ tự tầng. Owner có muốn squash từng PR hay giữ nguyên commit theo lớp?
-11. **Mới (2026-09-03):** flake gate 7 (`map-command.spec.ts` click phải NPC `mob_migration` cùng ô) — sửa bằng cách chọn ô không có NPC, hay bằng cách assert theo `data-testid` của army thay vì text inspector? Tôi chưa mở PR vì cả hai đều là quyết định về ý nghĩa của spec, và nó đang đỏ **trên cả `main`** nên không chặn PR nào thêm.
+10. **Mới (2026-09-03):** thứ tự merge **6** PR (PR #7 `feat/espionage-misinformation` base `feat/hud-overhaul`). Đề xuất: **#4 trước** (nó sửa gate 5 nên cả stack xanh theo, và base là `main` nên không phải rebase gì), rồi #1 → #2 → #3 → **#5** → **#6** → **#7** theo đúng thứ tự tầng. Owner có muốn squash từng PR hay giữ nguyên commit theo lớp?
+11. ~~**Mới (2026-09-03):** flake gate 7 (`map-command.spec.ts` click phải NPC `mob_migration` cùng ô) — chọn ô không có NPC, hay assert theo `data-testid`?~~ → **đóng bằng đường thứ ba, `1d9acc1`**: hai hướng đó chỉ làm spec thôi đỏ mà vẫn để người chơi không chọn được quân mình khi mob đứng cùng ô. Nguyên nhân ở `pickAt()`: thế hoà `distSq` do thứ tự `snapshot.armies` phân xử. Spec **không đổi một dòng**; 2 test tất định ở `map-geometry.test.ts` là bằng chứng. Không cần owner quyết nữa.
