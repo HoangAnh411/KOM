@@ -14,6 +14,12 @@ const envSchema = z.object({
   ALLIANCE_LEADER_TERM_MS: z.coerce.number().int().min(60_000).default(7 * 24 * 60 * 60 * 1000),
   WORLD_EVENT_SPAWN_CHANCE: z.coerce.number().min(0).max(1).default(1 / 600),
   WORLD_EVENT_TYPE: z.string().default(""),
+  // Idempotency window: how many recent command ids the process keeps in memory to answer
+  // "already processed?" without a round trip. It is a cache, not the authority — the authority
+  // is the partial unique index `event_ledger_command_idx` plus the point query inside the
+  // command transaction, so a miss costs one query and still cannot double-apply a command.
+  // Sizing it is a memory-vs-round-trips trade, which is why it is an env knob.
+  IDEMPOTENCY_WINDOW: z.coerce.number().int().min(1_000).default(20_000),
   // Number of proxy hops, not a boolean. Fastify passes this to proxy-addr, and `true`
   // there means "trust the whole X-Forwarded-For chain", which makes `request.ip` the
   // left-most entry — a value the client writes. Every IP-keyed rate limit (login 5/15m,
@@ -80,6 +86,7 @@ export const config = {
   allianceLeaderTermMs: env.ALLIANCE_LEADER_TERM_MS,
   worldEventSpawnChance: env.WORLD_EVENT_SPAWN_CHANCE,
   worldEventType: env.WORLD_EVENT_TYPE,
+  idempotencyWindow: env.IDEMPOTENCY_WINDOW,
   trustProxy
 };
 export type AppConfig = typeof config;

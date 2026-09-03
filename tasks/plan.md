@@ -44,7 +44,7 @@ Không mở nhóm C/D/E/F/G lúc này.
 | **5** | **PR.1** — push 3 nhánh + mở PR xếp tầng | 16 commit đã verify nhưng chỉ tồn tại trên một máy là rủi ro lớn hơn mọi mục roadmap còn lại; và hai gate Docker chỉ CI quan sát được. **Owner đã chốt** | **Xong** — 4 PR (phát sinh PR #4 vì CI gate 5 đỏ) |
 | **6** | **Z.5** — ROADMAP/docs truth pass vòng 2 | Chính yêu cầu của owner ("nhớ cập nhật lại roadmap"); doc-only nên chạy song song được với phần code | **Xong** — `dbf5c6f` + Z.5b đóng cùng B.1a |
 | **7** | **B.1a (S-5)** — `ambush` đòi quân trong bán kính 3 + bucket `combat` | Đứng **trước** P0.3 vì P0.3 viết lại chính `claim()` của `logistics.ts`; làm sau thì phải rebase file đó hai lần. **Owner đã chốt luật** | **Xong** — server unit 124 → **128** |
-| **8** | **P0.2** (= S-4) — bỏ full-table ledger reload khỏi command path | Rẻ nhất trong ba task command-path và không phụ thuộc gì; nó cũng định nghĩa *idempotency window* mà P0.3a dùng lại làm trần | Chưa |
+| **8** | **P0.2** (= S-4) — bỏ full-table ledger reload khỏi command path | Rẻ nhất trong ba task command-path và không phụ thuộc gì; nó cũng định nghĩa *idempotency window* mà P0.3a dùng lại làm trần | **Xong** — server unit 128 → **132**, S-4 đóng |
 | **9** | **P0.3a → P0.3b** (= S-3) — gộp 5 cơ chế dedupe về một registry có trần | Phải sau P0.2 để dùng chung một con số window; tách 2 task để mỗi task ≤ 5 file và verify riêng được | Chưa |
 
 Còn chặn thật, đã báo thay vì làm dở: **P0.4** (sức chứa thế giới — quyết định gameplay, OQ #2), **P0.5 + B.3** `[141]` (không `k6`, và deps P0.2–P0.4), **B.2b** + hai job CI Docker (không Docker ở máy này — sau PR.1 thì `recovery-drill` trên CI là chỗ quan sát đầu tiên, cần `workflow_dispatch`), **A.1** phần phiên tay 30–60 phút (người phải chạy), **S-7 / S-8 / S-9** (gộp PR admin kế tiếp / owner chốt con số / owner quyết guard boot), flake gate 7 `map-command.spec.ts` (đã ghi, chưa có PR), nhóm **D** (owner chốt hướng persistence), phần lớn **Phase 8** và **G.2–G.5** (bundle ID, signing, license).
@@ -249,7 +249,7 @@ F.4 [230] audit process (độc lập)
 **Dependencies:** None (⚠️ chạm `app.ts`; owner đã cho phép mở phạm vi) · **Scope:** S
 **Files:** `apps/server/src/app.ts`, `apps/server/src/rate-limit.test.ts`, `apps/server/src/app.test.ts`, `docs/API.md`
 
-### P0.2 — Bỏ full-table reload của event ledger khỏi command path (= S-4)
+### P0.2 — Bỏ full-table reload của event ledger khỏi command path (= S-4) ✅ (2026-09-03)
 
 **Đo lại từ code 2026-09-03.** `store.ts:99` (command) và `store.ts:122` (moderation) gọi
 `await this.load()` **bên trong** transaction; `Store.load()` (`store.ts:72`) kết thúc bằng
@@ -271,21 +271,28 @@ index `event_ledger_command_idx` (`003_event_ledger.sql:11`, đã có sẵn).
 4. `hasCommand()` giữ chữ ký sync, đổi ngữ nghĩa thành **cache dương trong window**: miss thì rơi xuống transaction và point query bắt. Ở in-memory mode (không pool) Set vẫn đầy đủ theo process — ghi comment nói rõ ràng buộc này.
 
 **Acceptance criteria:**
-- [ ] Command path không phát truy vấn nào lên `event_ledger` ngoài `WHERE command_id=$1`
-- [ ] Boot chỉ đọc một cột, có `LIMIT`, không đọc `payload`
-- [ ] Event pending sống sót qua `load()`
-- [ ] Dedupe không yếu đi: id ngoài window vẫn bị chặn bởi unique index (PG) / Set (in-memory)
-- [ ] Retry cùng `commandId` vẫn trả `already_processed` và không trừ resource lần hai
-- [ ] `ledger.all()` vẫn dùng được cho test (giữ `history` là buffer trong process, chỉ không nạp từ DB)
+- [X] Command path không phát truy vấn nào lên `event_ledger` ngoài `WHERE command_id=$1` — `store.ts:99` và `:122` gọi `load({ skipLedger: true })`
+- [X] Boot chỉ đọc một cột, có `LIMIT`, không đọc `payload` — `event-ledger.ts:53`; test khẳng định bằng `doesNotMatch /payload/` và `doesNotMatch /event_type|aggregate_type|aggregate_id|actor_player_id/`
+- [X] Event pending sống sót qua `load()` — test append → `load()` → `persist()` thấy đúng id pending được INSERT
+- [X] Dedupe không yếu đi: id ngoài window vẫn bị chặn bởi unique index (PG) / Set (in-memory) — `postgres.integration.test.ts:27`, `:37` assert trên DB (`count(*) … WHERE command_id=$1`), không đọc history in-memory, nên gate PG vẫn đúng bài
+- [X] Retry cùng `commandId` vẫn trả `already_processed` và không trừ resource lần hai — `app.test.ts:77` xanh không sửa
+- [X] `ledger.all()` vẫn dùng được cho test — `history` vẫn là buffer trong process (thêm trim theo window), chỉ không nạp từ DB; 6 call site test xanh không sửa
 
 **Verification:**
-- [ ] `apps/server/src/event-ledger.test.ts` **mới**, dùng pool giả ghi lại query nên **chạy được không cần Docker**: assert query chỉ chọn `command_id` và có `LIMIT`, assert pending event không bị `load()` xoá, assert `hasCommand` miss với id ngoài window
-- [ ] `store.test.ts` (`hasCommand` ở `:37`, `:88`) và `moderation.test.ts:44` vẫn xanh không sửa assertion
-- [ ] `npm test -w @kingdoms/server` + `npm run typecheck`
-- [ ] **Không** khẳng định con số p95 PostgreSQL: máy này không chạy được `test:postgres` → ghi là "đo trên CI hoặc stack owner sau", không đoán
+- [X] `apps/server/src/event-ledger.test.ts` **mới**, pool giả ghi lại query, **không cần Docker**: 4 test — một query duy nhất chỉ `command_id` + `LIMIT $1` + `WHERE command_id IS NOT NULL` + `ORDER BY created_at DESC`; pending event không bị `load()` xoá; `hasCommand` miss ngoài window; history có trần + `discard()` nhả lại command id
+- [X] `store.test.ts` (`hasCommand` ở `:37`, `:88`) và `moderation.test.ts:44` xanh không sửa assertion
+- [X] `npm test -w @kingdoms/server` = **132 test / 117 pass / 0 fail / 15 skip** (128 → 132); `npm run typecheck` exit 0
+- [X] **Không** khẳng định con số p95 PostgreSQL: máy này không chạy được `test:postgres` → đo trên CI hoặc stack owner sau
+
+**Ghi chú thực thi (khác plan gốc ở ba điểm):**
+1. Trần không hardcode: thêm env `IDEMPOTENCY_WINDOW` (Zod, `min 1000`, default `20000`) → `config.idempotencyWindow`, và `EventLedger` nhận nó qua tham số constructor thứ hai nên test đặt window nhỏ được (window 3 trong test history). Ghi vào `.env.example`, `infra/.env.prod.example`, `docs/OPERATIONS.md`, `docs/API.md` mục protocol.
+2. `history` cũng bị trim theo cùng window (`event-ledger.ts:19`). Plan chỉ nói "không nạp từ DB", nhưng buffer append-only vẫn phình được trong một season dài chạy liên tục; trim là một dòng và `all()` chỉ có test đọc. Trim **không** phải quyết định dedupe: `commandIds` vẫn giữ id đã bị trim khỏi history.
+3. `app.ts:151` (register) cố tình **giữ** `load()` đầy đủ: route này rate-limit 3/giờ/IP và sau bản sửa thì full load cũng chỉ còn một cột có trần.
+
+**Một thay đổi hành vi, nói rõ ra:** id trùng do **process khác** ghi, hoặc cũ hơn window, không còn bị `hasCommand()` bắt ở fast path nên sẽ mở một transaction rồi bị point query từ chối. Đắt hơn một chút cho retry cũ, không mất bảo đảm — và fast path cũ vốn cũng không bắt được id của process khác trừ khi vừa boot.
 
 **Dependencies:** None (⚠️ chạm `store.ts`) · **Scope:** M
-**Files:** `apps/server/src/event-ledger.ts`, `apps/server/src/store.ts`, `apps/server/src/event-ledger.test.ts` (mới)
+**Files:** `apps/server/src/event-ledger.ts`, `apps/server/src/store.ts`, `apps/server/src/config.ts`, `apps/server/src/event-ledger.test.ts` (mới), `.env.example`, `infra/.env.prod.example`, `docs/OPERATIONS.md`, `docs/API.md`, `docs/ROADMAP.md`, `docs/SECURITY-REVIEW.md`
 
 ### P0.3 — Gộp dedupe về một đường có trần (= S-3)
 

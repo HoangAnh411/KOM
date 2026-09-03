@@ -87,6 +87,8 @@ Lỗi có dạng `ERROR` với code ổn định như `RATE_LIMITED`, `QUEUE_LIM
 ## Quy tắc protocol
 
 - Mọi write command phải có `commandId` duy nhất.
+- Gửi lại đúng một `commandId` đã được chấp nhận không bao giờ áp dụng hiệu ứng hai lần: server trả lại kết quả `already_processed` thay vì thực thi lại. An toàn để client retry sau timeout mạng — nhưng phải retry với **cùng** id, id mới là một command mới.
+- Nguồn sự thật của idempotency là partial unique index `event_ledger_command_idx` cộng point query `SELECT 1 FROM event_ledger WHERE command_id=$1` chạy **trong** transaction của command. Process còn giữ một cache dương gồm `IDEMPOTENCY_WINDOW` command id gần nhất (mặc định 20 000) để trả lời nhanh mà không cần round trip; id rơi ra ngoài window chỉ tốn thêm một truy vấn, không mất bảo đảm. Ở in-memory mode (không có PostgreSQL) cache chính là bảo đảm, và nó chỉ tồn tại theo process.
 - Client không gửi authoritative cost, score, battle result hoặc server timestamp.
 - Event ledger, outbox và state của mỗi REST command được commit trong cùng transaction khi PostgreSQL được bật.
 - Thay đổi breaking phải tăng protocol version và cập nhật shared package cùng API docs.

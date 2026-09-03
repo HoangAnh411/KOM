@@ -64,6 +64,7 @@ npm run dev:client
 - `SEASON_DURATION_MS`: mặc định 14 ngày.
 - `WORLD_EVENT_SPAWN_CHANCE`: xác suất spawn event mỗi tick khi chưa có event active; mặc định `1/600`.
 - `WORLD_EVENT_TYPE`: để trống để chọn ngẫu nhiên; có thể khóa một event type trong môi trường test/staging.
+- `IDEMPOTENCY_WINDOW`: số command id gần nhất mỗi process giữ trong RAM để trả lời "đã xử lý chưa?" mà không cần truy vấn; mặc định `20000`, tối thiểu `1000`. Đây là **cache**, không phải nguồn sự thật: unique index `event_ledger_command_idx` cộng point query trong transaction của command vẫn chặn trùng khi id rơi ra ngoài window. Tăng lên tốn RAM, giảm xuống chỉ thêm một round trip cho retry cũ.
 - `VITE_API_URL`: mặc định `http://localhost:3000`; để trống khi build qua Caddy (origin-relative).
 
 Validation toàn bộ env bằng Zod lúc khởi động; `NODE_ENV=production` yêu cầu `AUTH_MODE=password`, PostgreSQL/Redis, `ADMIN_TOKEN`/`METRICS_TOKEN` ≥32 ký tự và `CLIENT_ORIGIN` HTTPS, và fail fast khi vi phạm.

@@ -28,7 +28,7 @@ Không chạy pentest động, không fuzz, không kiểm tra dependency ngoài 
 | S-1 | **High** | auth / rate limit | ✅ đã sửa + test hồi quy |
 | S-2 | **High** | permissions / rò rỉ dữ liệu | ✅ đã sửa + test hồi quy |
 | S-3 | Medium | availability | ⏳ P0.3 (đã có task) |
-| S-4 | Medium | availability | ⏳ P0.2 (đã có task) |
+| S-4 | Medium | availability | ✅ đã sửa + test (P0.2, 2026-09-03) |
 | S-5 | Medium | permissions / abuse | ✅ đã sửa + test (owner chốt luật 2026-09-03) |
 | S-6 | Low | secrets / log | ✅ đã sửa (hardening) |
 | S-7 | Low | input | 📝 ghi nhận, không sửa |
@@ -124,8 +124,26 @@ hạn; gộp mọi dedupe về một đường duy nhất") và nó chạm `stor
 ## S-4 (Medium) — reload toàn bảng `event_ledger` trên command path
 
 Cùng họ với S-3: `hasCommand()` nạp lại toàn bộ ledger thay vì point query trên
-`event_ledger_command_idx`, nên mỗi command trả tiền cho toàn bộ lịch sử season. **Không sửa
-ở đây**: task **P0.2**.
+`event_ledger_command_idx`, nên mỗi command trả tiền cho toàn bộ lịch sử season.
+
+**Đã sửa (P0.2, 2026-09-03).** Ba thay đổi, không đổi bảo đảm dedupe:
+
+- Command path và moderation path gọi `Store.load({ skipLedger: true })` (`store.ts:99`,
+  `:122`), nên trong transaction không còn truy vấn ledger nào ngoài point query
+  `SELECT 1 FROM event_ledger WHERE command_id=$1`.
+- Boot path đọc **một cột, có trần**: `SELECT command_id … WHERE command_id IS NOT NULL ORDER BY
+  created_at DESC LIMIT $1` (`event-ledger.ts:53`), trần là `IDEMPOTENCY_WINDOW` (mặc định
+  20 000). `payload` JSONB — chỗ chứa battle report, phần nặng nhất của bảng — không còn được
+  đọc về; `history` cũng bị trim theo cùng window.
+- `load()` thôi xoá `this.events`: đó là event đã append chưa persist, và xoá chúng ở đây là
+  mất dữ liệu im lặng chờ caller đầu tiên nằm ngoài slot `runExclusive`.
+
+`hasCommand()` từ "nguồn sự thật" thành **cache dương trong window**: miss chỉ có nghĩa "hỏi
+Postgres", và point query + unique partial index `event_ledger_command_idx` (migration 003) vẫn
+từ chối id cũ hơn window hoặc do process khác ghi. Ở in-memory mode (không pool) Set vẫn đầy đủ
+theo process. Test `event-ledger.test.ts` (4 test) khẳng định query chỉ có `command_id` + `LIMIT`,
+không có `payload`, và event pending sống sót qua `load()` — chạy trên gate unit, **không cần
+Docker**. Số p95 trên PostgreSQL chưa đo ở máy contributor (không chạy được `test:postgres`).
 
 ## S-5 (Medium) — `ambush` không có tiền đề không gian nào
 
