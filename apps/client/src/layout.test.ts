@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 import {
-  bandFor, bandForMatches, bandQueries, defaultSurfaces, layoutBands, layoutBreakpoints, shellClass, surfaceElementIds,
-  surfaceIds, toggleSurface, type SurfaceState,
+  bandFor, bandForMatches, bandQueries, defaultSurfaces, layoutBands, layoutBreakpoints, openSurface, shellClass,
+  surfaceElementIds, surfaceIds, toggleSurface, type SurfaceState,
 } from "./layout.js";
 
 // The Situation Room is half TypeScript and half stylesheet, and the halves have
@@ -83,6 +83,32 @@ test("a collapsed surface can always be reopened, and compact opens only one", (
   }
   // Closing is never exclusive, in any band.
   assert.deepEqual(toggleSurface(allOpen, "activity", "compact"), { kingdom: true, activity: false });
+});
+
+test("revealing a surface is not toggling it, and never closes the one asked for", () => {
+  // A row in the activity feed that points at the city panel has to make sure the
+  // kingdom column is open. `toggleSurface` would have closed it in every band
+  // where it already was — which is every band the feed is visible in by default
+  // — so the jump would have hidden the panel it was scrolling to.
+  for (const band of layoutBands) {
+    for (const id of surfaceIds) {
+      assert.equal(openSurface(allOpen, id, band), allOpen, `${band}/${id} reopened an open surface`);
+      assert.equal(openSurface({ kingdom: false, activity: false }, id, band)[id], true, `${band}/${id} did not open`);
+    }
+  }
+  // Identity, not just equality: the shell holds this in `useState`, so returning
+  // a fresh object with the same fields would re-render the whole Situation Room
+  // on every feed click that had nothing to open.
+  const already: SurfaceState = { kingdom: true, activity: false };
+  assert.equal(openSurface(already, "kingdom", "wide"), already);
+  // Compact is still one-at-a-time: revealing the kingdom column from a feed row
+  // closes the feed, which is the surface currently covering the map.
+  assert.deepEqual(openSurface({ kingdom: false, activity: true }, "kingdom", "compact"), { kingdom: true, activity: false });
+  // Above compact both are tracks, so revealing one leaves the other alone.
+  for (const band of ["medium", "wide"] as const) {
+    assert.deepEqual(openSurface({ kingdom: false, activity: true }, "kingdom", band), { kingdom: true, activity: true });
+    assert.deepEqual(openSurface({ kingdom: true, activity: false }, "activity", band), allOpen);
+  }
 });
 
 test("every class the shell can emit has a rule, and an open shell emits no modifier", () => {
@@ -173,6 +199,23 @@ test("the panels' legacy CSS left with the markup that used it", () => {
     // which is why it is `.drawer > summary` now.
     /\.alliance-panel\s+li\s+button/, /\.archive-panel\s+details/, /\.pending-strip\s+h3/, /\.drawer\s+summary/]) {
     assert.equal(dead.test(sheet), false, `"${dead.source}" still styles markup the panels no longer write`);
+  }
+});
+
+test("the activity column's placeholder CSS left with the placeholder", () => {
+  // The column shipped as a flat, static skeleton, and the rules said so in a
+  // comment: a shimmer "would animate fake content". `activity.ts` derives real
+  // rows now, so the skeleton is markup nothing writes — and its `li` rule was one
+  // of the bare-element selectors that outranks the primitives, so leaving it
+  // behind would have restyled the real list items the feed does write.
+  for (const name of ["activity-skeleton", "activity-skeleton__dot", "activity-skeleton__line"]) {
+    assert.equal(selector(name).test(sheet), false, `.${name} is still in styles.css`);
+  }
+  // Positively: every class the feed emits has a rule, so a row cannot be styled
+  // by nothing at all.
+  for (const name of ["activity-list", "activity-row", "activity-row__jump", "activity-row__static", "activity-row__text",
+    "activity-row__meta", "activity-empty"]) {
+    assert.match(sheet, selector(name), `.${name} has no rule in styles.css`);
   }
 });
 

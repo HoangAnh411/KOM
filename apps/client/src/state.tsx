@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
 import type { BattleReport, CommandResponse, WorldSnapshot } from "@kingdoms/shared";
+import { deriveActivity, type ActivityEvent, type ActivityInput } from "./activity.js";
 import { errorMessage } from "./api.js";
 import * as api from "./api.js";
 import { beginPending, markUncertain, resolvePending, restorePending, savePending, type ClientCommand, type PendingCommand } from "./commands.js";
@@ -51,6 +52,8 @@ type GameContextValue = {
   reports: BattleReport[];
   pushReport: (report: BattleReport) => void;
   dismissReport: () => void;
+  /** The activity column's feed: derived from the four sources below, never fetched. */
+  activity: ActivityEvent[];
 };
 
 const GameContext = createContext<GameContextValue | undefined>(undefined);
@@ -61,6 +64,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const [state, dispatch] = useReducer(gameReducer, {});
   const [notices, setNotices] = useState<Notice[]>([]);
   const [reports, setReports] = useState<BattleReport[]>([]);
+  const [activity, setActivity] = useState<ActivityEvent[]>([]);
   const [connection, setConnection] = useState<ConnectionState>("connecting");
   const connectionRef = useRef<ConnectionState>("connecting");
   const [pending, setPending] = useState<PendingCommand[]>([]);
@@ -86,13 +90,24 @@ export function GameProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const dismissNotice = useCallback((id: number) => setNotices(list => list.filter(item => item.id !== id)), []);
+  /** The feed is appended to from the places that already learn something: no
+   *  extra effect, no timer, no second subscription. `deriveActivity` returns the
+   *  same array when a fact is already in the ring, so a repeated snapshot costs
+   *  one comparison and no render. */
+  const recordActivity = useCallback((input: ActivityInput) => setActivity(list => deriveActivity(list, input, Date.now())), []);
   const addNotice = useCallback((message: string, kind: Notice["kind"] = "error") => {
     const id = nextNoticeId.current++;
     setNotices(list => [...list, { id, message, kind }].slice(-5));
     // Transient by nature: an undismissed toast must never block the UI forever.
     window.setTimeout(() => dismissNotice(id), 4000);
   }, [dismissNotice]);
-  const applySnapshot = useCallback((snapshot: WorldSnapshot) => dispatch({ type: "snapshot", snapshot }), []);
+  const applySnapshot = useCallback((snapshot: WorldSnapshot) => {
+    // `snapshotRef` is written by a post-render effect, so here it still holds the
+    // snapshot this one replaces — the diff seam, with no extra state to keep.
+    const playerId = sessionRef.current?.player.id;
+    if (playerId) recordActivity({ source: "snapshot", previous: snapshotRef.current, next: snapshot, playerId });
+    dispatch({ type: "snapshot", snapshot });
+  }, [recordActivity]);
   const setSession = useCallback((session: api.Session) => dispatch({ type: "session", session }), []);
   const logout = useCallback(() => {
     void api.logout().catch(() => undefined);
@@ -100,6 +115,9 @@ export function GameProvider({ children }: { children: ReactNode }) {
     if (sessionRef.current) sessionStorage.removeItem(`kingdoms-pending-${sessionRef.current.player.id}`);
     pendingRef.current = [];
     setPending([]);
+    // The feed is about one player's world; leaving it up would show the next
+    // login somebody else's history in the same tab.
+    setActivity([]);
     sessionRef.current = undefined;
     dispatch({ type: "logout" });
   }, []);
@@ -120,9 +138,14 @@ export function GameProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const settle = useCallback((commandId: string, response: CommandResponse) => {
+    // Read the label before `resolvePending` drops the entry: the feed row says
+    // which order settled ("Xây kho"), not which uuid did.
+    const entry = pendingRef.current.find(item => item.commandId === commandId);
     updatePending(items => resolvePending(items, commandId));
-    if (response.result === "rejected") addNotice(response.code ? errorMessage(response.code) : "Lệnh bị từ chối.");
-  }, [updatePending, addNotice]);
+    const detail = response.result === "rejected" ? (response.code ? errorMessage(response.code) : "Lệnh bị từ chối.") : undefined;
+    if (entry) recordActivity({ source: "command", commandId, label: entry.label, result: response.result, detail });
+    if (response.result === "rejected") addNotice(detail!);
+  }, [updatePending, addNotice, recordActivity]);
 
   /** Sends a command: id minted BEFORE the HTTP request, sync pending blocks
    * double-clicks, network/timeout failures downgrade the entry to
@@ -144,13 +167,14 @@ export function GameProvider({ children }: { children: ReactNode }) {
       .then(response => { settle(commandId, response); return response; })
       .catch(error => {
         updatePending(items => markUncertain(items, commandId, Date.now()));
+        recordActivity({ source: "command-uncertain", commandId, label: command.label });
         addNotice("Mất kết nối máy chủ khi gửi lệnh — lệnh chưa xác nhận, hãy thử lại.", "info");
         throw error instanceof Error ? error : new Error("network");
       })
       .finally(() => { inFlightRef.current.delete(commandId); });
     inFlightRef.current.set(commandId, inFlight);
     return inFlight;
-  }, [addNotice, updatePending, perform, settle]);
+  }, [addNotice, updatePending, perform, settle, recordActivity]);
 
   /** Manual retry of an uncertain command: same id, path and body. */
   const retryPending = useCallback((commandId: string) => {
@@ -162,9 +186,10 @@ export function GameProvider({ children }: { children: ReactNode }) {
       .then(response => settle(commandId, response))
       .catch(() => {
         updatePending(items => markUncertain(items, commandId, Date.now()));
+        recordActivity({ source: "command-uncertain", commandId, label: entry.label });
         addNotice("Vẫn chưa tới máy chủ — thử lại khi kết nối ổn định.", "info");
       });
-  }, [addNotice, updatePending, perform, settle]);
+  }, [addNotice, updatePending, perform, settle, recordActivity]);
 
   // Commands apply their HTTP-response snapshot immediately (WS is secondary).
   useEffect(() => { api.setSnapshotSink(applySnapshot); return () => api.setSnapshotSink(undefined); }, [applySnapshot]);
@@ -210,7 +235,11 @@ export function GameProvider({ children }: { children: ReactNode }) {
       onAttackCanceled: (payload) => {
         const army = snapshotRef.current?.armies.find(item => item.id === payload.armyId);
         if (army && army.ownerPlayerId === sessionRef.current?.player.id) {
-          addNotice(payload.reason === "target_destroyed" ? "Lệnh tấn công bị hủy: mục tiêu đã bị tiêu diệt." : "Lệnh tấn công bị hủy: mục tiêu đang bị đóng băng.", "info");
+          const message = payload.reason === "target_destroyed" ? "Lệnh tấn công bị hủy: mục tiêu đã bị tiêu diệt." : "Lệnh tấn công bị hủy: mục tiêu đang bị đóng băng.";
+          addNotice(message, "info");
+          // Keyed by the pair, not by the clock: a socket that redelivers the
+          // same cancellation must not add the row twice.
+          recordActivity({ source: "notice", id: `order-canceled:${payload.armyId}:${payload.targetArmyId}`, kind: "order-canceled", message });
         }
       },
       onConnectionState: (next) => {
@@ -219,7 +248,10 @@ export function GameProvider({ children }: { children: ReactNode }) {
         setConnection(next);
         // Mark the session once the handshake really completes; announce only
         // when an already-online session re-establishes after an outage.
-        if (everOnline && shouldNotifyRestore(previous, next)) addNotice("Đã kết nối lại phiên chơi.", "info");
+        if (everOnline && shouldNotifyRestore(previous, next)) {
+          addNotice("Đã kết nối lại phiên chơi.", "info");
+          recordActivity({ source: "notice", id: `connection:${Date.now()}`, kind: "connection", message: "Đã kết nối lại phiên chơi.", state: "success", icon: "check" });
+        }
         if (next === "online") everOnline = true;
       },
       onAuthExpired: (reason) => {
@@ -263,11 +295,12 @@ export function GameProvider({ children }: { children: ReactNode }) {
     const playerId = sessionRef.current?.player.id;
     const mine = !!playerId && (report.attacker.playerId === playerId || report.defender.playerId === playerId);
     if (!mine) return;
+    recordActivity({ source: "report", report, playerId: playerId! });
     setReports(list => (list.some(item => item.id === report.id) ? list : [...list, report]));
-  }, []);
+  }, [recordActivity]);
 
-  const value = useMemo(() => ({ state, setSession, applySnapshot, logout, connection, pending, runCommand, retryPending, selection, setSelection, interaction, beginOrder, cancelOrder, activePanel, setActivePanel, advancedOpen, setAdvancedOpen, protocolBlocked, notices, addNotice, dismissNotice, reports, pushReport, dismissReport }),
-    [state, setSession, applySnapshot, logout, connection, pending, runCommand, retryPending, selection, setSelection, interaction, beginOrder, cancelOrder, activePanel, setActivePanel, advancedOpen, setAdvancedOpen, protocolBlocked, notices, addNotice, dismissNotice, reports, pushReport, dismissReport]);
+  const value = useMemo(() => ({ state, setSession, applySnapshot, logout, connection, pending, runCommand, retryPending, selection, setSelection, interaction, beginOrder, cancelOrder, activePanel, setActivePanel, advancedOpen, setAdvancedOpen, protocolBlocked, notices, addNotice, dismissNotice, reports, pushReport, dismissReport, activity }),
+    [state, setSession, applySnapshot, logout, connection, pending, runCommand, retryPending, selection, setSelection, interaction, beginOrder, cancelOrder, activePanel, setActivePanel, advancedOpen, setAdvancedOpen, protocolBlocked, notices, addNotice, dismissNotice, reports, pushReport, dismissReport, activity]);
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>;
 }
 

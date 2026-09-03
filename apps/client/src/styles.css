@@ -135,17 +135,31 @@ main { height: 100vh; position: relative; overflow: hidden; }
 .map-inspector button { padding: 6px 10px; font-size: .78rem; }
 .map-inspector-hint { display: inline-flex; flex-direction: row; align-items: center; gap: .6rem; color: var(--kom-primary-soft); }
 
-/* The activity column is a placeholder surface until PR4 gives it a real feed, so
-   the skeleton is flat and static: a shimmer here would animate fake content and
-   read as loading, when in truth there is nothing to load yet. */
+/* ── Activity rows ────────────────────────────────────────────────────────────
+ * The four flat skeleton rows that used to live here are gone with the
+ * placeholder they dressed. They were deliberately static — a shimmer would have
+ * animated fake content and read as loading, when there was nothing to load —
+ * and `activity.ts` now derives rows from what the client already knows, so what
+ * this block dresses is a list.
+ *
+ * `flex: none` on both panels, and "Cần chú ý" first in the DOM: the column is
+ * the scroller (`overflow-y: auto` further up), so a fifty-row feed placed above
+ * it would put the panel that is waiting for an answer below fifty rows of
+ * history that needs none.
+ *
+ * A row *is* one control rather than a row containing one, so `.kom-btn` is
+ * re-shaped into the row's grid: a ghost pill drawn once per row reads as a
+ * column of buttons instead of a list. Both selectors are (0,1,0) like `.kom-btn`
+ * itself and this sheet is imported after the primitives, so the later
+ * declaration is the one that lands. The ghost hover survives on purpose — it is
+ * what tells the player the row goes somewhere. */
 .activity-panel { flex: none; }
-.activity-skeleton { list-style: none; margin: var(--kom-space-4) 0 0; padding: 0; display: flex; flex-direction: column; gap: var(--kom-space-4); }
-.activity-skeleton li { display: flex; align-items: center; gap: var(--kom-space-4); }
-.activity-skeleton__dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--kom-surface-chip); }
-.activity-skeleton__line { flex: 1; height: 8px; border-radius: 999px; background: var(--kom-surface-chip); }
-.activity-skeleton li:nth-child(2n) .activity-skeleton__line { max-width: 74%; }
-.activity-skeleton li:nth-child(3n) .activity-skeleton__line { max-width: 56%; }
-.activity-empty { margin: var(--kom-space-3) 0 0; color: var(--kom-text-hint); font-size: .85rem; }
+.activity-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.activity-row + .activity-row { border-top: 1px solid var(--kom-border-subtle); }
+.activity-row__jump, .activity-row__static { display: grid; grid-template-columns: auto minmax(0, 1fr); justify-content: start; gap: var(--kom-space-1) var(--kom-space-3); align-items: start; width: 100%; padding: var(--kom-space-3) var(--kom-space-2); border-radius: 8px; text-align: left; }
+.activity-row__text { color: var(--kom-text-body); font-size: .82rem; font-weight: var(--kom-weight-regular); line-height: 1.45; }
+.activity-row__meta { grid-column: 2; display: flex; align-items: center; gap: var(--kom-space-3); color: var(--kom-text-hint); font-size: .74rem; font-weight: var(--kom-weight-regular); }
+.activity-empty { margin: 0; color: var(--kom-text-hint); font-size: .85rem; }
 
 /* The label is a word now, not a key: `text-transform: uppercase` was legible on
    "WOOD" and is a diacritic pile-up on "LƯƠNG THỰC" at .7rem. Ellipsis instead of
@@ -202,9 +216,9 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
  * *inside* a panel body — rows, grids and steppers, no surface. */
 .hint { color: var(--kom-text-hint); font-size: .85em; line-height: 1.45; margin: .3rem 0; }
 .logistics-panel h3 { font-size: .9rem; margin: 0; color: var(--kom-text-heading); }
-/* Not a `Panel` each: a nested `.kom-panel` inside `.hud` picks up the bridge's
-   own `margin-top` and doubles it against the body's gap. A flat block with its
-   own column gap is the same rhythm without the second surface. */
+/* Not a `Panel` each: three nested surfaces inside one panel body draw three
+   backgrounds and three shadows for what is one list of controls. A flat block
+   with its own column gap is the same rhythm without the extra boxes. */
 .logistics-block { display: flex; flex-direction: column; gap: var(--kom-space-3); }
 .building-row, .node-row, .route-row, .caravan-row { padding: .5rem .4rem; border-top: 1px solid var(--kom-border-subtle); display: flex; flex-direction: column; gap: .3rem; }
 .building-row:first-of-type { border-top: none; }

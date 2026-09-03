@@ -12,7 +12,7 @@
 // directly (`vocabulary.test.ts`) — see also `errors.ts`, which owns the same
 // job for server error codes.
 
-import type { AllianceRole, Resources, TreatyType, WorldEventType } from "@kingdoms/shared";
+import type { AllianceRole, Resources, SpyMissionType, TreatyType, WorldEventType } from "@kingdoms/shared";
 import type { IconName, UiState } from "./ui/tokens.js";
 
 export type ResourceKey = keyof Resources;
@@ -105,4 +105,15 @@ export const allianceRoleLabels: Record<AllianceRole, string> = {
   leader: "Lãnh đạo",
   officer: "Chỉ huy",
   member: "Thành viên",
+};
+
+/** `EspionagePanel` had its own copy of this, which was fine while it was the
+ *  only surface naming a mission. The activity feed names them too, and two maps
+ *  for one enum is how a "Đánh cắp" becomes a "Trộm" on the other screen. Typed
+ *  against `spyMissionTypes` so `counter_intel` cannot be forgotten. */
+export const spyMissionLabels: Record<SpyMissionType, string> = {
+  scout: "Trinh sát",
+  sabotage: "Phá hoại",
+  steal: "Đánh cắp",
+  counter_intel: "Phản gián",
 };

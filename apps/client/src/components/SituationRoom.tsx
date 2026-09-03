@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { bandForMatches, bandQueries, defaultSurfaces, shellClass, toggleSurface, type LayoutBand, type SurfaceId } from "../layout.js";
+import { bandForMatches, bandQueries, defaultSurfaces, openSurface, shellClass, toggleSurface, type LayoutBand, type SurfaceId } from "../layout.js";
 import { useGame } from "../state.js";
 import { ActivityColumn } from "./ActivityColumn.js";
 import { BattleReportModal } from "./BattleReportModal.js";
@@ -53,12 +53,16 @@ export function SituationRoom() {
 
   const report = useMemo(() => reports[0], [reports]);
   const toggle = (id: SurfaceId) => setSurfaces(current => toggleSurface(current, id, band));
+  // A feed row jumping to a panel has to open the column that holds it, which is
+  // a request to reveal, not to toggle: in a wide band that column is already
+  // open and toggling would close it under the click.
+  const reveal = (id: SurfaceId) => setSurfaces(current => openSurface(current, id, band));
 
   return <div className={shellClass(surfaces)}>
     <StrategicHeader surfaces={surfaces} onToggleSurface={toggle} />
     <KingdomColumn open={surfaces.kingdom} />
     <MapSurface />
-    <ActivityColumn open={surfaces.activity} />
+    <ActivityColumn open={surfaces.activity} onReveal={reveal} />
     <CommandTray />
     {protocolBlocked && <div className="protocol-banner" role="alert">{protocolBlocked}</div>}
     {report && <BattleReportModal report={report} onClose={dismissReport} />}

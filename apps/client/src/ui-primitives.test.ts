@@ -277,6 +277,39 @@ test("the kingdom column's panels are assembled from the primitives", () => {
   }
 });
 
+test("the activity column shows facts now, not a shape where facts will go", () => {
+  // The column shipped as an `aria-hidden` skeleton — three grey bars and a
+  // comment promising rows "when there is something real to put in them". The
+  // skeleton is the thing this test is here to keep deleted: it read as content to
+  // a sighted player and as nothing at all to a screen reader, and a placeholder
+  // that survives one more round becomes the design.
+  const code = stripSource(readFileSync(new URL("../src/components/ActivityColumn.tsx", import.meta.url), "utf8"));
+  for (const ghost of ["placeholderRows", "aria-hidden", "skeleton"]) {
+    assert.equal(code.includes(ghost), false, `ActivityColumn still renders a ${ghost}`);
+  }
+  // Assembled from the same primitives as the other column, and with the two
+  // registries doing the talking: a row's chip and glyph come from `activity.ts`,
+  // never from a literal chosen here.
+  for (const tag of ["Panel", "PanelHeader", "PanelBody", "StatusChip", "Icon", "Button"]) {
+    assert.match(code, new RegExp(`<${tag}\\b`), `ActivityColumn does not use ${tag}`);
+  }
+  assert.equal(/<section\b|<h2\b|<button\b/.test(code), false, "ActivityColumn writes markup the primitives own");
+  assert.match(code, /activityKindLabels\[/, "a row's chip wording must come from the registry");
+  // Both panels are the column's own furniture rather than the primitives', so
+  // their classes live in styles.css; either sheet is enough, neither is not.
+  const shell = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  for (const [, token] of code.matchAll(/className="([a-z][a-z0-9_ -]*)"/g)) {
+    for (const name of token!.split(" ").filter(Boolean)) {
+      assert.ok(selector(name).test(primitives) || selector(name).test(shell), `ActivityColumn asks for .${name}, which has no rule`);
+    }
+  }
+  // A row that goes nowhere must not look like a control: `activityAnchors` is
+  // partial on purpose, so the component has to branch and give the anchorless
+  // rows static text instead of a button that answers Enter and does nothing.
+  assert.match(code, /activity-row__jump/);
+  assert.match(code, /activity-row__static/);
+});
+
 test("each world event has exactly one wording, one glyph and one chip", () => {
   // The mirror of "each state has exactly one wording and one glyph", for the
   // snapshot's enums rather than the design system's. TypeScript already refuses a
