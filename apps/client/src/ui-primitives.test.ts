@@ -310,6 +310,36 @@ test("the activity column shows facts now, not a shape where facts will go", () 
   assert.match(code, /activity-row__static/);
 });
 
+test("the command tray renders the table and nothing the table did not decide", () => {
+  const code = stripSource(readFileSync(new URL("../src/components/CommandTray.tsx", import.meta.url), "utf8"));
+  // Two placeholders left this file at once: the right half's reserved label, and
+  // the floating inspector's own raw controls on the left. The `<select>` is the
+  // one worth naming — it was the widest thing in a 60px strip, and a player had
+  // to open it to find out whether merging was possible at all.
+  for (const ghost of ["command-tray__reserved", "<select", "<button", "<h2"]) {
+    assert.equal(code.includes(ghost), false, `CommandTray still writes ${ghost}`);
+  }
+  for (const tag of ["Button", "Icon", "Modal"]) assert.match(code, new RegExp(`<${tag}\\b`), `CommandTray does not use ${tag}`);
+  // Everything on screen comes from the pure table: which commands exist, which
+  // are blocked, the sentence when one is, and the words for the selection. A
+  // label chosen here would be a rule the DOM-free tests cannot see.
+  for (const call of ["trayGroups", "traySubject"]) {
+    assert.match(code, new RegExp(`${call}\\(`), `CommandTray does not read ${call}()`);
+  }
+  assert.match(code, /reason=\{command\.check\.reason\}/, "a blocked tray command must carry its reason");
+  // The law the whole `{ ok, reason }` convention exists for: a command the player
+  // cannot run is disabled, never dropped. Both ways of dropping one — a filter,
+  // or a conditional render on the gate — are absences rather than assertions,
+  // because there is no DOM here to count buttons in.
+  assert.equal(/\.filter\(|check\.ok\s*(\?|&&)/.test(code), false, "the tray must disable a command it cannot run, not hide it");
+  const shell = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  for (const [, token] of code.matchAll(/className="([a-z][a-z0-9_ -]*)"/g)) {
+    for (const name of token!.split(" ").filter(Boolean)) {
+      assert.ok(selector(name).test(primitives) || selector(name).test(shell), `CommandTray asks for .${name}, which has no rule`);
+    }
+  }
+});
+
 test("each world event has exactly one wording, one glyph and one chip", () => {
   // The mirror of "each state has exactly one wording and one glyph", for the
   // snapshot's enums rather than the design system's. TypeScript already refuses a

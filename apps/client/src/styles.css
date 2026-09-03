@@ -120,20 +120,33 @@ main { height: 100vh; position: relative; overflow: hidden; }
 .hud-title h2 { margin: 0; }
 .hud-frozen .alliance-panel, .hud-frozen .espionage-panel, .hud-frozen .diplomacy-panel, .hud-frozen .city-panel, .hud-frozen .logistics-panel, .hud-frozen .army-panel { pointer-events: none; opacity: .5; }
 
-/* Row 3: the contextual command area. The selection inspector is its left half —
-   the same region with the same accessible name, moved out of a floating bar into
-   a full-width row so ordering a move no longer covers the tile being aimed at.
-   The right half is the reserved slot PR5 fills; it holds the height now so the
-   tray does not grow later. */
+/* Row 3: the contextual command area. The selection is its left half — the same
+   region with the same accessible name, moved out of a floating bar into a
+   full-width row so ordering a move no longer covers the tile being aimed at.
+   The right half was a reserved slot with a label in it; `tray-groups.ts` fills
+   it, and the label, its `display: none` and its promotion at 1024px went with
+   the emptiness they described.
+
+   Every rule below exists to keep this row exactly as tall as it was empty. The
+   tray shares a grid row with the map and the map's box is what Pixi sizes its
+   canvas from, so a second line here resizes the renderer. The table caps the
+   commands at four short labels, nothing wraps, and the three texts that can be
+   long shrink to an ellipsis instead of growing downward. */
 .command-tray { grid-area: tray; display: flex; align-items: stretch; min-height: 60px; background: var(--kom-bg-chrome); border-top: 1px solid var(--kom-border-strong); z-index: var(--kom-z-chrome); }
 .command-tray__context { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: var(--kom-space-5); padding: var(--kom-space-3) var(--kom-space-6); }
-.command-tray__reserved { display: none; }
-.map-inspector strong { white-space: nowrap; }
-.map-inspector .hint { margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.map-inspector-actions { display: flex; gap: .4rem; align-items: center; }
-.map-inspector-actions select { max-width: 260px; }
-.map-inspector button { padding: 6px 10px; font-size: .78rem; }
-.map-inspector-hint { display: inline-flex; flex-direction: row; align-items: center; gap: .6rem; color: var(--kom-primary-soft); }
+.command-tray__context strong { white-space: nowrap; }
+.command-tray__detail { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--kom-text-hint); font-size: var(--kom-text-sm); }
+.command-tray__commands { flex: 0 1 auto; min-width: 0; display: flex; align-items: center; padding: var(--kom-space-3) var(--kom-space-6); border-left: 1px solid var(--kom-border-accent); }
+.command-tray__group { display: flex; align-items: center; gap: var(--kom-space-3); min-width: 0; }
+.command-tray__group-title { display: inline-flex; align-items: center; gap: var(--kom-space-2); white-space: nowrap; color: var(--kom-text-muted); font-size: var(--kom-text-xs); text-transform: uppercase; letter-spacing: .06em; }
+.command-tray__hint { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--kom-text-hint); font-size: var(--kom-text-xs); }
+.command-tray__commands .kom-btn { white-space: nowrap; }
+/* The primitive stacks a blocked button above its reason, which is right in a
+   panel and would be a second row here. Beside it instead — and both halves get
+   `min-width: 0`, because a flex item's automatic minimum is its min-content
+   width, which for `nowrap` text is the whole sentence. */
+.command-tray__commands .kom-btn-gate { flex-direction: row; align-items: center; gap: var(--kom-space-2); min-width: 0; }
+.command-tray__commands .kom-btn-reason { min-width: 0; max-width: 22ch; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
 /* ── Activity rows ────────────────────────────────────────────────────────────
  * The four flat skeleton rows that used to live here are gone with the
@@ -245,6 +258,10 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
 /* Army panel */
 .army-row { padding: .5rem .4rem; border-top: 1px solid var(--kom-border-subtle); display: flex; flex-direction: column; gap: .35rem; }
 .army-row:first-of-type { border-top: none; }
+/* The army the player picked on the map. An attribute rather than a class because
+   it is the same "you are here" the column's nav marks, and marking it twice in
+   two vocabularies is how the two get out of step. */
+.army-row[aria-current="true"] { border-left: 2px solid var(--kom-primary); padding-left: calc(.4rem - 2px); background: var(--kom-surface-hover); }
 .army-title, .army-stats { display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; }
 /* Not `space-between` like the two rows above it: a pending chip appears beside
    the control that issued the order and disappears when it settles, and a spread
@@ -252,7 +269,12 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
 .army-actions { display: flex; align-items: center; gap: var(--kom-space-2); flex-wrap: wrap; }
 .army-actions select { font-size: .8rem; }
 .low-supply { color: var(--kom-supply-low); font-weight: 700; }
-.recruit-choice { display: flex; gap: .5rem; align-items: flex-start; margin: .4rem 0; }
+/* One choice in a dialog: a radio, its label, and nothing else. It was
+   `.recruit-choice` while the recruit modal was the only dialog that asked a
+   question; the tray's merge dialog asks the same shape of question, and a second
+   copy of four properties under a second name is how two dialogs start looking
+   different for no reason. */
+.modal-choice { display: flex; gap: .5rem; align-items: flex-start; margin: .4rem 0; }
 .modal-actions { display: flex; gap: .5rem; justify-content: flex-end; margin-top: .8rem; }
 
 /* Onboarding & advanced drawer */
@@ -307,7 +329,6 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
 @media (min-width: 1024px) {
   .situation-room { --kom-col-kingdom: 288px; }
   .kingdom-column { grid-area: kingdom; width: 100%; box-shadow: none; }
-  .command-tray__reserved { display: flex; flex: 0 0 auto; align-items: center; max-width: 34%; margin: 0; padding: var(--kom-space-3) var(--kom-space-6); border-left: 1px dashed var(--kom-border-accent); color: var(--kom-text-hint); font-size: .78rem; }
 }
 
 @media (min-width: 1440px) {

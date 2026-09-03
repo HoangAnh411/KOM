@@ -8,13 +8,13 @@ import { Icon } from "../ui/Icon.js";
 import { Modal } from "../ui/Modal.js";
 import { Panel, PanelBody, PanelFooter, PanelHeader } from "../ui/Panel.js";
 import { affordable, firstReason, hasOrder, notFrozen } from "../validation.js";
-import { formatCost } from "../vocabulary.js";
+import { armyLabel, formatCost, formationLabels, npcLabels } from "../vocabulary.js";
 import { PendingChip } from "./PendingChip.js";
 
 type RecruitUnitId = keyof typeof gameRules.recruitment;
 
 export function ArmyPanel() {
-  const { state, runCommand } = useGame();
+  const { state, runCommand, selection, setSelection } = useGame();
   const session = state.session!; const snapshot = state.snapshot!;
   const city = snapshot.cities.find(item => item.playerId === session.player.id) ?? snapshot.cities[0];
   const [modal, setModal] = useState<null | { kind: "recruit" } | { kind: "attack"; armyId: string }>(null);
@@ -29,7 +29,11 @@ export function ArmyPanel() {
   // One affordability rule for the whole client (`validation.affordable`), so the
   // recruit gate and the build gate cannot disagree about what "đủ" means.
   const costCheck = affordable(city, unitCost);
-  const targetName = (army: Army) => army.ownerPlayerId ? (snapshot.cities.find(item => item.playerId === army.ownerPlayerId)?.playerName ?? "?") : army.npcKind ?? "NPC";
+  /** Whose army it is. The NPC branch used to fall through to `army.npcKind`,
+   *  which put the raw `raider` in front of the player. */
+  const targetName = (army: Army) => army.ownerPlayerId
+    ? (snapshot.cities.find(item => item.playerId === army.ownerPlayerId)?.playerName ?? "?")
+    : army.npcKind ? npcLabels[army.npcKind] : "NPC";
   const anchor = usePanelAnchor<HTMLElement>("army");
 
   // The label used to carry the requirement — "Tuyển quân (cần Doanh trại)" — so
@@ -47,9 +51,14 @@ export function ArmyPanel() {
       {myArmies.map(army => {
         const target = army.attackOrder ? snapshot.armies.find(item => item.id === army.attackOrder!.targetArmyId) : undefined;
         const cancelBlocked = firstReason(notFrozen(city), { ok: hasOrder(army), reason: "Quân này chưa có lệnh nào để hủy." });
-        return <div className="army-row" data-testid="army-row" key={army.id}>
+        // The other half of the map's cross-highlight: clicking an army on the map
+        // brings the nav here, so the row it brought the player to has to be the
+        // one that stands out. `aria-current` rather than a class, because that is
+        // the attribute the column's nav already uses for "you are here".
+        const picked = selection?.kind === "army" && selection.id === army.id;
+        return <div className="army-row" data-testid="army-row" key={army.id} aria-current={picked ? "true" : undefined}>
           <div className="army-title">
-            <strong>{gameRules.recruitment[army.unitType as RecruitUnitId]?.name ?? army.unitType} · {army.strength}</strong>
+            <strong>{armyLabel(army)} · {army.strength}</strong>
             <span className="kom-meta">{army.attackOrder ? `Đang tấn công ${target ? targetName(target) : "?"}` : army.targetX !== undefined ? `Di chuyển đến (${army.targetX},${army.targetY})` : "Chờ lệnh"}</span>
           </div>
           {/* Was four glyphs with tooltip-only meanings (⚔ ★ ⛽ and a bare pair of
@@ -63,11 +72,18 @@ export function ArmyPanel() {
             <span>Vị trí ({army.x},{army.y})</span>
           </p>
           <div className="army-actions">
+            {/* One spelling per order. The picker said "Vuông" — the shape — while
+                the battle report said "phòng ngự" — what it does — for the same
+                formation, so `vocabulary.ts` owns the three words now and both
+                surfaces read them from there. */}
             <select title="Đội hình" aria-label="Đội hình" value={army.formation} onChange={event => runCommand({ kind: "set_formation", label: "Đổi đội hình", path: "/api/commands/formation", body: { armyId: army.id, formation: event.target.value } }).catch(() => undefined)}>
-              <option value="line">Hàng ngang</option>
-              <option value="wedge">Nêm</option>
-              <option value="square">Vuông</option>
+              {Object.entries(formationLabels).map(([id, label]) => <option value={id} key={id}>{label}</option>)}
             </select>
+            <Button
+              variant="ghost"
+              density="compact"
+              onClick={() => setSelection({ kind: "army", id: army.id })}
+            >Xem trên bản đồ</Button>
             <Button
               variant="ghost"
               density="compact"
@@ -109,7 +125,7 @@ export function ArmyPanel() {
         >Tuyển {count} {gameRules.recruitment[recruitUnit].name}</Button>
       </>}>
         {(["infantry", "cavalry", "archer"] as RecruitUnitId[]).map(id => (
-          <label key={id} className="recruit-choice">
+          <label key={id} className="modal-choice">
             <input type="radio" name="recruit-unit" checked={recruitUnit === id} onChange={() => setRecruitUnit(id)} />
             <span><strong>{gameRules.recruitment[id].name}</strong> · {gameRules.recruitment[id].description}</span>
           </label>
@@ -137,7 +153,7 @@ export function ArmyPanel() {
             .map(target => ({ target, distance: Math.abs(target.x - city.x) + Math.abs(target.y - city.y) }))
             .sort((a, b) => a.distance - b.distance)
             .map(({ target, distance }) => (
-              <option value={target.id} key={target.id}>{targetName(target)} · {gameRules.recruitment[target.unitType as RecruitUnitId]?.name ?? target.unitType} · {target.strength} ({distance} ô)</option>
+              <option value={target.id} key={target.id}>{targetName(target)} · {armyLabel(target)} · {target.strength} ({distance} ô)</option>
             ))}
         </select>
       </Modal>

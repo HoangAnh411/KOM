@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import type { MapSelection, WorldMap } from "../map.js";
 import { useGame } from "../state.js";
+import { panelForSelection } from "../tray-groups.js";
 
 /** The centre of gravity. Deliberately props-free and never re-keyed: the whole
  *  point of the Situation Room shell is that opening a column is a CSS grid
@@ -12,12 +13,18 @@ import { useGame } from "../state.js";
  *  `ResizeObserver` effect below for why a grid-track change needs to be
  *  announced to Pixi even though the geometry itself is CSS's job. */
 export function MapSurface() {
-  const { state, addNotice, setSelection, selection, interaction, cancelOrder, runCommand } = useGame();
+  const { state, addNotice, setSelection, selection, interaction, cancelOrder, runCommand, setActivePanel } = useGame();
   const session = state.session!;
   const mapContainer = useRef<HTMLDivElement>(null);
   const map = useRef<WorldMap>();
   const interactionRef = useRef(interaction);
   const snapshotRef = useRef(state.snapshot);
+  /** The last selection this component *made*. Everything else in the client that
+   *  sets one — "Xem trên bản đồ" in the army list — is a request to look at
+   *  something, and the camera has to move for that to mean anything; a click on
+   *  the map is already looking at it. Comparing against this is what tells the
+   *  two apart without a second piece of state to keep in sync. */
+  const pickedHere = useRef<MapSelection | undefined>(selection);
   useEffect(() => { interactionRef.current = interaction; snapshotRef.current = state.snapshot; });
 
   const handleSelect = useCallback((picked: MapSelection | undefined) => {
@@ -43,8 +50,19 @@ export function MapSurface() {
       }
       cancelOrder();
     }
+    pickedHere.current = picked;
     setSelection(picked);
-  }, [runCommand, setSelection, cancelOrder, addNotice]);
+    // Clicking something of your own on the map moves the kingdom column's nav to
+    // the panel that commands it, so the two halves of the HUD agree about what
+    // the player is looking at. The panel is decided by the same table the tray
+    // reads, and only for things the player owns — see `panelForSelection`.
+    //
+    // The snapshot comes from the ref: reading `state.snapshot` here would make
+    // this callback change on every tick, and the Pixi init effect below is keyed
+    // on its identity, so the map would be torn down and rebuilt every second.
+    const panel = panelForSelection(picked, snap, session.player.id);
+    if (panel) setActivePanel(panel);
+  }, [runCommand, setSelection, cancelOrder, addNotice, setActivePanel, session.player.id]);
 
   // Map is dynamically imported after login so the pixi chunk never loads on the auth screen.
   useEffect(() => {
@@ -60,7 +78,22 @@ export function MapSurface() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.token, handleSelect]);
 
-  useEffect(() => { if (state.snapshot) map.current?.update(state.snapshot, selection); }, [state.snapshot, selection]);
+  useEffect(() => {
+    if (!state.snapshot) return;
+    map.current?.update(state.snapshot, selection);
+    // A selection from somewhere else in the HUD: centre on it, or the highlight
+    // lands off screen and the control that asked for it looks broken. Note this
+    // runs on every snapshot too, and the ref makes all of those no-ops — without
+    // it the camera would snap back to the selection on every tick.
+    if (selection === pickedHere.current) return;
+    pickedHere.current = selection;
+    const spot = selection?.kind === "tile" ? selection
+      : selection?.kind === "army" ? state.snapshot.armies.find(army => army.id === selection.id)
+      : selection ? state.snapshot.cities.find(city => city.id === selection.id)
+      : undefined;
+    // Named for its first caller; it is "put this grid position in the middle".
+    if (spot) map.current?.focusCity(spot.x, spot.y);
+  }, [state.snapshot, selection]);
   useEffect(() => { map.current?.setInteraction(interaction); }, [interaction]);
 
   // `map.ts` builds its Application with `resizeTo: container`, and Pixi re-reads

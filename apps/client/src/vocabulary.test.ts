@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import test from "node:test";
 import { resourceSchema } from "@kingdoms/shared";
-import { formatCargo, formatCost, formatResources, resourceKeys, resourceLabels } from "./vocabulary.js";
+import { armyLabel, formatCargo, formatCost, formationLabels, formatResources, npcLabels, resourceKeys, resourceLabels, unitLabel } from "./vocabulary.js";
 
 // Two halves, and the second is the one that keeps the first true. The registry is
 // paired against `resourceSchema` — the shape the server actually sends — so a new
@@ -76,6 +76,35 @@ test("only vocabulary.ts names a resource", () => {
   assert.deepEqual(offenders.map(file => file.slice(sourceRoot.length)), [], "read the label from resourceLabels");
 });
 
+/** A second copy of a registry, in the shape one is always written in: an enum
+ *  member mapped to a string. `mob_migration:` and `raider_defeated:` do not
+ *  match — the word has to be the whole key. */
+const secondRegistry = /(?<![\w])(?:line|wedge|square|raider|migration)\s*:\s*"/;
+
+test("an army has one name and one order, on every surface that names it", () => {
+  // Four surfaces name an army: the panel, the battle report, the command tray and
+  // the activity feed. Two of them used to disagree twice over — `square` was the
+  // shape "Vuông" in the picker and the purpose "phòng ngự" in the report, for the
+  // same order, and a raider was "Băng cướp" in one place and "Bọn cướp" in another.
+  for (const registry of [formationLabels, npcLabels]) {
+    const labels = Object.values(registry);
+    assert.equal(new Set(labels).size, labels.length, "two keys of one enum share a wording");
+    for (const label of labels) assert.match(label, /^\p{Lu}/u, `"${label}" is not written as a Vietnamese noun`);
+  }
+  // Ownership decides the name, not the unit type: a raider band is never "Bộ binh",
+  // because a player reading that would go looking for whose it is.
+  assert.equal(armyLabel({ unitType: "infantry", npcKind: "raider" }), npcLabels.raider);
+  assert.equal(armyLabel({ unitType: "infantry" }), unitLabel("infantry"));
+  assert.notEqual(unitLabel("infantry"), unitLabel("cavalry"));
+  const files = sourceFiles(sourceRoot);
+  const dead = files.filter(file => /Vuông|Bọn cướp/.test(stripComments(readFileSync(file, "utf8"))));
+  assert.deepEqual(dead.map(file => file.slice(sourceRoot.length)), [], "a replaced spelling is back in the source");
+  const duplicates = files
+    .filter(file => !file.endsWith("vocabulary.ts"))
+    .filter(file => secondRegistry.test(stripComments(readFileSync(file, "utf8"))));
+  assert.deepEqual(duplicates.map(file => file.slice(sourceRoot.length)), [], "read the wording from vocabulary.ts");
+});
+
 test("both guards catch what they are for", () => {
   // Without this the two scans above would keep passing if the patterns silently
   // stopped matching — which is exactly what happened to the wording they replace.
@@ -91,4 +120,10 @@ test("both guards catch what they are for", () => {
   // "Đánh bại" in the onboarding list would be an offence.
   assert.equal(restatedLabel.test('{ stone: "Mỏ đá", iron: "Mỏ sắt" }'), false);
   assert.equal(restatedLabel.test('raider_defeated: { label: "Đánh bại kẻ cướp" }'), false);
+  // And the registry guard: the shape of a duplicated map, not any mention of a key.
+  assert.ok(secondRegistry.test('const formationNames = { line: "Hàng ngang", square: "Vuông" };'));
+  assert.ok(secondRegistry.test('{ raider: "Bọn cướp" }'));
+  assert.equal(secondRegistry.test('mob_migration: "Loạn quân di cư"'), false);
+  assert.equal(secondRegistry.test('raider_defeated: { state: "success" }'), false);
+  assert.equal(secondRegistry.test('if (army.npcKind === "raider") return npcLabels.raider;'), false);
 });

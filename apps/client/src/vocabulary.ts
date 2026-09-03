@@ -12,7 +12,8 @@
 // directly (`vocabulary.test.ts`) — see also `errors.ts`, which owns the same
 // job for server error codes.
 
-import type { AllianceRole, Resources, SpyMissionType, TreatyType, WorldEventType } from "@kingdoms/shared";
+import { gameRules } from "@kingdoms/shared";
+import type { AllianceRole, Formation, NpcKind, Resources, SpyMissionType, TreatyType, UnitType, WorldEventType } from "@kingdoms/shared";
 import type { IconName, UiState } from "./ui/tokens.js";
 
 export type ResourceKey = keyof Resources;
@@ -117,3 +118,36 @@ export const spyMissionLabels: Record<SpyMissionType, string> = {
   steal: "Đánh cắp",
   counter_intel: "Phản gián",
 };
+
+// ── What an army is called ───────────────────────────────────────────────────
+//
+// Four surfaces name one: the army panel, the battle report, the map's command
+// tray and the activity feed. Before this section they disagreed twice over.
+// `square` was "Vuông" in the panel's formation picker and "phòng ngự" in the
+// report — a shape in one place and a purpose in the other, for the same order.
+// A raider was "Băng cướp" in the tray and "Bọn cướp" in the report.
+
+/** Not a registry: the unit's name is part of the protocol
+ *  (`gameRules.recruitment.infantry.name`), and the recruit form already offers
+ *  the player that word. A second copy here would be a second spelling. */
+export const unitLabel = (unitType: UnitType): string => gameRules.recruitment[unitType].name;
+
+/** Armies with no owner. `ownerType: "npc"` carries an `npcKind`, and a player
+ *  reading "Bộ binh" over a raider band would look for whose it is. */
+export const npcLabels: Record<NpcKind, string> = {
+  raider: "Băng cướp",
+  migration: "Đám di cư",
+};
+
+/** Bare, like `treatyLabels`: the call site supplies "Đội hình" where the
+ *  context needs it, and the picker that is already labelled "Đội hình" does
+ *  not. */
+export const formationLabels: Record<Formation, string> = {
+  line: "Hàng ngang",
+  wedge: "Nêm",
+  square: "Phòng ngự",
+};
+
+/** What to call an army in one word, whoever owns it. */
+export const armyLabel = (army: { unitType: UnitType; npcKind?: NpcKind }): string =>
+  army.npcKind ? npcLabels[army.npcKind] : unitLabel(army.unitType);

@@ -63,7 +63,7 @@ export function SituationRoom() {
     <KingdomColumn open={surfaces.kingdom} />
     <MapSurface />
     <ActivityColumn open={surfaces.activity} onReveal={reveal} />
-    <CommandTray />
+    <CommandTray onReveal={reveal} />
     {protocolBlocked && <div className="protocol-banner" role="alert">{protocolBlocked}</div>}
     {report && <BattleReportModal report={report} onClose={dismissReport} />}
   </div>;

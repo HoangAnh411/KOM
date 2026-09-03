@@ -1,6 +1,6 @@
 import { activityKindLabels, attentionItems, type ActivityEvent, type AttentionItem } from "../activity.js";
 import { surfaceElementIds, type SurfaceId } from "../layout.js";
-import { revealPanel, type PanelAnchorId } from "../panel-anchors.js";
+import { usePanelJump, type PanelAnchorId } from "../panel-anchors.js";
 import { useGame } from "../state.js";
 import { Button } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
@@ -20,22 +20,17 @@ import { StatusChip } from "../ui/Status.js";
  *  it describes stops mattering. "Cần chú ý" is read from the current snapshot on
  *  every render and empties itself the moment the player deals with the thing. */
 export function ActivityColumn({ open, onReveal }: { open: boolean; onReveal: (id: SurfaceId) => void }) {
-  const { state, pending, activity, setActivePanel, setAdvancedOpen } = useGame();
+  const { state, pending, activity } = useGame();
   const playerId = state.session?.player.id;
   const attention = playerId ? attentionItems(state.snapshot, pending, playerId) : [];
 
   /** Every anchor a row can carry lives inside the kingdom column, so the jump
    *  opens that column first. In a compact band it is a flyout over the map and
    *  the feed is the surface currently covering it, which is exactly the case
-   *  `openSurface` handles by swapping one for the other. The 60ms is the same
-   *  wait the column's own nav uses: `revealPanel` scrolls to an element, and in
-   *  compact that element is inside a surface this click has only just opened. */
-  const jump = (anchor: PanelAnchorId) => {
-    onReveal("kingdom");
-    if (anchor !== "hud") setActivePanel(anchor);
-    if (anchor === "diplomacy") setAdvancedOpen(true);
-    setTimeout(() => revealPanel(anchor), 60);
-  };
+   *  `openSurface` handles by swapping one for the other. The command tray needs
+   *  the identical four steps, so they live in `panel-anchors.ts` — the module
+   *  that owns the anchors — rather than in two copies that could drift. */
+  const jump = usePanelJump(onReveal);
 
   return <aside
     id={surfaceElementIds.activity}

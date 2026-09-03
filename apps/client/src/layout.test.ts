@@ -244,6 +244,46 @@ test("the panel bridge and the column's old surface rule are gone together", () 
   }
 });
 
+test("the tray's reserved slot left with the emptiness it reserved", () => {
+  // `.command-tray__reserved` was a label in an empty half plus a `display: none`
+  // that hid even the label below 1024px, so the band where the kingdom column is
+  // a flyout over the map was the band where the tray said nothing at all. Two
+  // rules, in two places — the base one and its promotion inside the 1024px query
+  // — which is exactly the shape that survives a rewrite: delete the markup, leave
+  // a rule behind, and the next person to grep the sheet concludes the slot is
+  // still there.
+  for (const name of ["command-tray__reserved",
+    // The floating inspector's own class, and the three shapes hanging off it. All
+    // four were bare-element selectors over the primitives: `.map-inspector button`
+    // is (0,1,1) and took the padding straight back off `.kom-btn--compact`, which
+    // is the failure the tray's buttons would have shown first.
+    "map-inspector", "map-inspector-actions", "map-inspector-hint",
+    // Renamed rather than deleted: `.recruit-choice` is `.modal-choice`, because
+    // the tray's merge dialog asks the same question in the same shape.
+    "recruit-choice"]) {
+    assert.equal(selector(name).test(sheet), false, `.${name} is still in styles.css`);
+  }
+  // Positively: every class the tray emits has a rule.
+  for (const name of ["command-tray", "command-tray__context", "command-tray__detail", "command-tray__commands",
+    "command-tray__group", "command-tray__group-title", "command-tray__hint", "modal-choice"]) {
+    assert.match(sheet, selector(name), `.${name} has no rule in styles.css`);
+  }
+  // The height law, and the only part of it a text scan can hold. The tray shares
+  // a grid row with the map and the map's box is what Pixi sizes its canvas from,
+  // so anything here that can reach a second line resizes the renderer. The
+  // primitive stacks a blocked button *above* its reason; inside the tray that
+  // stack is flipped to a row, and both the reason and its wrapper are allowed to
+  // shrink — a flex item's automatic minimum is its min-content width, which for
+  // `nowrap` text is the whole sentence.
+  const gate = bodies("command-tray__commands");
+  assert.ok(gate.some(body => /flex-direction:\s*row/.test(body)), "a gated tray button would lay its reason out on a second line");
+  assert.ok(gate.filter(body => /min-width:\s*0/.test(body)).length >= 2, "the tray's gate and its reason must both be allowed to shrink");
+  for (const name of ["command-tray__detail", "command-tray__hint"]) {
+    assert.ok(bodies(name).some(body => /text-overflow:\s*ellipsis/.test(body) && /white-space:\s*nowrap/.test(body)),
+      `.${name} can wrap onto a second line and take the map's height with it`);
+  }
+});
+
 test("the layout layer holds no colour literal", () => {
   // Same rule PR2 put on the primitives: colours live in the token layer, and a
   // literal here is a colour the palette cannot restyle.

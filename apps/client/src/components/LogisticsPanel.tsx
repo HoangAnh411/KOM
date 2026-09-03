@@ -159,7 +159,7 @@ export function LogisticsPanel() {
 
       <div className="logistics-block export-note">
         <h3>Xuất khẩu là gì?</h3>
-        <p className="kom-meta">Lập tuyến đến <strong>{markupHubName(marketHubs)}</strong> và gửi caravan. Khi hàng cập bến, lượng gỗ/đá/sắt được tính là xuất khẩu — góp vào điểm kinh tế và mục tiêu “Đã xuất khẩu” trong phần giới thiệu. Bọn cướp có thể phục kích trên đường: cử quân hộ tống đem theo caravan để bảo vệ.</p>
+        <p className="kom-meta">Lập tuyến đến <strong>{markupHubName(marketHubs)}</strong> và gửi caravan. Khi hàng cập bến, lượng gỗ/đá/sắt được tính là xuất khẩu — góp vào điểm kinh tế và mục tiêu “Đã xuất khẩu” trong phần giới thiệu. Băng cướp có thể phục kích trên đường: cử quân hộ tống đem theo caravan để bảo vệ.</p>
       </div>
     </PanelBody>
   </Panel>;

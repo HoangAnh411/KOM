@@ -1,73 +1,137 @@
 import { useEffect, useState } from "react";
-import { gameRules } from "@kingdoms/shared";
-import type { Army } from "@kingdoms/shared";
+import type { SurfaceId } from "../layout.js";
+import { usePanelJump } from "../panel-anchors.js";
 import { useGame } from "../state.js";
-import { cancelable, hasEnemy, isOwnLiveArmy, mergeCandidates } from "../validation.js";
+import { trayGroups, traySubject, type TrayCommand, type TrayGroup, type TrayIntent } from "../tray-groups.js";
+import { Button } from "../ui/Button.js";
+import { Icon } from "../ui/Icon.js";
+import { Modal } from "../ui/Modal.js";
+import { armyLabel } from "../vocabulary.js";
 
-/** Row 3 of the Situation Room: the contextual command area.
+/** Row 3 of the Situation Room: what is selected, and what can be done to it.
  *
- *  It carries the selection inspector unchanged — same region, same accessible
- *  name, same four branches, same buttons — because that inspector already *is*
- *  "commands for what you have selected", and PR3 is a layout change. Moving it
- *  out of the floating action bar into a full-width tray is the layout change:
- *  the tray is a grid row the map sits on top of, so ordering a move no longer
- *  means a panel appearing over the tile you are aiming at.
+ *  The left half names the selection. The right half shipped as an empty slot
+ *  holding the height for "contextual command groups" that had not been written;
+ *  `tray-groups.ts` is that table, and this file is only its markup — every
+ *  decision about which commands exist, which are blocked and what the reason
+ *  says is made there, where a runner without a DOM can assert it.
  *
- *  The right half is deliberately an empty slot with a label. PR5 fills it with
- *  contextual command groups; until then it reserves the space so the tray does
- *  not change height when that lands. */
-export function CommandTray() {
+ *  Two things about this component are load-bearing and neither is visible in the
+ *  markup:
+ *
+ *  1. `role="region"` sits on the tray itself rather than on the left half. Both
+ *     halves are about one selection, and the name a player hears for the whole
+ *     strip is the name the old floating inspector had.
+ *  2. Nothing here may change the tray's height. It shares a grid row with the
+ *     map, and the map's box is what Pixi sizes its canvas from, so the buttons
+ *     are `nowrap`, capped at four by the table, and a blocked one lays its reason
+ *     out *beside* it instead of under it (`.command-tray__commands .kom-btn-gate`
+ *     flips the primitive's column to a row). */
+export function CommandTray({ onReveal }: { onReveal: (id: SurfaceId) => void }) {
   const { state, selection, interaction, beginOrder, cancelOrder, runCommand } = useGame();
   const session = state.session!;
-  const [mergeTarget, setMergeTarget] = useState("");
-  // The old inspector cleared this inside the map's select handler. The tray owns
-  // the value now, so it clears when the selection it belongs to changes.
-  useEffect(() => { setMergeTarget(""); }, [selection]);
+  const jump = usePanelJump(onReveal);
+  /** The merge dialog is opened by an intent and carries its own candidate list,
+   *  so the list the player picks from is the one the gate was decided from. */
+  const [merging, setMerging] = useState<Extract<TrayIntent, { kind: "merge" }> | null>(null);
+  // The dialog belongs to the selection that opened it: clicking elsewhere on the
+  // map must not leave a merge open against an army the tray no longer names.
+  useEffect(() => { setMerging(null); }, [selection]);
 
-  const selectedArmy = selection?.kind === "army" ? state.snapshot?.armies.find(item => item.id === selection.id && item.strength > 0) : undefined;
-  const selectedCity = selection?.kind === "city" ? state.snapshot?.cities.find(item => item.id === selection.id) : undefined;
-  const unitName = (army: Army) => {
-    if (army.npcKind === "raider") return "Băng cướp";
-    if (army.npcKind === "migration") return "Đám di cư";
-    const unit = gameRules.recruitment[army.unitType as keyof typeof gameRules.recruitment];
-    return unit?.name ?? army.unitType;
+  const subject = traySubject(selection, state.snapshot, session.player.id);
+  const groups = trayGroups(selection, interaction, state.snapshot, session.player.id);
+
+  const run = (intent: TrayIntent): void => {
+    switch (intent.kind) {
+      case "order": return beginOrder(intent.mode, intent.armyId);
+      case "cancel-order": return cancelOrder();
+      case "command": { void runCommand(intent.command).catch(() => undefined); return; }
+      case "merge": return setMerging(intent);
+      case "panel": return jump(intent.anchor);
+    }
   };
-  const ownerName = (army: Army) => army.ownerPlayerId ? (state.snapshot?.cities.find(city => city.playerId === army.ownerPlayerId)?.playerName ?? "?") : "NPC";
-  const mine = isOwnLiveArmy(selectedArmy, session.player.id);
-  const mergeCandidatesFor = selectedArmy ? mergeCandidates(state.snapshot?.armies ?? [], selectedArmy, session.player.id) : [];
-  const canOrder = (mode: "move" | "attack") => mine && (mode === "move" || hasEnemy(state.snapshot?.armies ?? [], session.player.id));
 
-  return <div className="command-tray">
-    <div className="map-inspector command-tray__context" role="region" aria-label="Lệnh cho lựa chọn">
-      {interaction.kind !== "idle" ? (
-        <div className="map-inspector-hint" role="status">{interaction.kind === "move" ? "Nhấp vào bản đồ để chọn điểm đến" : "Nhấp vào quân địch để ra lệnh tấn công"} <button onClick={cancelOrder}>Hủy</button></div>
-      ) : selection?.kind === "army" && selectedArmy ? (
-        <>
-          <strong>{unitName(selectedArmy)} · {selectedArmy.strength}</strong>
-          <span className="hint">{ownerName(selectedArmy)} · ⚔ {selectedArmy.strength} · ★ {selectedArmy.morale} · ⛽ {selectedArmy.supply}% · ({selectedArmy.x},{selectedArmy.y})</span>
-          <div className="map-inspector-actions">
-            <button disabled={!canOrder("move")} onClick={() => beginOrder("move", selectedArmy.id)}>Di chuyển</button>
-            <button disabled={!canOrder("attack")} onClick={() => beginOrder("attack", selectedArmy.id)}>Tấn công</button>
-            <select value={mergeTarget} onChange={event => setMergeTarget(event.target.value)} aria-label="Quân gộp vào đây">
-              <option value="">Hợp nhất: chọn quân cùng loại cùng ô…</option>
-              {mergeCandidatesFor.map(item => <option value={item.id} key={item.id}>QĐ {unitName(item)} ({item.strength})</option>)}
-            </select>
-            <button disabled={!mergeTarget} onClick={() => runCommand({ kind: "merge_army", label: "Hợp nhất quân", path: "/api/commands/merge-army", body: { sourceArmyId: mergeTarget, targetArmyId: selectedArmy.id } }).then(() => setMergeTarget("")).catch(() => undefined)}>Hợp nhất vào quân này</button>
-            {cancelable(selectedArmy) && <button onClick={() => runCommand({ kind: "cancel_army_order", label: "Hủy lệnh", path: "/api/commands/cancel-army-order", body: { armyId: selectedArmy.id } }).catch(() => undefined)}>Hủy lệnh</button>}
-          </div>
-        </>
-      ) : selection?.kind === "city" && selectedCity ? (
-        <>
-          <strong>{selectedCity.name}</strong>
-          <span className="hint">{selectedCity.playerName} · ({selectedCity.x},{selectedCity.y})</span>
-        </>
-      ) : (
-        <>
-          <strong>{selection?.kind === "tile" ? `Ô đất (${selection.x},${selection.y})` : "Chưa chọn gì"}</strong>
-          <span className="hint">{selection?.kind === "tile" ? "Chọn quân đội của bạn trên bản đồ để ra lệnh di chuyển hoặc tấn công." : "Nhấp vào quân đội, thành phố hoặc ô đất trên bản đồ."}</span>
-        </>
-      )}
+  return <div className="command-tray" role="region" aria-label="Lệnh cho lựa chọn">
+    <div className="command-tray__context">
+      <strong className="kom-num">{subject.title}</strong>
+      <span className="command-tray__detail kom-num">{subject.detail}</span>
     </div>
-    <p className="command-tray__reserved">Lệnh theo ngữ cảnh sẽ xuất hiện ở đây.</p>
+    <div className="command-tray__commands">
+      {groups.map(group => <TrayGroupView
+        key={group.id}
+        group={group}
+        // The one case worth announcing: the player pressed an order and the next
+        // click belongs to the map. Every other hint arrives because they clicked
+        // something, and a live region that fires on every map click is noise.
+        live={interaction.kind !== "idle"}
+        onRun={run}
+      />)}
+    </div>
+    {merging && merging.candidates.length > 0
+      ? <MergeDialog intent={merging} onClose={() => setMerging(null)} onRun={run} />
+      : null}
   </div>;
+}
+
+function TrayGroupView({ group, live, onRun }: { group: TrayGroup; live: boolean; onRun: (intent: TrayIntent) => void }) {
+  return <div className="command-tray__group" role="group" aria-label={group.title}>
+    <span className="command-tray__group-title"><Icon name={group.icon} size="sm" />{group.title}</span>
+    {group.commands.map(command => <TrayButton key={command.id} command={command} onRun={onRun} />)}
+    {group.hint ? <span className="command-tray__hint" role={live ? "status" : undefined}>{group.hint}</span> : null}
+  </div>;
+}
+
+/** `data-command` is the id the table gave the command: the e2e spec presses the
+ *  button by it, so a reworded label does not break a test that is about the
+ *  command existing. */
+const TrayButton = ({ command, onRun }: { command: TrayCommand; onRun: (intent: TrayIntent) => void }) => <Button
+  variant={command.variant}
+  density="compact"
+  data-command={command.id}
+  disabled={!command.check.ok}
+  reason={command.check.reason}
+  onClick={() => onRun(command.intent)}
+>{command.label}</Button>;
+
+/** Merge is the one tray command that needs an argument, and it used to ask for
+ *  it with a `<select>` sitting in the strip — the widest control in the tray, and
+ *  a dropdown the player had to open before they could see whether merging was
+ *  possible at all. As a dialog the question is asked only when the answer can be
+ *  acted on, and the gate on the button already said whether that is now. */
+function MergeDialog({ intent, onClose, onRun }: {
+  intent: Extract<TrayIntent, { kind: "merge" }>;
+  onClose: () => void;
+  onRun: (intent: TrayIntent) => void;
+}) {
+  const [sourceArmyId, setSourceArmyId] = useState(intent.candidates[0]?.id ?? "");
+  const confirm = () => {
+    onRun({
+      kind: "command",
+      // The payload `CommandTray` has always sent: the chosen army folds *into*
+      // the selected one, so the selection survives the merge and the tray keeps
+      // naming something that exists.
+      command: { kind: "merge_army", label: "Hợp nhất quân", path: "/api/commands/merge-army", body: { sourceArmyId, targetArmyId: intent.armyId } },
+    });
+    onClose();
+  };
+  return <Modal
+    title="Hợp nhất quân đội"
+    onClose={onClose}
+    actions={<>
+      <Button variant="ghost" onClick={onClose}>Hủy</Button>
+      <Button variant="primary" onClick={confirm}>Hợp nhất vào quân này</Button>
+    </>}
+  >
+    <p className="kom-meta">Quân được chọn sẽ nhập vào quân đang chọn trên bản đồ và biến mất khỏi bản đồ.</p>
+    {intent.candidates.map(candidate => <label key={candidate.id} className="modal-choice">
+      <input
+        type="radio"
+        name="merge-source"
+        value={candidate.id}
+        checked={sourceArmyId === candidate.id}
+        onChange={() => setSourceArmyId(candidate.id)}
+      />
+      <span>{armyLabel(candidate)} · <span className="kom-num">{candidate.strength}</span></span>
+    </label>)}
+  </Modal>;
 }

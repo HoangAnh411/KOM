@@ -103,3 +103,31 @@ export const hasOrder = (army: Army | undefined): boolean =>
   !!army && (army.attackOrder !== undefined || army.targetX !== undefined);
 
 export const cancelable = (army: Army | undefined): boolean => hasOrder(army);
+
+// The same four conditions as gates rather than booleans, because the command
+// tray shows *why* an order is unavailable instead of hiding the button. A
+// hidden control reads as a missing feature; a disabled one with a sentence
+// beside it reads as a state the player can change.
+
+/** The army twin of `notFrozen`, and deliberately not the same sentence: a
+ *  player who reads "Thành phố đang bị đóng băng" beside a selected army goes
+ *  looking for the wrong thing to thaw. */
+export const armyNotFrozen = (army: Army): Check =>
+  army.frozen ? { ok: false, reason: "Quân này đang bị đóng băng — lệnh mới bị chặn đến khi mở băng." } : { ok: true };
+
+export const enemyInSight = (armies: Army[], playerId: string): Check =>
+  hasEnemy(armies, playerId) ? { ok: true } : { ok: false, reason: "Chưa thấy quân đối phương nào còn sống trên bản đồ." };
+
+export const orderToCancel = (army: Army): Check =>
+  cancelable(army) ? { ok: true } : { ok: false, reason: "Quân này chưa có lệnh nào đang chạy để hủy." };
+
+/** Merge needs a partner, and the reason has to name both halves of the rule —
+ *  same unit type on the same tile *and* a total under the cap — or a player
+ *  standing two full armies on one tile reads it as a bug. */
+export function mergeReady(armies: Army[], army: Army, playerId: string): Check {
+  if (mergeCandidates(armies, army, playerId).length > 0) return { ok: true };
+  return {
+    ok: false,
+    reason: `Cần một quân cùng loại đứng cùng ô, tổng sức không quá ${gameRules.army.maxStrengthPerArmy}.`,
+  };
+}
