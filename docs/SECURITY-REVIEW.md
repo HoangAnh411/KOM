@@ -27,7 +27,7 @@ Không chạy pentest động, không fuzz, không kiểm tra dependency ngoài 
 |---|---|---|---|
 | S-1 | **High** | auth / rate limit | ✅ đã sửa + test hồi quy |
 | S-2 | **High** | permissions / rò rỉ dữ liệu | ✅ đã sửa + test hồi quy |
-| S-3 | Medium | availability | ⏳ P0.3 (đã có task) |
+| S-3 | Medium | availability | ✅ đã sửa + test (P0.3, 2026-09-03) |
 | S-4 | Medium | availability | ✅ đã sửa + test (P0.2, 2026-09-03) |
 | S-5 | Medium | permissions / abuse | ✅ đã sửa + test (owner chốt luật 2026-09-03) |
 | S-6 | Low | secrets / log | ✅ đã sửa (hardening) |
@@ -118,8 +118,34 @@ người chơi thêm ~28 800 phần tử/ngày; mọi command sau đó chạy `i
 nó, và cả array được `structuredClone` trong mỗi transaction (`store.ts:118`, `:122`).
 
 Đây là DoS chi phí thấp (tăng bộ nhớ + độ trễ, một hàng JSONB phình) hơn là lỗ hổng bảo mật
-theo nghĩa hẹp. **Không sửa ở đây**: đã có task **P0.3** ("chặn `processedCommands` phình vô
-hạn; gộp mọi dedupe về một đường duy nhất") và nó chạm `store.ts` sâu.
+theo nghĩa hẹp.
+
+**Đã sửa (P0.3, 2026-09-03).** Đọc kỹ thì vấn đề rộng hơn báo cáo ban đầu: có **năm** cơ chế
+dedupe song song, và ba trong số đó (`CombatRepository.commands`,
+`LogisticsRepository.commands`, `OnboardingRepository.commands`) là `Set` không trần bị sao
+chép **hai lần mỗi command** cho rollback. Gộp về một đường, chia hai bước:
+
+- **P0.3a** (`97822af`) — `apps/server/src/command-registry.ts` mới: một `Set` có trần FIFO
+  dùng chung `config.idempotencyWindow` với `EventLedger` (P0.2), cộng journal
+  `begin()`/`commit()`/`rollback()` mà `Store` mở quanh `action()`. Ba repository nhận registry
+  qua constructor; rollback quên đúng id của command lỗi thay vì phục hồi ba bản copy Set.
+- **P0.3b** (`f94ac22`) — bỏ `processedCommands` khỏi `GameState`: 11 cặp check/push ở
+  `diplomacy.ts`, `launchMission` + `activateCounterIntel` ở `espionage.ts`, `startBuild` ở
+  `store.ts` chuyển sang registry; `hardReset()` không còn xoá array (store gọi
+  `commands.clear()` sau khi reset đã bền); `Store.load()` destructure key cũ ra khỏi hàng JSONB
+  nên hàng cũ tự co, không cần migration cho một key.
+
+Dedupe không yếu đi: trần là **cache dương**, id rơi ra ngoài window vẫn bị unique partial index
+`event_ledger_command_idx` + point query trong transaction từ chối. Hai thay đổi hành vi đã ghi
+trong commit body: claim xảy ra **tại chỗ check** (rollback của transaction `forget()` đúng id
+đó) và id dẫn xuất `commandId + "-violate"` mất dedupe bền qua restart (`breakTreaty` có guard
+cứng `TREATY_NOT_ACTIVE` chặn phạt lần hai).
+
+**Test hồi quy:** `command-registry.test.ts` (7 test: claim một lần, eviction FIFO, rollback
+quên đúng id của command lỗi, commit đóng journal, claim ngoài transaction là vĩnh viễn,
+`begin()` huỷ journal mồ côi, `clear()`); `store.test.ts` "a build that fails on cost leaves its
+commandId claimable"; `diplomacy.test.ts` "a retried break treaty is idempotent, not a second
+penalty". Server unit: 141 test / 126 pass / 0 fail / 15 skip (gate PostgreSQL).
 
 ## S-4 (Medium) — reload toàn bảng `event_ledger` trên command path
 

@@ -45,7 +45,7 @@ Không mở nhóm C/D/E/F/G lúc này.
 | **6** | **Z.5** — ROADMAP/docs truth pass vòng 2 | Chính yêu cầu của owner ("nhớ cập nhật lại roadmap"); doc-only nên chạy song song được với phần code | **Xong** — `dbf5c6f` + Z.5b đóng cùng B.1a |
 | **7** | **B.1a (S-5)** — `ambush` đòi quân trong bán kính 3 + bucket `combat` | Đứng **trước** P0.3 vì P0.3 viết lại chính `claim()` của `logistics.ts`; làm sau thì phải rebase file đó hai lần. **Owner đã chốt luật** | **Xong** — server unit 124 → **128** |
 | **8** | **P0.2** (= S-4) — bỏ full-table ledger reload khỏi command path | Rẻ nhất trong ba task command-path và không phụ thuộc gì; nó cũng định nghĩa *idempotency window* mà P0.3a dùng lại làm trần | **Xong** — server unit 128 → **132**, S-4 đóng |
-| **9** | **P0.3a → P0.3b** (= S-3) — gộp 5 cơ chế dedupe về một registry có trần | Phải sau P0.2 để dùng chung một con số window; tách 2 task để mỗi task ≤ 5 file và verify riêng được | Chưa |
+| **9** | **P0.3a → P0.3b** (= S-3) — gộp 5 cơ chế dedupe về một registry có trần | Phải sau P0.2 để dùng chung một con số window; tách 2 task để mỗi task ≤ 5 file và verify riêng được | **Xong** — server unit 132 → **139** (P0.3a `97822af`) → **141** (P0.3b `f94ac22`), S-3 đóng |
 
 Còn chặn thật, đã báo thay vì làm dở: **P0.4** (sức chứa thế giới — quyết định gameplay, OQ #2), **P0.5 + B.3** `[141]` (không `k6`, và deps P0.2–P0.4), **B.2b** + hai job CI Docker (không Docker ở máy này — sau PR.1 thì `recovery-drill` trên CI là chỗ quan sát đầu tiên, cần `workflow_dispatch`), **A.1** phần phiên tay 30–60 phút (người phải chạy), **S-7 / S-8 / S-9** (gộp PR admin kế tiếp / owner chốt con số / owner quyết guard boot), flake gate 7 `map-command.spec.ts` (đã ghi, chưa có PR), nhóm **D** (owner chốt hướng persistence), phần lớn **Phase 8** và **G.2–G.5** (bundle ID, signing, license).
 
@@ -249,7 +249,7 @@ F.4 [230] audit process (độc lập)
 **Dependencies:** None (⚠️ chạm `app.ts`; owner đã cho phép mở phạm vi) · **Scope:** S
 **Files:** `apps/server/src/app.ts`, `apps/server/src/rate-limit.test.ts`, `apps/server/src/app.test.ts`, `docs/API.md`
 
-### P0.2 — Bỏ full-table reload của event ledger khỏi command path (= S-4) ✅ (2026-09-03)
+### P0.2 — Bỏ full-table reload của event ledger khỏi command path (= S-4) ✅ `e22cde5`
 
 **Đo lại từ code 2026-09-03.** `store.ts:99` (command) và `store.ts:122` (moderation) gọi
 `await this.load()` **bên trong** transaction; `Store.load()` (`store.ts:72`) kết thúc bằng
@@ -294,7 +294,7 @@ index `event_ledger_command_idx` (`003_event_ledger.sql:11`, đã có sẵn).
 **Dependencies:** None (⚠️ chạm `store.ts`) · **Scope:** M
 **Files:** `apps/server/src/event-ledger.ts`, `apps/server/src/store.ts`, `apps/server/src/config.ts`, `apps/server/src/event-ledger.test.ts` (mới), `.env.example`, `infra/.env.prod.example`, `docs/OPERATIONS.md`, `docs/API.md`, `docs/ROADMAP.md`, `docs/SECURITY-REVIEW.md`
 
-### P0.3 — Gộp dedupe về một đường có trần (= S-3)
+### P0.3 — Gộp dedupe về một đường có trần (= S-3) ✅ `97822af` + `f94ac22`
 
 **Đọc code 2026-09-03 thì S-3 rộng hơn bản ghi cũ:** không phải một mảng phình, mà **năm** cơ
 chế dedupe song song, và **ba** trong số đó bị sao chép **hai lần mỗi command** ở `store.ts:96`
@@ -312,30 +312,33 @@ Vì `state.processedCommands` nằm trong `game_state` JSONB nên nó phình c�
 kia phình trong RAM và bị sao chép hai lần mỗi command — cùng một triệu chứng, khác chỗ ở. Trần
 dùng chung *idempotency window* của P0.2 để không có hai con số cần giữ đồng bộ.
 
-#### P0.3a — Một registry có trần, thay ba Set `claim()` của repo
+#### P0.3a — Một registry có trần, thay ba Set `claim()` của repo ✅ `97822af`
 
-- [ ] `command-registry.ts` mới: Set có trần FIFO (`has`, `claim`, `forget(ids)`, `clear`), trần dùng chung window của P0.2
-- [ ] `CombatRepository` / `LogisticsRepository` / `OnboardingRepository` nhận registry qua constructor, `private claim()` chỉ còn delegate — **không đổi call site nào** (6 + 5 + 1 chỗ giữ nguyên chữ ký)
-- [ ] Rollback: `Store` ghi danh sách id **đã claim trong transaction này** và `forget()` khi rollback, thay cho `capture()`/`restore()` copy cả Set. `logistics.capture()` bỏ field `commands` (giữ `structuredClone(this.data)`), `combat.capture()` / `onboarding.capture()` tương tự
+- [X] `command-registry.ts` mới: Set có trần FIFO (`has`, `claim`, `begin`, `commit`, `rollback`, `forget(ids)`, `clear`, `size`), trần dùng chung `config.idempotencyWindow` của P0.2
+- [X] `CombatRepository` / `LogisticsRepository` / `OnboardingRepository` nhận registry qua constructor, `private claim()` chỉ còn delegate — **không đổi call site nào** (6 + 5 + 1 chỗ giữ nguyên chữ ký)
+- [X] Rollback: `Store` mở journal `begin()` trước `action()` và `rollback()` quên đúng id command này đã claim, thay cho `capture()`/`restore()` copy cả Set. `logistics.capture()` bỏ field `commands` (giữ `structuredClone(this.data)`), `onboarding.capture()` chỉ còn `progress`, `combat.capture()`/`restore()` **xoá hẳn** vì Set đó là toàn bộ state ngoài `GameState` của nó
+- [X] Journal thay vì truyền danh sách id như plan viết ban đầu: `claim()` nằm sâu trong method của repository nên store không quan sát được id nào vừa bị claim. `begin()` cố tình huỷ journal mồ côi — `runExclusive` serialize transaction nên tới được `begin()` nghĩa là command trước đã xong. `moderatePlayerUnlocked` không bọc journal (nó không claim command id nào)
 
 **Verification:**
-- [ ] `command-registry.test.ts` mới: claim hai lần, eviction FIFO khi vượt trần, `forget()` sau rollback
-- [ ] `logistics.test.ts` / `combat.test.ts` / `onboarding.test.ts` xanh **không sửa assertion**
-- [ ] Test rollback sẵn có ở `store.test.ts:37` vẫn khẳng định đúng "no ledger residue"
+- [X] `command-registry.test.ts` mới, 7 test: claim hai lần, eviction FIFO (id cũ nhất ra trước, id mới nhất còn), rollback quên đúng id của command lỗi kể cả id dẫn xuất, commit đóng journal, claim ngoài transaction là vĩnh viễn (path tick), `begin()` huỷ journal mồ côi, `clear()`
+- [X] `logistics.test.ts` / `combat.test.ts` / `onboarding.test.ts` xanh **không sửa assertion**
+- [X] Test rollback sẵn có ở `store.test.ts` vẫn khẳng định đúng "no ledger residue"
+- [X] `npm run typecheck` sạch; server unit **139** (124 pass + 15 skip vì gate PostgreSQL)
 
 **Dependencies:** P0.2 (dùng chung window) · **Scope:** M · ⚠️ hot file
 **Files:** `apps/server/src/command-registry.ts` (mới), `store.ts`, `combat.ts`, `logistics.ts`, `onboarding.ts` + 1 test mới
 
-#### P0.3b — Bỏ `state.processedCommands`
+#### P0.3b — Bỏ `state.processedCommands` ✅ `f94ac22`
 
-- [ ] `store.ts:134` (build), `espionage.ts:52,53`, **11 cặp** check/push trong `diplomacy.ts` (41/56, 62/70, 76/92, 103/109, 114/117, 123/129, 134/139, 152/181, 188/209, 215/236, 242/260) chuyển sang registry
-- [ ] Bỏ field ở `types.ts:27`, bỏ dòng reset ở `season-reset.ts:26` (registry `clear()` thay thế), và **strip key cũ khi load** trong `store.ts:72` để hàng JSONB đang tồn tại co lại — một key không cần migration riêng
-- [ ] Ghi lại đúng một thay đổi hành vi: id dẫn xuất `commandId + "-violate"` (`combat.ts:246` gọi từ tick `combat.ts:393`, và `logistics.ts:176`) mất dedupe **bền qua restart**. An toàn vì `breakTreaty` đã có guard cứng `TREATY_NOT_ACTIVE` (`diplomacy.ts:246`) và pursuit order bị tiêu ngay khi resolve — nhưng phải nói ra trong commit body, không để người sau tự phát hiện
+- [X] `startBuild` ở `store.ts`, `espionage.ts` (`launchMission` + `activateCounterIntel`), **11 cặp** check/push trong `diplomacy.ts` chuyển sang registry; `DiplomacyRepository`/`EspionageRepository` nhận registry qua constructor như ba repo kia
+- [X] Bỏ field ở `types.ts`, bỏ dòng reset ở `season-reset.ts` — store gọi `commands.clear()` **sau khi reset đã bền** (sau COMMIT ở path PostgreSQL, ngay sau `hardReset` ở path in-memory) nên một season close bị rollback không xoá dedupe; **strip key cũ khi load** bằng destructure trong `Store.load()` để hàng JSONB đang tồn tại co lại ở lần `persistState` kế tiếp — một key không cần migration riêng
+- [X] Ghi vào commit body **ba** thay đổi hành vi, không phải một: (1) dedupe giờ **claim tại chỗ check** thay vì push khi thành công — an toàn vì mọi command REST đi qua `command()` → `executeCommand` và rollback `forget()` đúng id đó; (2) id dẫn xuất `commandId + "-violate"` (tick `combat.ts`, ambush `logistics.ts`) mất dedupe **bền qua restart** — an toàn vì `breakTreaty` có guard cứng `TREATY_NOT_ACTIVE` và pursuit order bị tiêu ngay khi resolve; (3) `commands.clear()` khi đóng season giờ quên cả id combat/logistics/onboarding (trước đây ba Set đó sống qua ranh giới season) — PG mode vẫn được `event_ledger` + unique index chặn, in-memory mode yếu hơn sau một season close
 
 **Verification:**
-- [ ] `combat.test.ts:252` (đang assert `processedCommands.includes("purs-8-violate")`) chuyển sang assert qua registry
-- [ ] 11 test `diplomacy.test.ts` xanh; test mới: cùng `commandId` gọi `breakTreaty` hai lần → `already_processed`, **không** trừ 300 reputation lần hai
-- [ ] `npm test -w @kingdoms/server` + `npm run typecheck`
+- [X] `combat.test.ts` chuyển sang `store.commands.has("purs-8-violate")`
+- [X] Test diplomacy cũ xanh không sửa assertion; test mới "a retried break treaty is idempotent, not a second penalty": cùng `commandId` hai lần → `already_processed`, reputation vẫn −150 (không phải −300), và một `commandId` **khác** vẫn bị `TREATY_NOT_ACTIVE`
+- [X] Test mới `store.test.ts` "a build that fails on cost leaves its commandId claimable" — ca hay gặp nhất của claim-tại-chỗ-check: build thiếu tài nguyên → throw nhưng `commandId` không bị tiêu, retry cùng id được nhận rồi lần ba trả `already_processed`
+- [X] `npm test -w @kingdoms/server` **141** (126 pass + 15 skip) + `npm run typecheck` sạch
 
 **Dependencies:** P0.3a · **Scope:** M · ⚠️ hot file
 **Files:** `apps/server/src/store.ts`, `diplomacy.ts`, `espionage.ts`, `types.ts`, `season-reset.ts` + tests
@@ -387,9 +390,9 @@ Scenario `commands` trong `e2e/loadtest/loadtest.js` chạy `constant-arrival-ra
 - [X] `docs/ROADMAP.md` không còn dòng khẳng định sai; checkbox rate-limit tick; section command path tồn tại
 - [X] Chưa merge gì, chưa chạm `main`
 - [ ] Nhánh `perf/command-path` (cắt từ `feat/rate-limit-buckets`) có 4 commit: S-5, P0.2, P0.3a, P0.3b → PR #5 base `feat/rate-limit-buckets`
-- [ ] typecheck sạch; server unit xanh (124 + test mới); client 78 + shared 3 xanh; 19 e2e xanh trên port 3100/5174
-- [ ] `check:bundle` ≤ 500 KiB/chunk
-- [ ] `test:postgres` báo cáo là **skipped** (không Docker) — tuyệt đối không viết `verify:web-alpha` xanh
+- [X] typecheck sạch; server unit **141** (126 pass + 15 skip); client **78/78**; shared **3/3**; **19/19** e2e trên port 3100/5174 (config tạm, đã xoá — không chạm stack 3000/5173)
+- [X] `check:bundle` ≤ 500 KiB/chunk — 6/6 chunk trong hạn, lớn nhất `pixi` **465.0 KiB**
+- [X] `test:postgres` báo cáo là **skipped** (máy này không có Docker / `DATABASE_URL`) → **không** khẳng định `verify:web-alpha` xanh; 15 test server skip chính là gate đó
 - [ ] `gh workflow run` để `prod-smoke` + `recovery-drill` có lần quan sát đầu tiên (**còn nợ** — lần thử trong phiên bị chặn bởi lỗi hạ tầng)
 - [ ] Còn lại cho owner: P0.4 (sức chứa map), S-9, xác nhận S-1 trên stack Caddy thật, S-7, S-8, flake gate 7
 
@@ -441,7 +444,7 @@ Owner đang ở 7D nên **rất có thể mục này thuộc phần owner tự c
 
 **Việc còn treo cho owner** (đã vào Open questions #10, #11): ~~tiền đề không gian của `ambush`~~ → **S-5 đã được owner chốt 2026-09-03**, thành task B.1a ngay dưới; còn lại là có bắt buộc `TRUST_PROXY` ở production không (S-9, guard đó có thể chặn boot một deployment tôi không kiểm chứng được) và xác nhận S-1 trên stack thật có Docker. Ba Low còn lại (S-7 admin route không Zod, S-8 trần WS connection, S-10 status `ADMIN_DISABLED` lệch) đã vào mục "việc dọn nhỏ".
 
-### B.1a — S-5: `ambush` phải có tiền đề không gian ✅ (2026-09-03)
+### B.1a — S-5: `ambush` phải có tiền đề không gian ✅ `b90fb59`
 
 `logistics.ts:166-186` hôm nay chỉ kiểm ba thứ: player active, caravan đang `moving`, và không
 phải caravan của mình. **Không** đòi có quân, không đòi ở gần, không tốn tài nguyên, không
