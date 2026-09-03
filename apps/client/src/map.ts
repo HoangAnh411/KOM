@@ -119,7 +119,7 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
     const rect = canvas.getBoundingClientRect();
     const sx = (clientX - rect.left - camera.position.x) / camera.scale.x;
     const sy = (clientY - rect.top - camera.position.y) / camera.scale.y;
-    onSelect(pickAt(sx, sy, origin, latestState.armies, latestState.cities));
+    onSelect(pickAt(sx, sy, origin, latestState.armies, latestState.cities, ownPlayerId));
   }
 
   const focusCity = (x: number, y: number) => {
