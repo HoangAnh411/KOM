@@ -145,6 +145,7 @@ Owner nhờ cải thiện **toàn bộ UI/HUD**. Nhánh `feat/hud-overhaul` cắ
 - [X] Kiểm mắt ở 5 viewport (1920/1440/1280/1024/900) — tìm ra **hai** lỗi không test nào bắt được: cột kingdom không scroll (flex-shrink bóp panel) và tray in cùng một câu ở cả hai nửa. Cả hai đã sửa trong UI-7, cả hai giờ có test
 - [X] Ma trận test ở `docs/ROADMAP.md` cập nhật **sau khi đo**, không sửa trước (vòng trước đã sai đúng lỗi này)
 - [X] `test:postgres` báo **skipped** (không Docker / `DATABASE_URL`) → **không** viết `verify:web-alpha` xanh
+- [X] **CI của PR #6 quan sát được phần máy này không chạy được:** run [`33759437598`](https://github.com/HoangAnh411/KOM/actions/runs/33759437598) (`pull_request`) **10/10 gate xanh** — gate 5 `test:postgres` **15/15 pass** (gate duy nhất máy contributor phải bỏ), gate 6 unit khớp đúng số đo local (shared 3, server 141 = 126 pass + 15 skip, client 146), gate 7 Playwright **28 passed**, gate 8 bundle, gate 10 `npm audit`. Hai gate hay đỏ ngẫu nhiên (5 và 7) đều xanh lần này — **một** lần xanh không phải bằng chứng race đã hết. `prod-smoke` / `recovery-drill` **skipped** vì `if:` của chúng không khớp push nhánh PR, đúng như đã ghi ở OQ #9
 - [X] Push `feat/hud-overhaul`, mở **PR #6** base `perf/command-path` → chồng thành **sáu** PR. Xong 2026-09-03: 8 commit (7 task + `597b921` docs), [PR #6](https://github.com/HoangAnh411/KOM/pull/6). `main` không bị chạm; base local trùng `origin/perf/command-path` (`b285293`) nên diff của PR đúng 8 commit đó, không lẫn commit của PR dưới
 
 ## Phase C — Feature debt
