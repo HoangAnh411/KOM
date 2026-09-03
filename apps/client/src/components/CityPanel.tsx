@@ -80,7 +80,13 @@ export function CityPanel() {
           </div>;
         })}
       </div>
-      <p className="kom-meta">Build queues: {queued.length}/{buildQueueLimit}</p>
+      {/* The last English sentence a player could read in the HUD: it said "Build
+          queues: 1/2" in a Vietnamese interface, next to four buttons that gate on
+          it. `.kom-num` on the paragraph rather than a `<strong>` around the
+          fraction keeps the whole line one run of text — the label has no digits of
+          its own to tabularise, and splitting it would put an element boundary in
+          the middle of a sentence three specs read as one. */}
+      <p className="kom-meta kom-num">Hàng đợi xây: {queued.length}/{buildQueueLimit}</p>
       <div className="building-list">
         {(Object.entries(gameRules.buildings) as Array<[BuildingId, (typeof gameRules.buildings)[BuildingId]]>).map(([id, rule]) => {
           const level = city.buildings[id] ?? 0;

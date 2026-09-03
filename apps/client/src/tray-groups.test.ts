@@ -201,10 +201,10 @@ test("a tile says what is on it, and a resource node says what to do about it", 
   const snapshot = world({ logistics: { ...world().logistics, resourceNodes: [node()] } });
   const mine = only({ kind: "tile", x: 3, y: 4 }, snapshot);
   assert.deepEqual(mine.commands.map(command => command.intent), [{ kind: "panel", anchor: "logistics" }]);
-  // The word for the resource comes from the one module allowed to name one; a
-  // literal here would be this file inventing a second spelling of it.
-  assert.match(mine.hint ?? "", new RegExp(resourceLabels.wood));
-  assert.match(mine.hint ?? "", /400\/800/, "how much is left is the fact that decides whether to bother");
+  // Which mine and how much is left are the left half's facts — asserted there, in
+  // the subject test below. What this half owes the player is the thing the left
+  // half cannot say: that a mine is commanded from the logistics panel.
+  assert.match(mine.hint ?? "", /Vận tải/, "the hint must name where the harvest order lives");
   const empty = only({ kind: "tile", x: 18, y: 18 }, snapshot);
   assert.deepEqual(empty.commands, []);
   assert.ok((empty.hint?.length ?? 0) > 0);
@@ -251,7 +251,13 @@ test("the left half names what was clicked, and gives the strength once", () => 
   // player's name at all.
   assert.match(traySubject({ kind: "army", id: "army-foe" }, snapshot, ME).detail, /Rival/);
   assert.equal(traySubject({ kind: "city", id: "city-me" }, snapshot, ME).title, "Hoa Lư");
-  assert.equal(traySubject({ kind: "tile", x: 3, y: 4 }, snapshot, ME).title, `Mỏ ${resourceLabels.wood}`);
+  // The mine's name and what is left in it: the word for the resource comes from the
+  // one module allowed to name one, and the count is the fact that decides whether
+  // to bother. Both live here because this is the half that identifies things — the
+  // group beside it used to print them a second time.
+  const mine = traySubject({ kind: "tile", x: 3, y: 4 }, snapshot, ME);
+  assert.equal(mine.title, `Mỏ ${resourceLabels.wood}`);
+  assert.match(mine.detail, /400\/800/);
   assert.match(traySubject({ kind: "tile", x: 18, y: 18 }, snapshot, ME).title, /18,18/);
   // Before the first snapshot, and after one retires what was selected: still a
   // sentence, because the tray is always on screen.
@@ -261,6 +267,42 @@ test("the left half names what was clicked, and gives the strength once", () => 
     traySubject({ kind: "city", id: "city-me" }, undefined, ME),
   ]) {
     assert.ok(edge.title.length > 0 && edge.detail.length > 0);
+  }
+});
+
+test("the right half says what to do, never a second copy of the left half", () => {
+  // Found by looking at the strip at five viewports, which is the only way it could
+  // be found: with nothing selected the tray read "Chưa chọn gì / Nhấp vào quân đội,
+  // thành phố hoặc ô đất trên bản đồ." on the left and, one gap away, the same two
+  // lines again on the right. Both halves are on screen at once in a 60px row and
+  // both are `nowrap` + ellipsis, so a sentence printed twice spends half the room
+  // the tray has to say nothing new. Two more selections did it — an army and a city
+  // the latest snapshot had retired, the city's hint word for word identical to its
+  // detail.
+  //
+  // The split: the left half names what was clicked, the right half says what can be
+  // done about it. Normalised loosely on purpose — case, punctuation and runs of
+  // space are not what makes two sentences the same sentence — and checked both ways
+  // round, since "Ô đất" inside "Ô đất (18,18)" is the same duplication as the whole
+  // string would be.
+  const norm = (text: string): string =>
+    text.toLowerCase().replace(/[.,·—%]/g, " ").replace(/\s+/g, " ").trim();
+  const holdApart = (name: string, group: TrayGroup, subject: { title: string; detail: string }) => {
+    for (const right of [group.title, group.hint ?? ""].map(norm).filter(text => text.length > 0)) {
+      for (const left of [norm(subject.title), norm(subject.detail)]) {
+        assert.ok(!left.includes(right) && !right.includes(left),
+          `${name}: the tray prints "${right}" on both sides of one 60px strip`);
+      }
+    }
+  };
+  for (const { name, selection, snapshot } of everySelection()) {
+    holdApart(name, only(selection, snapshot), traySubject(selection, snapshot, ME));
+  }
+  // Mid-gesture too, where the left half still shows the army being ordered about.
+  const ordering = world({ armies: [army(), foeArmy()] });
+  const selected: MapSelection = { kind: "army", id: "army-me" };
+  for (const mode of ["move", "attack"] as const) {
+    holdApart(mode, only(selected, ordering, { kind: mode, armyId: "army-me" }), traySubject(selected, ordering, ME));
   }
 });
 

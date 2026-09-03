@@ -62,7 +62,9 @@ export type TrayGroup = {
   title: string;
   icon: IconName;
   /** The sentence for a group with nothing to press — which is the whole content
-   *  of an information-only selection, and never an empty tray. */
+   *  of an information-only selection, and never an empty tray. Under the same law
+   *  as `title`: what to do about the selection, not a second telling of what it
+   *  is. `tray-groups.test.ts` holds both halves apart for every selection. */
   hint?: string;
   commands: TrayCommand[];
 };
@@ -123,11 +125,17 @@ const orderingGroup = (mode: "move" | "attack"): TrayGroup => ({
   commands: [{ id: "stop-order", label: "Hủy", variant: "ghost", intent: { kind: "cancel-order" }, check: { ok: true } }],
 });
 
+/** Nothing selected, so nothing to press — and the two halves of the strip split
+ *  the two things a player in that state needs. The left half says how to select;
+ *  this one says where the commands that need no selection live, which is the
+ *  question a closed kingdom column leaves open. It used to repeat the left half's
+ *  two lines almost word for word, so at 900px both copies ellipsised and the whole
+ *  strip carried one sentence twice. */
 const nothingGroup = (): TrayGroup => ({
   id: "nothing",
-  title: "Chưa chọn gì",
+  title: "Chưa có lệnh nào",
   icon: "crosshair",
-  hint: "Nhấp vào quân đội, thành phố hoặc ô đất trên bản đồ để thấy lệnh cho nó.",
+  hint: "Lệnh của thành phố và quân đội nằm trong cột Vương quốc.",
   commands: [],
 });
 
@@ -143,7 +151,9 @@ function armyGroup(snapshot: WorldSnapshot, armyId: string, playerId: string): T
   // last battle is gone from `armies`, and one that reached 0 strength is still
   // listed for a tick. Neither can be ordered.
   if (!army || army.strength <= 0) {
-    return { id: "army-gone", title: "Quân đã tan", icon: "sword", hint: "Quân này không còn trên bản đồ.", commands: [] };
+    // Which the left half has already said, along with why. All this half can add is
+    // the way out, so it says that instead of the same fact in other words.
+    return { id: "army-gone", title: "Không còn gì để ra lệnh", icon: "sword", hint: "Chọn một quân đội khác của bạn trên bản đồ.", commands: [] };
   }
   if (army.ownerPlayerId !== playerId) {
     return {
@@ -175,7 +185,7 @@ function armyGroup(snapshot: WorldSnapshot, armyId: string, playerId: string): T
 function cityGroup(snapshot: WorldSnapshot, cityId: string, playerId: string): TrayGroup {
   const city = cityIn(snapshot, cityId);
   if (!city) {
-    return { id: "city-gone", title: "Thành phố không còn", icon: "city", hint: "Thành phố này không còn trong ảnh chụp mới nhất.", commands: [] };
+    return { id: "city-gone", title: "Không còn gì để ra lệnh", icon: "city", hint: "Chọn một thành phố của bạn trên bản đồ.", commands: [] };
   }
   if (city.playerId !== playerId) {
     return {
@@ -211,15 +221,22 @@ function tileGroup(snapshot: WorldSnapshot, x: number, y: number): TrayGroup {
       id: `node-${node.id}`,
       title: "Điểm khai thác",
       icon: "caravan",
-      hint: `Mỏ ${resourceLabels[node.resourceType]} — còn ${node.remaining}/${node.capacity}. Lệnh khai thác nằm ở bảng Vận tải.`,
+      // Which resource and how much of it is left are the left half's job, and it
+      // prints both — `traySubject` names the mine and gives `còn 400/800`. Saying
+      // them again here left no room for the one thing the left half cannot know:
+      // that the order for a mine is a logistics one.
+      hint: "Lệnh khai thác nằm ở bảng Vận tải.",
       commands: [panelCommand("logistics", "Mở bảng Vận tải")],
     };
   }
   return {
     id: `tile-${x}-${y}`,
-    title: "Ô đất",
+    // Named by what can be done to an empty tile rather than by what is on it: the
+    // left half already reads "Ô đất (18,18) · Chưa có gì ở ô này.", and this used
+    // to open with that same sentence before getting to the gesture.
+    title: "Tiến quân tới đây",
     icon: "crosshair",
-    hint: "Chưa có gì ở ô này. Chọn một quân đội của bạn, bấm Di chuyển rồi nhấp vào đây.",
+    hint: "Chọn một quân đội của bạn, bấm Di chuyển rồi nhấp vào đây.",
     commands: [],
   };
 }

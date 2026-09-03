@@ -4,6 +4,7 @@ import { surfaceElementIds, type SurfaceId, type SurfaceState } from "../layout.
 import { useGame } from "../state.js";
 import { Button } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
+import type { IconName } from "../ui/tokens.js";
 import { resourceKeys, resourceLabels } from "../vocabulary.js";
 
 const connectionLabels: Record<string, { label: string; className: string }> = {
@@ -37,13 +38,39 @@ export function StrategicHeader({ surfaces, onToggleSurface }: {
   const score = snapshot.scores[session.player.id];
   const seasonSeconds = Math.max(0, Math.ceil((Date.parse(snapshot.season.endsAt) - now) / 1000));
   const conn = connectionLabels[connection];
+  const scoreEntries: Array<{ icon: IconName; label: string; value: number }> = [
+    { icon: "sword", label: "Điểm quân sự", value: score?.military ?? 0 },
+    { icon: "caravan", label: "Điểm kinh tế", value: score?.economy ?? 0 },
+    { icon: "treaty", label: "Điểm ngoại giao", value: score?.diplomacy ?? 0 },
+  ];
   return <header className="strategic-header" role="banner">
-    <div className="brand"><strong>{session.player.displayName}</strong><span>{factions[session.player.factionId].name} · <button className="link-button" onClick={logout}>Đăng xuất</button></span></div>
+    {/* The page's one `<h1>`. `AuthScreen` has the only other one in the client, and
+        it unmounts at login — so from the moment the game appeared there was no
+        `<h1>` on the page at all, and a screen reader jumping by heading landed in
+        a panel. Your own kingdom is what the document is about; the level says so.
+        Logout leaves the ellipsised text it used to live inside, where a long
+        faction name could clip the only way to sign out. */}
+    <div className="brand">
+      <h1>{session.player.displayName}</h1>
+      <span className="brand__line">
+        <span>{factions[session.player.factionId].name}</span>
+        <Button variant="ghost" density="compact" onClick={logout}>Đăng xuất</Button>
+      </span>
+    </div>
     {city.frozen && <div className="frozen-banner" role="status">Tài khoản đang bị khóa — thành phố, quân đội và caravan đã đóng băng.</div>}
     <div className="resource-grid">
       {resourceKeys.map(key => <div key={key}><span>{resourceLabels[key]}</span><strong className="kom-num" data-testid={`resource-${key}`}>{city.resources[key]}</strong></div>)}
     </div>
-    <div className="season">Mùa còn <strong className="kom-num">{Math.floor(seasonSeconds / 60)}m {seasonSeconds % 60}s</strong> · ⚔ {score?.military ?? 0} · ◈ {score?.economy ?? 0} · ✦ {score?.diplomacy ?? 0}</div>
+    {/* The three scores were `⚔ ◈ ✦` — glyphs with no accessible name, announced as
+        the punctuation they are and unreadable to anyone who had not been told what
+        they meant. Same three icons the kingdom nav uses for the panels those
+        scores come from, titled, so the pairing is learnable in one place. */}
+    <div className="season">Mùa còn <strong className="kom-num">{Math.floor(seasonSeconds / 60)}m {seasonSeconds % 60}s</strong>
+      {scoreEntries.map(entry => <span className="season__score" key={entry.icon}>
+        <Icon name={entry.icon} size="sm" title={entry.label} />
+        <strong className="kom-num">{entry.value}</strong>
+      </span>)}
+    </div>
     <div className={`connection-pill ${conn.className}`} role="status"><span className="connection-dot" />{conn.label}</div>
     <div className="header-surfaces">
       {(Object.keys(surfaceLabels) as SurfaceId[]).map(id => <Button

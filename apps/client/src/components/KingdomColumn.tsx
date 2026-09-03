@@ -5,6 +5,7 @@ import { useGame, type PanelId } from "../state.js";
 import { Button } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { Panel, PanelBody, PanelHeader } from "../ui/Panel.js";
+import { StatusChip } from "../ui/Status.js";
 import type { IconName } from "../ui/tokens.js";
 import { ArmyPanel } from "./ArmyPanel.js";
 import { CityPanel } from "./CityPanel.js";
@@ -43,6 +44,7 @@ export function KingdomColumn({ open }: { open: boolean }) {
   const session = state.session!;
   const anchor = usePanelAnchor<HTMLElement>("hud");
   const myCity = state.snapshot?.cities.find(item => item.playerId === session.player.id);
+  const frozen = Boolean(myCity?.frozen);
 
   const scrollToPanel = (id: PanelId & PanelAnchorId) => {
     setActivePanel(id);
@@ -53,13 +55,18 @@ export function KingdomColumn({ open }: { open: boolean }) {
   return <aside
     ref={anchor}
     id={surfaceElementIds.kingdom}
-    className={`kingdom-column hud${myCity?.frozen ? " hud-frozen" : ""}`}
+    className="kingdom-column"
     aria-label="Bảng điều khiển"
-    data-frozen={myCity?.frozen ? "true" : "false"}
+    data-frozen={frozen ? "true" : "false"}
     hidden={!open}
   >
     <div className="kingdom-column__head">
       <div className="hud-title"><h2 data-testid="city-name">{(myCity ?? state.snapshot?.cities[0])?.name ?? "Thành phố"}</h2><span className="hint">Bảng điều khiển</span></div>
+      {/* The chip is the head's answer to "why is everything greyed out": the
+          banner in the top bar says what happened, this says which surface it
+          took. Icon glyph, because a lock has to survive being read in the same
+          grey the disabled controls under it are wearing. */}
+      {frozen && <StatusChip state="frozen" glyph="icon" />}
       <nav className="kingdom-nav" aria-label="Điều hướng">
         {navEntries.map(entry => <Button
           key={entry.id}
@@ -71,13 +78,22 @@ export function KingdomColumn({ open }: { open: boolean }) {
       </nav>
     </div>
     <OnboardingPanel />
-    <CityPanel />
-    <LogisticsPanel />
-    <ArmyPanel />
-    <details className="drawer" open={advancedOpen} onToggle={event => setAdvancedOpen((event.target as HTMLDetailsElement).open)}>
-      <summary data-testid="advanced-drawer-toggle">Nâng cao (liên minh · tình báo · sự kiện · ngoại giao)</summary>
-      {advancedOpen && <Suspense fallback={<p className="hint">Đang tải…</p>}><AdvancedDrawer /></Suspense>}
-    </details>
+    {/* Frozen is `disabled` on a fieldset, which is the only thing in the platform
+        that disables every control inside it. The rule it replaces —
+        `.hud-frozen … { pointer-events: none; opacity: .5 }` — only disabled the
+        mouse: every button stayed in the tab order, still fired on Enter, and the
+        text behind that opacity dropped under 3:1. `<summary>` is not a form
+        control, so the drawer still opens; only what is inside it goes quiet.
+        Onboarding stays outside — a checklist you can read is not a command. */}
+    <fieldset className="kingdom-column__panels" disabled={frozen}>
+      <CityPanel />
+      <LogisticsPanel />
+      <ArmyPanel />
+      <details className="drawer" open={advancedOpen} onToggle={event => setAdvancedOpen((event.target as HTMLDetailsElement).open)}>
+        <summary data-testid="advanced-drawer-toggle">Nâng cao (liên minh · tình báo · sự kiện · ngoại giao)</summary>
+        {advancedOpen && <Suspense fallback={<p className="hint">Đang tải…</p>}><AdvancedDrawer /></Suspense>}
+      </details>
+    </fieldset>
     {/* The last bare `<section>` in the column, and the reason the `.hud section`
         rule could still be said to be load-bearing. It was also the one surface
         that rule actively broke: `.hud section` is (0,1,1) and out-specified

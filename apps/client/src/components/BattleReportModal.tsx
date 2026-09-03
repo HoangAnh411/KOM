@@ -28,7 +28,12 @@ export function BattleReportModal({ report, onClose }: { report: BattleReport; o
     </div>
     {report.rounds.length > 0 && <details className="report-rounds">
       <summary>{report.rounds.length} hiệp đấu</summary>
-      {report.rounds.map(round => <div key={round.round}>Hiệp {round.round}: ⚔ {round.attackerStrength} - {round.defenderStrength}</div>)}
+      {/* `⚔ 120 - 80` named neither number: the glyph had no accessible name and the
+          dash left which side was which to the reader's guess. The two words are
+          already in `sideNames`, which is where the columns above get theirs. */}
+      {report.rounds.map(round => <div key={round.round}>
+        Hiệp {round.round}: {sideNames.attacker} <span className="kom-num">{round.attackerStrength}</span> · {sideNames.defender} <span className="kom-num">{round.defenderStrength}</span>
+      </div>)}
     </details>}
   </Modal>;
 }

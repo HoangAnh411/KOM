@@ -17,7 +17,7 @@ test("recruit, attack mob, battle report and cancel pursuit", async ({ page, req
   const barracksResponse = page.waitForResponse(response => response.url().endsWith("/api/commands/build"));
   await page.getByRole("button", { name: "Xây trại lính" }).click();
   expect((await barracksResponse).ok()).toBeTruthy();
-  await expect(page.getByText("Build queues: 0/2")).toBeVisible({ timeout: 25000 });
+  await expect(page.getByText("Hàng đợi xây: 0/2")).toBeVisible({ timeout: 25000 });
 
   // --- Recruit 10 cavalry (cheapest affordable unit) ---
   const recruitButton = page.getByRole("button", { name: "Tuyển quân mới" });

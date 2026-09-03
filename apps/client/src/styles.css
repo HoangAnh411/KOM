@@ -41,14 +41,26 @@ main { height: 100vh; position: relative; overflow: hidden; }
 
 .strategic-header { grid-area: header; position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: var(--kom-space-4) var(--kom-space-5); min-height: 56px; padding: var(--kom-space-3) var(--kom-space-5); background: var(--kom-bg-chrome); border-bottom: 1px solid var(--kom-border-strong); z-index: var(--kom-z-chrome); }
 .strategic-header .brand { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+/* The page's one <h1> is the player's own kingdom, which is also the largest
+   thing the brand block ever said — so it is the same size it was as a <strong>.
+   Naming the level does not mean shouting it; the outline needs the element, the
+   header does not need 2rem of it. */
+.strategic-header .brand h1 { margin: 0; font-size: 1rem; line-height: 1.2; color: var(--kom-text-heading); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .strategic-header .brand span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Faction and the way out, on one line under the name. The logout control used to
+   be a `.link-button` inside the ellipsised text, so a long faction name could
+   clip the only way to sign out; a flex row gives the button a size of its own
+   and lets the name lose characters instead. */
+.brand__line { display: flex; align-items: baseline; gap: var(--kom-space-2); min-width: 0; }
+.brand__line .kom-btn { flex: none; }
 .strategic-header .resource-grid { margin-left: auto; }
 .header-surfaces { display: flex; gap: var(--kom-space-2); }
 .header-toggle { color: var(--kom-text-muted); }
 /* The inset underline is what makes "open" readable without colour vision: tint
    and text colour both change, but so does the shape of the control. */
 .header-toggle--on { color: var(--kom-primary); background: var(--kom-primary-tint); box-shadow: inset 0 -2px 0 currentColor; }
-.season { color: var(--kom-text-muted); font-size: .8rem; white-space: nowrap; }
+.season { display: flex; align-items: center; gap: var(--kom-space-3); color: var(--kom-text-muted); font-size: .8rem; white-space: nowrap; }
+.season__score { display: inline-flex; align-items: center; gap: var(--kom-space-1); }
 .connection-pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; font-size: .76rem; font-weight: 700; white-space: nowrap; }
 /* The connection pill is a state read three ways: the fill and text of a state
    triple carry the pill, and its border step — the saturated one — is what an
@@ -63,7 +75,6 @@ main { height: 100vh; position: relative; overflow: hidden; }
 /* Offline takes a lighter wash than the hostile chip: this pill sits on the top
    bar, where the chip's deeper blood fill would read as an attack, not a status. */
 .conn-offline { background: var(--kom-hostile-tint); color: var(--kom-state-hostile-text); }
-.link-button { background: none; color: var(--kom-text-link); padding: 0; font-size: inherit; }
 /* Anchored to the header rather than to a hard 62px, because the header is now an
    `auto` row that gains a line when the resource grid wraps at narrow widths. */
 .frozen-banner { position: absolute; top: calc(100% + var(--kom-space-2)); left: 50%; transform: translateX(-50%); z-index: var(--kom-z-alert); max-width: min(92vw, 560px); padding: 8px 14px; border: 1px solid var(--kom-state-frozen-border); border-radius: 8px; color: var(--kom-state-frozen-text); background: var(--kom-state-frozen-fill); font-size: .82rem; text-align: center; }
@@ -80,11 +91,6 @@ main { height: 100vh; position: relative; overflow: hidden; }
 .kingdom-nav .kom-btn { flex: 1 1 0; min-width: 0; flex-direction: column; gap: 2px; padding: var(--kom-space-3) var(--kom-space-1); color: var(--kom-text-muted); border-radius: 10px; }
 .kingdom-nav .kom-btn[aria-current] { background: var(--kom-primary-tint); color: var(--kom-primary); }
 .nav-label { font-size: .6rem; font-weight: 700; letter-spacing: .01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
-/* The primitives layer rings `.kom-btn`; the shell's remaining raw <button>s —
-   the map toolbar and the tray's inspector controls — would otherwise fall back
-   to the UA outline. Same token, so the ring looks identical everywhere. */
-.map-toolbar button:focus-visible,
-.command-tray button:focus-visible { outline: none; box-shadow: var(--kom-focus-ring); }
 
 .map { grid-area: map; position: relative; overflow: hidden; }
 .map canvas { position: absolute; inset: 0; }
@@ -112,13 +118,37 @@ main { height: 100vh; position: relative; overflow: hidden; }
    side by side left the name ~130px, so every second city wrapped to two lines
    and the sticky head changed height with the city you were looking at. */
 .kingdom-column__head .hud-title { flex-direction: column; align-items: flex-start; gap: 0; }
+.kingdom-column__head .kom-status { margin-top: var(--kom-space-2); }
 /* `revealPanel` scrolls with `block: "start"`, which would tuck the target under
    that sticky head without this. 118px clears the head measured in a browser at
-   the narrowest track (114px) — title, subtitle and the four nav chips. */
-.kingdom-column > * { scroll-margin-top: 118px; }
+   the narrowest track (114px) — title, subtitle and the four nav chips. The
+   second selector is not a duplicate: the four panels a jump chip aims at are
+   children of the frozen fieldset now, not of the column, and a rule that only
+   knew the column would have quietly stopped clearing the head for all of them. */
+.kingdom-column > *, .kingdom-column__panels > * { scroll-margin-top: 118px; }
+/* Both columns are flex columns that scroll, and `.kom-panel` sets
+   `overflow: hidden` — which makes a panel's automatic minimum size 0, so every
+   panel was a shrinkable item in a container shorter than its content. The
+   browser did exactly what that asks: it squashed all of them to fit, the column's
+   `scrollHeight` came out equal to its `clientHeight` (nothing to scroll), and each
+   panel clipped its own content. A control below the fold was on the page,
+   measurable, and painted nowhere — which is how a click on it lands on the column
+   behind instead. Panels are content, not space to be distributed: `flex: none`
+   gives each its own height back and hands the overflow to the column, which is
+   the one box here that is meant to scroll. */
+.kingdom-column > *, .kingdom-column__panels > *, .activity-column > * { flex: none; }
 .hud-title { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .hud-title h2 { margin: 0; }
-.hud-frozen .alliance-panel, .hud-frozen .espionage-panel, .hud-frozen .diplomacy-panel, .hud-frozen .city-panel, .hud-frozen .logistics-panel, .hud-frozen .army-panel { pointer-events: none; opacity: .5; }
+/* A fieldset, because `disabled` on one is the only thing in the platform that
+   disables every control inside it — which is what a frozen city means, and what
+   the old `.hud-frozen { pointer-events: none; opacity: .5 }` only pretended:
+   every button stayed in the tab order and stayed pressable by keyboard, and the
+   text behind that opacity fell under 3:1. `min-width: 0` undoes a fieldset's
+   `min-inline-size: min-content`, which would otherwise stop the 320px column
+   from shrinking to the flyout width. The disabled look comes from
+   `.kom-btn:disabled` in the primitives, so it is the same treatment as every
+   other blocked control and carries the same contrast. */
+.kingdom-column__panels { min-width: 0; margin: 0; padding: 0; border: 0; display: flex; flex-direction: column; gap: var(--kom-space-6); }
 
 /* Row 3: the contextual command area. The selection is its left half — the same
    region with the same accessible name, moved out of a floating bar into a
@@ -180,7 +210,23 @@ main { height: 100vh; position: relative; overflow: hidden; }
 .resource-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }.resource-grid div { background: var(--kom-surface-raised); border-radius: 8px; padding: 8px 5px; text-align: center; }.resource-grid span { display: block; color: var(--kom-text-muted); font-size: .7rem; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.resource-grid strong { font-size: .95rem; }
 h1 { margin-top: 0; font-size: 1.6rem; } h2 { font-size: 1rem; margin-bottom: 6px; } p { color: var(--kom-text-body); font-size: .88rem; }
 button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font: inherit; } button { color: var(--kom-on-primary); background: var(--kom-primary); cursor: pointer; font-weight: 700; } button:disabled { cursor: not-allowed; opacity: .45; }
-.scores { display: flex; justify-content: space-between; padding: 10px; background: var(--kom-surface-raised); border-radius: 8px; }.login-card { position: absolute; z-index: var(--kom-z-map-overlay); top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(420px, calc(100vw - 32px)); display: grid; gap: 12px; padding: 26px; border-radius: 18px; background: var(--kom-bg-chrome); border: 1px solid var(--kom-border-strong); }.login-card input, .login-card select { color: var(--kom-text); background: var(--kom-surface-raised); }.toast { position: fixed; right: 18px; bottom: 86px; z-index: var(--kom-z-toast); padding: 12px 16px; border-radius: 10px; background: var(--kom-state-rejected-fill); color: var(--kom-state-rejected-text); box-shadow: var(--kom-shadow-raised); pointer-events: none; }
+.login-card { position: absolute; z-index: var(--kom-z-map-overlay); top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(420px, calc(100vw - 32px)); display: grid; gap: 12px; padding: 26px; border-radius: 18px; background: var(--kom-bg-chrome); border: 1px solid var(--kom-border-strong); }
+.login-card input, .login-card select { color: var(--kom-text); background: var(--kom-surface-raised); }
+/* A field is its label above its control, so the name stays on screen after the
+   player types — a placeholder is gone exactly when it would be needed to check
+   what was filled in. `gap: 0` on the grid it sits in would separate a label from
+   the wrong control, so the field owns the pair. */
+.login-field { display: grid; gap: var(--kom-space-2); }
+.login-field > span { color: var(--kom-text-muted); font-size: var(--kom-text-sm); }
+/* One fixed layer, stacking. Every toast used to be `position: fixed` at the same
+   corner, so a second notice landed on top of the first and the first was simply
+   never read. `pointer-events` is the load-bearing part: the layer and the toast
+   let clicks through to the HUD underneath, and the dismiss button takes them
+   back — a notice about a command must not block the control that issues one. */
+.toast-layer { position: fixed; right: 18px; bottom: 86px; z-index: var(--kom-z-toast); display: flex; flex-direction: column; align-items: flex-end; gap: var(--kom-space-3); pointer-events: none; }
+.toast { display: flex; align-items: center; gap: var(--kom-space-4); max-width: min(92vw, 420px); padding: 12px 16px; border-radius: 10px; background: var(--kom-state-rejected-fill); color: var(--kom-state-rejected-text); box-shadow: var(--kom-shadow-raised); pointer-events: none; }
+.toast__text { min-width: 0; }
+.toast .toast__close { pointer-events: auto; flex: none; color: inherit; }
 .toast-info { background: var(--kom-info-fill); color: var(--kom-info-text); border: 1px solid var(--kom-info-border); }
 /* ── Drawer rows ──────────────────────────────────────────────────────────────
  * One row shape for all five drawer panels, in place of nine rules that each
@@ -212,7 +258,10 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
 .archive-season > summary { cursor: pointer; color: var(--kom-text-heading); font-size: .82rem; }
 .archive-rank { padding: .15rem 0; color: var(--kom-text-body); font-size: .8rem; }
 .modal-backdrop { position: fixed; inset: 0; z-index: var(--kom-z-modal); display: flex; align-items: center; justify-content: center; background: var(--kom-scrim); }
-.map-toolbar { position: absolute; top: 12px; right: 12px; z-index: var(--kom-z-map-overlay); }.map-toolbar button { font-size: .78rem; padding: 8px 12px; }
+/* Two buttons now, so a row rather than a corner: they are the only chrome that
+   floats over the canvas, and stacking is what a third one would need. Sizing is
+   `density="compact"` on the primitive, not a rule for a raw <button>. */
+.map-toolbar { position: absolute; top: 12px; right: 12px; z-index: var(--kom-z-map-overlay); display: flex; gap: var(--kom-space-2); }
 .modal-card { width: min(440px, calc(100vw - 32px)); max-height: 80vh; overflow-y: auto; padding: 20px; border: 1px solid var(--kom-border-strong); border-radius: 16px; background: var(--kom-bg-chrome); box-shadow: var(--kom-shadow-modal); }
 .report-meta { color: var(--kom-text-muted); }.report-sides { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 12px 0; }.report-side { padding: 10px; border-radius: 10px; background: var(--kom-surface-raised); }.report-side p { margin: 4px 0; font-size: .8rem; }.report-rounds { margin-top: 8px; color: var(--kom-text-body); }.report-rounds summary { cursor: pointer; }
 /* The one surface that quotes a price in reputation: the frozen banner's edge and

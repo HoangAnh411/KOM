@@ -415,3 +415,94 @@ test("every gated button carries the reason it is gated", () => {
   assert.ok(scanned > 20, `expected to read the column's buttons, read ${scanned}`);
 });
 
+// The chrome: the surfaces that are not a panel and were therefore the last to be
+// looked at — the login card, the top bar, the toast stack, the map's toolbar and
+// the frozen state. Each assertion below is one defect, not a style preference.
+
+test("nothing but the primitive writes a control", () => {
+  // The end of the line the primitives started: with the toolbar and the tray
+  // migrated there is no raw `<button>` left in the client, so the bare-element
+  // rules that used to ring them (`.map-toolbar button:focus-visible`) could go —
+  // and must not be needed again. A raw `<button>` is not a cosmetic slip: it
+  // misses the focus ring, the disabled treatment and the `reason` gate at once.
+  const files = sourceFiles(sourceRoot).filter((file) => relative(file) !== "ui/Button.tsx");
+  const offenders = files.filter((file) => /<button\b/.test(stripSource(readFileSync(file, "utf8")))).map(relative);
+  assert.deepEqual(offenders, [], "render <Button> instead of a raw <button>");
+  // And the login card's inputs are named by a `<label>`, not only by a
+  // placeholder — text that vanishes exactly when the player wants to check what
+  // they typed. The placeholders stay, so `getByPlaceholder` keeps working.
+  const auth = stripSource(readFileSync(new URL("../src/components/AuthScreen.tsx", import.meta.url), "utf8"));
+  const labels = [...auth.matchAll(/className="login-field"/g)].length;
+  assert.ok(labels >= 4, `expected a labelled field per input, found ${labels}`);
+  for (const placeholder of ["Tên đăng nhập", "Mật khẩu", "Tên người chơi"]) {
+    assert.ok(auth.includes(`placeholder="${placeholder}"`), `the "${placeholder}" placeholder is what three specs type into`);
+  }
+});
+
+test("the page has one h1, and the header's numbers are not punctuation", () => {
+  const header = stripSource(readFileSync(new URL("../src/components/StrategicHeader.tsx", import.meta.url), "utf8"));
+  // `AuthScreen`'s h1 unmounts at login, so before this the game screen had no h1
+  // at all and heading navigation started inside a panel. The player's own kingdom
+  // is what the document is about.
+  assert.match(header, /<h1>/, "the strategic header must carry the page's h1");
+  assert.equal(/<h1>/.test(stripSource(readFileSync(new URL("../src/components/KingdomColumn.tsx", import.meta.url), "utf8"))), false,
+    "two h1s on one screen is not an outline");
+  // The three scores were `⚔ ◈ ✦`: glyphs with no accessible name, announced as
+  // the punctuation they are. `title` on an `Icon` is what turns it from decoration
+  // into a named image, so the scan is for the glyphs *and* for the title.
+  for (const glyph of ["⚔", "◈", "✦"]) {
+    assert.equal(header.includes(glyph), false, `the header still labels a score with ${glyph}`);
+  }
+  assert.equal([...header.matchAll(/title=\{entry\.label\}/g)].length, 1, "a score icon must be named for a screen reader");
+});
+
+test("a toast can be dismissed, and blocks nothing while it is up", () => {
+  const app = stripSource(readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8"));
+  const shell = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  // The old dismiss was `onClick` on the toast `<div>` — unreachable by mouse,
+  // because the sheet says `pointer-events: none`, and never in the tab order,
+  // because a `<div>` is not a control. It was dead code in both directions.
+  assert.match(app, /<Button\b/, "a notice must be dismissable by a real control");
+  assert.match(app, /aria-label="Đóng thông báo"/);
+  assert.match(app, /role="status"/);
+  assert.match(app, /aria-live="polite"/);
+  // And by keyboard, which the button alone does not give: a toast lives four
+  // seconds, and tabbing to it from wherever focus is takes longer than that on the
+  // game screen. The listener is hung only while a notice is up, and stands down for
+  // an Escape a dialog already answered — `ui/Modal.tsx` calls `preventDefault()`.
+  assert.match(app, /event\.key !== "Escape" \|\| event\.defaultPrevented/,
+    "Escape must clear notices, and must not fight the dialog's own Escape");
+  assert.match(app, /if \(notices\.length === 0\) return;/, "an idle page must carry no keydown listener");
+  assert.match(app, /return \(\) => document\.removeEventListener\("keydown"/);
+  // The pointer-events split is the law, and it is split across two files: the body
+  // stays transparent to clicks so a notice about a command cannot block the
+  // control that issues the next one, and the button takes them back.
+  assert.match(shell, /\.toast-layer[^{]*\{[^}]*pointer-events:\s*none/, "the toast layer must let clicks through");
+  assert.match(shell, /\.toast\s*\{[^}]*pointer-events:\s*none/, "the toast body must let clicks through");
+  assert.match(shell, /\.toast__close(?![\w-])[^{]*\{[^}]*pointer-events:\s*auto/, "the dismiss button must be clickable");
+  // A layer, not a corner: every toast used to be `position: fixed` at the same
+  // spot, so the second notice landed on the first and the first was never read.
+  assert.equal(/\.toast\s*\{[^}]*position:\s*fixed/.test(shell), false, "a toast that fixes itself cannot stack");
+});
+
+test("a frozen city disables its controls instead of fading them", () => {
+  const column = stripSource(readFileSync(new URL("../src/components/KingdomColumn.tsx", import.meta.url), "utf8"));
+  const shell = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  // `pointer-events: none` plus `opacity: .5` disabled the mouse and nothing else:
+  // every button stayed in the tab order and still fired on Enter, and the faded
+  // text dropped under 3:1. `disabled` on a fieldset is the one thing in the
+  // platform that disables every control inside it.
+  assert.match(column, /<fieldset className="kingdom-column__panels" disabled=\{frozen\}>/,
+    "the frozen column must disable its controls, not fade them");
+  assert.equal(/hud-frozen/.test(column), false, "the faded frozen class is back");
+  assert.match(column, /<StatusChip state="frozen"/, "a disabled column must say why it is disabled");
+  // `data-frozen` is what `production-loop.spec.ts` reads, so the fieldset is an
+  // addition to the aside's contract and not a replacement for it.
+  assert.match(column, /data-frozen=/);
+  // A fieldset's `min-inline-size: min-content` would stop the column shrinking to
+  // its 320px flyout width, which is the one thing that makes this swap risky.
+  assert.match(shell, /\.kingdom-column__panels\s*\{[^}]*min-width:\s*0/, "the panel fieldset must be allowed to shrink");
+  assert.match(shell, /\.kingdom-column__panels\s*>\s*\*[^{]*\{[^}]*scroll-margin-top/,
+    "a jump chip must still clear the sticky head now the panels are nested");
+});
+

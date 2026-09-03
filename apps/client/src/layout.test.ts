@@ -284,6 +284,51 @@ test("the tray's reserved slot left with the emptiness it reserved", () => {
   }
 });
 
+test("the chrome's old shapes left with the markup that wore them", () => {
+  // Four rules, four different reasons to be gone. `.hud-frozen` faded controls
+  // that a `<fieldset disabled>` now actually disables. `.link-button` dressed the
+  // logout `<button>` that is a `Button` now. `.scores` had outlived its markup
+  // entirely. And the two `button:focus-visible` selectors existed only because the
+  // toolbar and the tray still wrote raw `<button>`s — none left, so a ring for one
+  // is a ring for markup nobody writes, sitting at (0,1,1) over the primitive.
+  for (const name of ["hud-frozen", "link-button", "scores"]) {
+    assert.equal(selector(name).test(sheet), false, `.${name} is still in styles.css`);
+  }
+  for (const dead of [/\.map-toolbar\s+button/, /\.command-tray\s+button/]) {
+    assert.equal(dead.test(sheet), false, `"${dead.source}" styles a raw <button> the client no longer writes`);
+  }
+  // Positively: every class the chrome emits has a rule. A toast that stacks, a
+  // fieldset that shrinks, a labelled login field, the header's two new rows.
+  for (const name of ["toast-layer", "toast__text", "toast__close", "kingdom-column__panels", "login-field",
+    "brand__line", "season__score"]) {
+    assert.match(sheet, selector(name), `.${name} has no rule in styles.css`);
+  }
+});
+
+test("a column scrolls, and the panels inside it keep their own height", () => {
+  // The bug this holds shut, measured in a browser: both columns are flex columns
+  // that scroll, and `.kom-panel` sets `overflow: hidden`, which makes a panel's
+  // automatic minimum size 0. So every panel was a shrinkable item in a container
+  // shorter than its content, and the browser squashed all of them to fit — the
+  // column's `scrollHeight` came out exactly equal to its `clientHeight` (nothing
+  // left to scroll) and each panel clipped its own content. The onboarding panel
+  // measured 67px of a 445px checklist, and its "Đi tới" buttons were on the page,
+  // measurable, and painted nowhere: a click at one landed on the column behind it.
+  // A panel is content, not space to be distributed.
+  const holdsHeight = (name: string): boolean =>
+    [...sheet.matchAll(/([^{}]+)\{([^{}]*)\}/g)]
+      .some(m => new RegExp(`\\.${name}\\s*>\\s*\\*`).test(m[1]!) && /flex:\s*none|flex-shrink:\s*0/.test(m[2]!));
+  for (const column of ["kingdom-column", "activity-column"]) {
+    const rules = bodies(column).join("\n");
+    assert.match(rules, /overflow-y:\s*auto/, `.${column} must be the box that scrolls`);
+    assert.match(rules, /display:\s*flex/);
+    assert.ok(holdsHeight(column), `.${column} shrinks its panels instead of scrolling past them`);
+  }
+  // The frozen fieldset is a second parent for four of those panels, so it needs
+  // the same law — its own height is what hands the overflow to the column.
+  assert.ok(holdsHeight("kingdom-column__panels"), "the frozen fieldset shrinks the panels inside it");
+});
+
 test("the layout layer holds no colour literal", () => {
   // Same rule PR2 put on the primitives: colours live in the token layer, and a
   // literal here is a colour the palette cannot restyle.

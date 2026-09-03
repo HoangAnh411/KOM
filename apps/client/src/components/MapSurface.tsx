@@ -1,7 +1,10 @@
 import { useCallback, useEffect, useRef } from "react";
+import { mapExtent } from "../map-geometry.js";
 import type { MapSelection, WorldMap } from "../map.js";
 import { useGame } from "../state.js";
 import { panelForSelection } from "../tray-groups.js";
+import { Button } from "../ui/Button.js";
+import { Icon } from "../ui/Icon.js";
 
 /** The centre of gravity. Deliberately props-free and never re-keyed: the whole
  *  point of the Situation Room shell is that opening a column is a CSS grid
@@ -114,6 +117,20 @@ export function MapSurface() {
   }, []);
 
   return <div ref={mapContainer} className="map" data-testid="world-map">
-    <div className="map-toolbar"><button onClick={() => { const city = state.snapshot?.cities.find(item => item.playerId === session.player.id); if (city && map.current) map.current.focusCity(city.x, city.y); }}>Về thành phố của tôi</button></div>
+    {/* Two camera controls, and no new method on `WorldMap` for either: both are
+        `focusCity`, which is "put this grid position in the middle" under a name
+        from its first caller. The second one exists because the map can be panned
+        and zoomed with nothing selected — at 0.6x on the far edge of the world
+        there was no way back except reloading, and "my city" is not the same
+        answer as "the whole world", which is what you want after losing one. */}
+    <div className="map-toolbar">
+      <Button density="compact" onClick={() => {
+        const city = state.snapshot?.cities.find(item => item.playerId === session.player.id);
+        if (city && map.current) map.current.focusCity(city.x, city.y);
+      }}><Icon name="city" size="sm" />Về thành phố của tôi</Button>
+      <Button density="compact" onClick={() => map.current?.focusCity(mapExtent / 2, mapExtent / 2)}>
+        <Icon name="crosshair" size="sm" />Về giữa map
+      </Button>
+    </div>
   </div>;
 }

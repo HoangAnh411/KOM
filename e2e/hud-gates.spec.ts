@@ -56,7 +56,7 @@ test("a build the city cannot pay for is gated with its reason and sends nothing
   // there is no dev endpoint that sets resources.
   await city.getByRole("button", { name: "Xây trại lính" }).click();   // barracks: 150 wood, 100 stone, 50 iron
   await depot.click();                                                 // road_depot: 120 wood, 80 stone, 20 iron
-  await expect(page.getByText("Build queues: 2/2")).toBeVisible({ timeout: 10000 });
+  await expect(page.getByText("Hàng đợi xây: 2/2")).toBeVisible({ timeout: 10000 });
 
   // 230 wood left, so the city can pay for a warehouse — and is still refused,
   // because the queue is full. Which reason shows is the assertion: a control
@@ -65,14 +65,14 @@ test("a build the city cannot pay for is gated with its reason and sends nothing
   await expect(await reasonOf(page, warehouse)).toContainText("Hàng đợi xây đang đầy (2/2)");
 
   // Barracks is the slower of the two (15s).
-  await expect(page.getByText("Build queues: 0/2")).toBeVisible({ timeout: 25000 });
+  await expect(page.getByText("Hàng đợi xây: 0/2")).toBeVisible({ timeout: 25000 });
 
   // A second barracks — the cost is flat per level — takes wood to 80: under the
   // 120 a supply depot needs, over the 80 a warehouse needs. One shortcut closes
   // and the one beside it stays open, which is what makes this a gate on the
   // building's own price rather than a blanket freeze on the panel.
   await city.getByRole("button", { name: "Xây trại lính" }).click();
-  await expect(page.getByText("Build queues: 1/2")).toBeVisible({ timeout: 10000 });
+  await expect(page.getByText("Hàng đợi xây: 1/2")).toBeVisible({ timeout: 10000 });
   await expect(depot).toBeDisabled();
   const reason = await reasonOf(page, depot);
   await expect(reason).toContainText("Không đủ Gỗ");
@@ -120,6 +120,6 @@ test("the chip for an order sits beside the control that issued it", async ({ pa
 
   // Settled means gone: a chip that outlives its command turns into a permanent
   // "in flight" badge on a control that is idle.
-  await expect(page.getByText("Build queues: 1/2")).toBeVisible({ timeout: 10000 });
+  await expect(page.getByText("Hàng đợi xây: 1/2")).toBeVisible({ timeout: 10000 });
   await expect(row.getByText("Đang gửi")).toHaveCount(0);
 });
