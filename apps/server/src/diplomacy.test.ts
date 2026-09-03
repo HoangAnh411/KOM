@@ -78,6 +78,27 @@ test("break treaty penalizes reputation", () => {
   assert.equal(stats2.activeTreaties, 0); // Target's active count goes down
 });
 
+// P0.3b moved diplomacy dedupe out of `state.processedCommands` and into the shared registry, and
+// with it from "push on success" to "claim at the check". A retried break must still be a no-op:
+// the second call cannot cost another 150 reputation, and `TREATY_NOT_ACTIVE` backs it up.
+test("a retried break treaty is idempotent, not a second penalty", () => {
+  const store = new GameStore();
+  const [player1, player2] = store.snapshot.players;
+
+  store.diplomacy.proposeTreaty("retry-1", player2.id, "non_aggression", 86400, player1.id, store.snapshot);
+  const treaty = store.snapshot.treaties[0];
+  store.diplomacy.respondTreaty("retry-2", treaty.id, true, player2.id, store.snapshot);
+
+  assert.equal(store.diplomacy.breakTreaty("retry-3", treaty.id, player1.id, store.snapshot), "accepted");
+  assert.equal(store.diplomacy.breakTreaty("retry-3", treaty.id, player1.id, store.snapshot), "already_processed");
+
+  const stats = store.diplomacy.getStats(player1.id, store.snapshot);
+  assert.equal(stats.reputation, -150, "the penalty is charged once, not twice");
+  assert.equal(stats.treatiesViolated, 1);
+  // Even a *different* command id cannot double-charge: the treaty is no longer active.
+  assert.throws(() => store.diplomacy.breakTreaty("retry-4", treaty.id, player1.id, store.snapshot), /TREATY_NOT_ACTIVE/);
+});
+
 test("diplomacy score calculation", () => {
   const score = diplomacyScore({
     reputation: 150,

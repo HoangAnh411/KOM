@@ -99,3 +99,28 @@ test("rollback releases combat/onboarding claims so a retry with the same comman
   assert.equal(store.snapshot.cities.find(item => item.id === city.id)!.resources.wood, 450, "cost deducted exactly once");
   assert.deepEqual(store.onboarding.progressFor(player.id).completedSteps, ["city_inspected"], "retry re-applied the ack");
 });
+
+// P0.3b turned build/diplomacy/espionage dedupe from "push the id on success" into "claim it at the
+// check". That is only safe because the command transaction rolls the claim back, so the guard a
+// player hits most often — not enough resources — must not burn their commandId.
+test("a build that fails on cost leaves its commandId claimable", async () => {
+  const store = new GameStore();
+  const player = store.snapshot.players[0];
+  const cityId = store.snapshot.cities.find(item => item.playerId === player.id)!.id;
+  // Rollback swaps in a `structuredClone` of the pre-command state, so the city has to be looked up
+  // again after every failure instead of held across one.
+  const city = () => store.snapshot.cities.find(item => item.id === cityId)!;
+  city().resources = { wood: 0, stone: 0, iron: 0, food: 0 };
+  const commandId = "build-broke-1";
+  const issue = () => store.executeCommand({ eventType: "build.accepted", aggregateType: "build", aggregateId: cityId, commandId, actorPlayerId: player.id }, () => store.startBuild(player.id, commandId, cityId, "road_depot", "build"));
+
+  await assert.rejects(issue, /INSUFFICIENT_RESOURCES/);
+  assert.equal(store.commands.has(commandId), false, "the failed claim was rolled back");
+  assert.equal(city().queues.length, 0);
+
+  city().resources = { wood: 500, stone: 500, iron: 500, food: 0 };
+  assert.equal((await issue()).result, "accepted", "the same commandId is accepted once the player can afford it");
+  assert.equal(city().queues.length, 1);
+  assert.equal((await issue()).result, "already_processed", "and only applies once");
+  assert.equal(city().queues.length, 1);
+});

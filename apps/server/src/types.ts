@@ -24,7 +24,6 @@ export type GameState = {
   scores: Record<string, Scores>;
   seasonHistory: Array<{ seasonId: string; rankings: Array<{ playerId: string; rank: number; overall: number; scores: Scores }>; closedAt: string }>;
   legacyRecords: LegacyRecord[];
-  processedCommands: string[];
   battleReports: BattleReport[];
   terrainMap: Record<string, TerrainType>;
   alliances: Alliance[];
