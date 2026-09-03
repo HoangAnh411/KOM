@@ -4,6 +4,7 @@ import { surfaceElementIds } from "../layout.js";
 import { useGame, type PanelId } from "../state.js";
 import { Button } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
+import { Panel, PanelBody, PanelHeader } from "../ui/Panel.js";
 import type { IconName } from "../ui/tokens.js";
 import { ArmyPanel } from "./ArmyPanel.js";
 import { CityPanel } from "./CityPanel.js";
@@ -77,18 +78,27 @@ export function KingdomColumn({ open }: { open: boolean }) {
       <summary data-testid="advanced-drawer-toggle">Nâng cao (liên minh · tình báo · sự kiện · ngoại giao)</summary>
       {advancedOpen && <Suspense fallback={<p className="hint">Đang tải…</p>}><AdvancedDrawer /></Suspense>}
     </details>
-    {pending.length > 0 && <section className="pending-strip" aria-label="Lệnh đang chờ">
-      <h3>Lệnh đang chờ</h3>
-      {pending.map(command => <div className="pending-row" data-testid="pending-command" key={command.commandId}>
-        <span>{command.label} {command.status === "sending" ? "…đang gửi" : "— chưa xác nhận"}</span>
-        {command.status === "uncertain" && <Button
-          variant="ghost"
-          density="compact"
-          disabled={connection !== "online"}
-          reason={offlineRetryReason}
-          onClick={() => retryPending(command.commandId)}
-        >Thử lại</Button>}
-      </div>)}
-    </section>}
+    {/* The last bare `<section>` in the column, and the reason the `.hud section`
+        rule could still be said to be load-bearing. It was also the one surface
+        that rule actively broke: `.hud section` is (0,1,1) and out-specified
+        `.pending-strip` at (0,1,0), so the strip rendered on `--kom-surface` with
+        1rem of padding instead of the sunken box it declares for itself. As a
+        compact `Panel` it gets both back, and keeps its own background because a
+        same-specificity rule in this sheet beats the primitive's. */}
+    {pending.length > 0 && <Panel density="compact" accent="slate" className="pending-strip" aria-label="Lệnh đang chờ">
+      <PanelHeader title="Lệnh đang chờ" level={3} />
+      <PanelBody>
+        {pending.map(command => <div className="pending-row" data-testid="pending-command" key={command.commandId}>
+          <span>{command.label} {command.status === "sending" ? "…đang gửi" : "— chưa xác nhận"}</span>
+          {command.status === "uncertain" && <Button
+            variant="ghost"
+            density="compact"
+            disabled={connection !== "online"}
+            reason={offlineRetryReason}
+            onClick={() => retryPending(command.commandId)}
+          >Thử lại</Button>}
+        </div>)}
+      </PanelBody>
+    </Panel>}
   </aside>;
 }

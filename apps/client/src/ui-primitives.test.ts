@@ -8,6 +8,7 @@ import {
   buttonVariants, densities, iconNames, panelAccents, stateIcons, stateLabels, stateTokens, uiStates,
 } from "./ui/tokens.js";
 import { buttonClass, iconClass, panelClass, statusClass } from "./ui/variants.js";
+import { allianceRoleLabels, treatyLabels, worldEventIcons, worldEventLabels, worldEventStates } from "./vocabulary.js";
 
 // The client runner has no DOM, so the design system is asserted as text: the two
 // stylesheets are read off disk and checked against the TypeScript registry that
@@ -250,9 +251,12 @@ test("the modal primitive names itself, traps Tab, cancels on Escape and gives f
 // one where "assembled from the primitives" has to be a rule and not a habit.
 // `EspionagePanel` is in the list because it was the migration exemplar: if the
 // shape it demonstrated stops being checked, the next panel copies whatever the
-// previous one drifted into.
+// previous one drifted into. `AdvancedDrawer` is one file holding four panels —
+// alliance, events, archive and diplomacy — so one entry covers all four, and it
+// is the entry that made deleting the `.hud section` bridge possible: the rule
+// could only go once nothing in the column needed a sheet to dress it.
 
-const kingdomPanels = ["CityPanel.tsx", "ArmyPanel.tsx", "LogisticsPanel.tsx", "OnboardingPanel.tsx", "EspionagePanel.tsx"];
+const kingdomPanels = ["CityPanel.tsx", "ArmyPanel.tsx", "LogisticsPanel.tsx", "OnboardingPanel.tsx", "EspionagePanel.tsx", "AdvancedDrawer.tsx"];
 const panelSource = (name: string): string =>
   stripSource(readFileSync(new URL(`../src/components/${name}`, import.meta.url), "utf8"));
 
@@ -270,6 +274,49 @@ test("the kingdom column's panels are assembled from the primitives", () => {
       assert.ok(selector(token).test(primitives) || selector(token).test(readFileSync(new URL("../src/styles.css", import.meta.url), "utf8")),
         `${name} asks for .${token}, which has no rule in either sheet`);
     }
+  }
+});
+
+test("each world event has exactly one wording, one glyph and one chip", () => {
+  // The mirror of "each state has exactly one wording and one glyph", for the
+  // snapshot's enums rather than the design system's. TypeScript already refuses a
+  // missing key — all three maps are `Record<WorldEventType, …>` — so what is left
+  // to catch is the pair that renders identically: two events sharing a wording, or
+  // a label that is still the protocol key. `mob_migration` was on screen for two
+  // phases, and the drawer and the activity feed both read these maps, so a second
+  // spelling would put two names on one event.
+  const kinds = Object.keys(worldEventLabels) as Array<keyof typeof worldEventLabels>;
+  const sorted = kinds.slice().sort();
+  assert.ok(kinds.length > 0, "no world events are named at all");
+  assert.deepEqual(Object.keys(worldEventIcons).sort(), sorted, "the icon map covers a different set of events");
+  assert.deepEqual(Object.keys(worldEventStates).sort(), sorted, "the chip map covers a different set of events");
+  const labels = kinds.map((kind) => worldEventLabels[kind]);
+  assert.equal(new Set(labels).size, labels.length, "two world events share a wording");
+  for (const kind of kinds) {
+    assert.ok(worldEventLabels[kind].length > 0, `${kind} has an empty wording`);
+    assert.ok(iconNames.includes(worldEventIcons[kind]), `${kind} maps to an unknown icon`);
+    assert.ok(uiStates.includes(worldEventStates[kind]), `${kind} maps to an unknown state`);
+    assert.equal(/^[a-z][a-z_]*$/.test(worldEventLabels[kind]), false, `${kind} is still labelled with its protocol key`);
+  }
+  // The other two enums a player used to read raw, held to the same two rules.
+  for (const [enumName, map] of [["treaty type", treatyLabels], ["alliance role", allianceRoleLabels]] as const) {
+    const words = Object.values(map);
+    assert.equal(new Set(words).size, words.length, `two ${enumName} values share a wording`);
+    for (const word of words) {
+      assert.ok(word.length > 0, `a ${enumName} wording is empty`);
+      assert.equal(/^[a-z][a-z_]*$/.test(word), false, `a ${enumName} label is still a protocol key`);
+    }
+  }
+  // And the drawer has to reach the player *through* those maps. `{event.eventType}`
+  // in JSX is exactly how the raw key got on screen, so the shape is banned rather
+  // than the symptom described: every read of one of these fields is an index.
+  const drawer = panelSource("AdvancedDrawer.tsx");
+  for (const field of ["eventType", "treatyType", "role"]) {
+    assert.equal(new RegExp(`\\{\\s*\\w+\\.${field}\\s*\\}`).test(drawer), false,
+      `AdvancedDrawer renders a raw ${field} instead of its wording`);
+  }
+  for (const map of ["worldEventLabels", "worldEventIcons", "worldEventStates", "treatyLabels", "allianceRoleLabels"]) {
+    assert.match(drawer, new RegExp(`${map}\\[`), `the drawer does not use ${map}`);
   }
 });
 

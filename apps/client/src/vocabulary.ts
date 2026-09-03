@@ -12,7 +12,8 @@
 // directly (`vocabulary.test.ts`) — see also `errors.ts`, which owns the same
 // job for server error codes.
 
-import type { Resources } from "@kingdoms/shared";
+import type { AllianceRole, Resources, TreatyType, WorldEventType } from "@kingdoms/shared";
+import type { IconName, UiState } from "./ui/tokens.js";
 
 export type ResourceKey = keyof Resources;
 
@@ -47,3 +48,61 @@ export function formatResources(bundle: ResourceBundle, empty: string): string {
  *  are not the same fact. */
 export const formatCost = (cost: ResourceBundle): string => formatResources(cost, "Miễn phí");
 export const formatCargo = (cargo: ResourceBundle): string => formatResources(cargo, "Không có hàng");
+
+// ── The snapshot's other English: three enums a player used to read raw ──────
+//
+// `EventsPanel` printed `mob_migration` and `DiplomacyPanel` printed
+// `non_aggression`, twice each; the alliance member list printed `(officer)`.
+// They live beside the resources because the failure is the same one — a key on
+// screen instead of a word — and because the activity feed and the drawer have
+// to say the same thing about the same event.
+
+/** Typed against the shared enums, so a world event or treaty type added to the
+ *  protocol is a compile error here rather than a key on a player's screen. */
+export const worldEventLabels: Record<WorldEventType, string> = {
+  drought: "Hạn hán",
+  plague: "Dịch bệnh",
+  earthquake: "Động đất",
+  mob_migration: "Loạn quân di cư",
+  gold_rush: "Cơn sốt vàng",
+};
+
+/** Three of the five share `alert`: they are the same kind of fact — a temporary
+ *  malus on production — and the wording plus the chip's colour is what separates
+ *  them. `stateIcons` already reuses a glyph for the same reason. */
+export const worldEventIcons: Record<WorldEventType, IconName> = {
+  drought: "alert",
+  plague: "alert",
+  earthquake: "alert",
+  mob_migration: "sword",
+  gold_rush: "check",
+};
+
+/** Which of the eight chips an event wears. The sheet used to carry a third
+ *  colour scheme for this — `--kom-event-boon` / `--kom-event-blight` on a left
+ *  rule — which meant an event's severity was told in colours nothing else in the
+ *  UI used. */
+export const worldEventStates: Record<WorldEventType, UiState> = {
+  drought: "warning",
+  plague: "warning",
+  earthquake: "warning",
+  mob_migration: "hostile",
+  gold_rush: "success",
+};
+
+/** The type of a treaty, without the word "hiệp ước" — every call site already
+ *  supplies it ("đề nghị hiệp ước Phòng thủ", "Hiệp ước Phòng thủ với X"), and a
+ *  label carrying it too reads as "hiệp ước hiệp ước". `trade_pact` has a label
+ *  even though the propose form does not offer one: a peer's client may, and the
+ *  row that shows it is ours. */
+export const treatyLabels: Record<TreatyType, string> = {
+  non_aggression: "Không xâm lược",
+  trade_pact: "Thương mại",
+  defensive_pact: "Phòng thủ",
+};
+
+export const allianceRoleLabels: Record<AllianceRole, string> = {
+  leader: "Lãnh đạo",
+  officer: "Chỉ huy",
+  member: "Thành viên",
+};

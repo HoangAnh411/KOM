@@ -152,13 +152,16 @@ test("treaty break modal traps focus, Escape cancels, destructive confirms −15
 
   await page.getByTestId("advanced-drawer-toggle").click();
   const pendingRow = page.getByTestId("treaty-proposal").first();
-  await expect(pendingRow).toContainText("đề nghị non_aggression");
+  await expect(pendingRow).toContainText("đề nghị hiệp ước Không xâm lược");
   const acceptResponse = page.waitForResponse(response => response.url().endsWith("/api/commands/treaty/respond"));
   await pendingRow.getByRole("button", { name: "Chấp nhận" }).click();
   expect((await acceptResponse).ok()).toBeTruthy();
 
   const activeRow = page.getByTestId("treaty-active").first();
-  await expect(activeRow).toContainText("non_aggression");
+  // The wording, not the protocol key: both rows read `treatyLabels` now, and the
+  // proposal above says "đề nghị hiệp ước Không xâm lược" where it used to print
+  // `non_aggression` at the player.
+  await expect(activeRow).toContainText("Hiệp ước Không xâm lược");
   await activeRow.getByRole("button", { name: "Phá hiệp ước" }).click();
 
   const modal = page.getByRole("dialog", { name: "Xóa hiệp ước" });

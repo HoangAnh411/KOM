@@ -96,7 +96,12 @@ main { height: 100vh; position: relative; overflow: hidden; }
    `position: absolute` is what keeps the map's box — and so Pixi's viewport — the
    single source of truth for how large the map is. */
 .kingdom-column, .activity-column { grid-area: map; z-index: var(--kom-z-chrome); width: min(320px, 100%); overflow-y: auto; overscroll-behavior: contain; background: var(--kom-bg-context); box-shadow: var(--kom-shadow-raised); }
-.kingdom-column { justify-self: start; padding: 0 var(--kom-space-5) var(--kom-space-5); border-right: 1px solid var(--kom-border-strong); }
+/* The column owns the rhythm between its panels. It used to be a `margin-top:
+   1rem` handed to each panel by the `.hud .kom-panel` bridge, which is why the
+   bridge could not be deleted while any surface still needed dressing; 16px is
+   `--kom-space-6`, the same gap, now declared once and in the same shape as the
+   activity column on the other side of the map. */
+.kingdom-column { justify-self: start; display: flex; flex-direction: column; gap: var(--kom-space-6); padding: 0 var(--kom-space-5) var(--kom-space-5); border-right: 1px solid var(--kom-border-strong); }
 .activity-column { justify-self: end; display: flex; flex-direction: column; gap: var(--kom-space-5); padding: var(--kom-space-5); border-left: 1px solid var(--kom-border-strong); }
 /* `[hidden]` is only a UA rule, so the author `display` above would beat it. */
 .kingdom-column[hidden], .activity-column[hidden] { display: none; }
@@ -114,11 +119,6 @@ main { height: 100vh; position: relative; overflow: hidden; }
 .hud-title { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .hud-title h2 { margin: 0; }
 .hud-frozen .alliance-panel, .hud-frozen .espionage-panel, .hud-frozen .diplomacy-panel, .hud-frozen .city-panel, .hud-frozen .logistics-panel, .hud-frozen .army-panel { pointer-events: none; opacity: .5; }
-/* Bridge: `.hud section` is more specific than `.kom-panel`, so a migrated panel
-   would take the old sheet's padding and lose the header/body/footer model. This
-   keeps the column's rhythm and hands padding back to the primitive. It goes away
-   with `.hud section` once the column is assembled from panels. */
-.hud .kom-panel { margin-top: 1rem; padding: 0; }
 
 /* Row 3: the contextual command area. The selection inspector is its left half —
    the same region with the same accessible name, moved out of a floating bar into
@@ -155,7 +155,35 @@ h1 { margin-top: 0; font-size: 1.6rem; } h2 { font-size: 1rem; margin-bottom: 6p
 button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font: inherit; } button { color: var(--kom-on-primary); background: var(--kom-primary); cursor: pointer; font-weight: 700; } button:disabled { cursor: not-allowed; opacity: .45; }
 .scores { display: flex; justify-content: space-between; padding: 10px; background: var(--kom-surface-raised); border-radius: 8px; }.login-card { position: absolute; z-index: var(--kom-z-map-overlay); top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(420px, calc(100vw - 32px)); display: grid; gap: 12px; padding: 26px; border-radius: 18px; background: var(--kom-bg-chrome); border: 1px solid var(--kom-border-strong); }.login-card input, .login-card select { color: var(--kom-text); background: var(--kom-surface-raised); }.toast { position: fixed; right: 18px; bottom: 86px; z-index: var(--kom-z-toast); padding: 12px 16px; border-radius: 10px; background: var(--kom-state-rejected-fill); color: var(--kom-state-rejected-text); box-shadow: var(--kom-shadow-raised); pointer-events: none; }
 .toast-info { background: var(--kom-info-fill); color: var(--kom-info-text); border: 1px solid var(--kom-info-border); }
-.event-row, .vote-card { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; margin: 6px 0; padding: 8px; border-left: 3px solid var(--kom-hostile); background: var(--kom-surface-wash); }.event-gold_rush { border-color: var(--kom-event-boon); }.event-plague { border-color: var(--kom-event-blight); }.governance-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }.governance-row { display: flex; gap: 6px; }.governance-actions button, .vote-card button, .alliance-panel li button { padding: 5px 7px; font-size: .68rem; }.archive-panel details { margin-top: 7px; color: var(--kom-text-body); }
+/* ── Drawer rows ──────────────────────────────────────────────────────────────
+ * One row shape for all five drawer panels, in place of nine rules that each
+ * dressed a single panel's own list. Three of those reached past a primitive with
+ * a bare element selector — `.governance-actions button`, `.vote-card button` and
+ * `.alliance-panel li button` are all (0,1,1) and took the padding straight back
+ * off `.kom-btn--compact` at (0,1,0), which is why a compact button in the drawer
+ * was a different size from a compact button everywhere else.
+ *
+ * No colour here at all. A world event's severity used to be a left rule in one
+ * of two accents this file owned (`--kom-event-boon` / `--kom-event-blight`); it
+ * is a `StatusChip` now, so the row is geometry and the state is the chip's. */
+.drawer-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.drawer-row { display: flex; align-items: center; gap: var(--kom-space-3); flex-wrap: wrap; padding: var(--kom-space-3) 0; }
+/* Adjacent-sibling, not `:first-child`: the same class is also used standalone
+   (the leadership vote block), and a rule on the first row would put a hairline
+   above a block that has no list to be separated from. */
+.drawer-row + .drawer-row { border-top: 1px solid var(--kom-border-subtle); }
+/* The text takes the slack so controls stay right-aligned whoever the row is
+   about, and `min-width: 0` is what lets a long alliance name wrap instead of
+   pushing the buttons out of the 288px track. */
+.drawer-row__main { flex: 1 1 8rem; min-width: 0; display: flex; flex-direction: column; gap: var(--kom-space-1); }
+.drawer-form { display: flex; flex-direction: column; gap: var(--kom-space-3); }
+.drawer-form__row { display: flex; align-items: center; gap: var(--kom-space-3); flex-wrap: wrap; }
+.drawer-form__row input, .drawer-form__row select { flex: 1 1 8rem; min-width: 0; }
+.drawer-subhead { margin: 0; font-size: .85rem; color: var(--kom-text-heading); }
+.alliance-notice { margin: 0; padding: var(--kom-space-3); border-radius: 8px; background: var(--kom-surface-wash); color: var(--kom-text-body); font-size: .82rem; }
+.archive-content { display: flex; flex-direction: column; gap: var(--kom-space-3); }
+.archive-season > summary { cursor: pointer; color: var(--kom-text-heading); font-size: .82rem; }
+.archive-rank { padding: .15rem 0; color: var(--kom-text-body); font-size: .8rem; }
 .modal-backdrop { position: fixed; inset: 0; z-index: var(--kom-z-modal); display: flex; align-items: center; justify-content: center; background: var(--kom-scrim); }
 .map-toolbar { position: absolute; top: 12px; right: 12px; z-index: var(--kom-z-map-overlay); }.map-toolbar button { font-size: .78rem; padding: 8px 12px; }
 .modal-card { width: min(440px, calc(100vw - 32px)); max-height: 80vh; overflow-y: auto; padding: 20px; border: 1px solid var(--kom-border-strong); border-radius: 16px; background: var(--kom-bg-chrome); box-shadow: var(--kom-shadow-modal); }
@@ -163,16 +191,15 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
 /* The one surface that quotes a price in reputation: the frozen banner's edge and
    ink over the hostile chip's lighter wash, so it reads as a cost, not a state. */
 .reputation-cost { color: var(--kom-state-frozen-text); background: var(--kom-state-hostile-fill); border: 1px solid var(--kom-state-frozen-border); border-radius: 8px; padding: 8px 10px; }
-.destructive { background: var(--kom-hostile-deep); color: var(--kom-on-hostile); }
 
 /* Panels (city & logistics & army)
  *
- * `.hud .city-panel` and `.hud .logistics-panel` used to sit in the selector below
- * at (0,2,0) — the same weight as the `.hud .kom-panel` bridge but later in the
- * file, so they would have won and handed the two migrated panels their old 1rem
- * padding back. What is left is `.hud section`, which is (0,1,1) and loses the
- * padding to the bridge while still giving every panel the column's surface. */
-.hud section { margin-top: 1rem; padding: 1rem; background: var(--kom-surface); border-radius: 12px; }
+ * Nothing in this file dresses a panel any more. `.hud section` gave every
+ * surface in the column its background, radius and 1rem of padding, and
+ * `.hud .kom-panel` existed only to take that padding back off the primitive it
+ * out-specified. Both are gone: all thirteen surfaces are `Panel`s now, so the
+ * primitive owns the box and the column owns the gap. What follows is layout
+ * *inside* a panel body — rows, grids and steppers, no surface. */
 .hint { color: var(--kom-text-hint); font-size: .85em; line-height: 1.45; margin: .3rem 0; }
 .logistics-panel h3 { font-size: .9rem; margin: 0; color: var(--kom-text-heading); }
 /* Not a `Panel` each: a nested `.kom-panel` inside `.hud` picks up the bridge's
@@ -215,9 +242,20 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
 .modal-actions { display: flex; gap: .5rem; justify-content: flex-end; margin-top: .8rem; }
 
 /* Onboarding & advanced drawer */
-.drawer { margin-top: 1rem; padding: .8rem 1rem; background: var(--kom-surface); border-radius: 12px; }
-.drawer summary { cursor: pointer; font-weight: 600; color: var(--kom-text-heading); }
-.drawer summary::marker { color: var(--kom-text-link); }
+/* Onboarding & advanced drawer
+ *
+ * The `margin-top` came off with the bridge: the column's `gap` spaces the drawer
+ * from the panel above it, and leaving both would have doubled to 32px. The
+ * `> summary` is direct-descendant on purpose — `.drawer summary` also caught the
+ * per-season `<summary>` inside the archive panel, so the two disclosures could
+ * not be sized independently. */
+.drawer { padding: .8rem 1rem; background: var(--kom-surface); border-radius: 12px; }
+.drawer > summary { cursor: pointer; font-weight: 600; color: var(--kom-text-heading); }
+.drawer > summary::marker { color: var(--kom-text-link); }
+/* The five drawer panels were spaced by `.hud section`'s margin, which is gone;
+   this is the same job the column does one level up, at the tighter step because
+   these are panels nested inside a panel-shaped disclosure. */
+.advanced-drawer { display: flex; flex-direction: column; gap: var(--kom-space-5); margin-top: var(--kom-space-5); }
 .onboarding-list { list-style: none; margin: .5rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .35rem; }
 .onboarding-list li { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
 .step-dot, .step-check { width: 1.15rem; height: 1.15rem; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: .72rem; background: var(--kom-surface-chip); flex: none; }
@@ -232,9 +270,16 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
 .spy-mission { display: flex; gap: .5rem; align-items: baseline; flex-wrap: wrap; padding: .3rem 0; border-top: 1px solid var(--kom-border-subtle); }
 .spy-mission:first-of-type { border-top: none; }
 
-/* Pending command strip */
-.pending-strip { margin-top: 1rem; padding: .8rem 1rem; background: var(--kom-surface-sunken); border-radius: 12px; }
-.pending-strip h3 { font-size: .85rem; margin: 0 0 .4rem; color: var(--kom-text-heading); }
+/* Pending command strip
+ *
+ * A compact `Panel` now, so the header and the rhythm come from the primitive and
+ * only the surface is stated here: the strip is deliberately *sunken* where every
+ * other panel is raised, because it holds orders in flight rather than a place to
+ * give one. `.pending-strip` is (0,1,0) like `.kom-panel`, and this file is
+ * imported after the primitives, so the later rule wins without a specificity
+ * bump. The old `.pending-strip h3` had to go with the `<h3>`: at (0,1,1) it
+ * out-specified `.kom-panel__heading` and would have resized one panel's title. */
+.pending-strip { background: var(--kom-surface-sunken); }
 .pending-row { display: flex; justify-content: space-between; align-items: center; gap: .5rem; font-size: .8rem; padding: .3rem 0; }
 
 /* ── BANDS ────────────────────────────────────────────────────────────────────

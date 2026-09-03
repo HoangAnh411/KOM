@@ -153,28 +153,52 @@ test("the panels' legacy CSS left with the markup that used it", () => {
   // carried a validation message the button now carries itself. A deleted rule
   // nobody asserts is absent is a rule that grows back — someone greps for the
   // class, finds it in the sheet, and concludes the markup must still exist.
-  for (const name of ["actions", "nav-icon", "validation-reason", "building-build", "onboarding-panel", "army-panel-footer"]) {
+  for (const name of ["actions", "nav-icon", "validation-reason", "building-build", "onboarding-panel", "army-panel-footer",
+    // The drawer's nine one-line rules, deleted with the markup they dressed: two
+    // list shapes, two event accents, two action containers, and the `.destructive`
+    // class the treaty-break button wore before `Button variant="destructive"`.
+    "event-row", "vote-card", "event-gold_rush", "event-plague", "governance-actions", "governance-row", "destructive",
+    "treaty-row", "treaty-pending", "treaty-active", "treaty-propose"]) {
     assert.equal(selector(name).test(sheet), false, `.${name} is still in styles.css`);
   }
   // The other half, and the more dangerous one: a bare element in the selector.
   // `.logistics-panel button` is (0,1,1) and outranks `.kom-btn--compact` at
   // (0,1,0), so a leftover rule like this does not sit there harmlessly — it takes
   // the padding back off the primitive for every button inside that panel.
-  for (const dead of [/\.kingdom-nav\s+button/, /\.logistics-panel\s+button/, /\.pending-row\s+button/, /\.step-actions\s+button/, /\.cargo-grid\s+label/, /\.city-panel\s+h2/]) {
+  for (const dead of [/\.kingdom-nav\s+button/, /\.logistics-panel\s+button/, /\.pending-row\s+button/, /\.step-actions\s+button/, /\.cargo-grid\s+label/, /\.city-panel\s+h2/,
+    // Three more of exactly that shape from the drawer, plus two headings the
+    // primitive now sizes: `.pending-strip h3` is (0,1,1) over
+    // `.kom-panel__heading` at (0,1,0), and `.drawer summary` reached past the
+    // disclosure it was written for into every `<details>` in the archive panel,
+    // which is why it is `.drawer > summary` now.
+    /\.alliance-panel\s+li\s+button/, /\.archive-panel\s+details/, /\.pending-strip\s+h3/, /\.drawer\s+summary/]) {
     assert.equal(dead.test(sheet), false, `"${dead.source}" still styles markup the panels no longer write`);
   }
 });
 
-test("the panel bridge is not out-specified by a panel's own class", () => {
-  // `.hud .kom-panel` hands padding back to the primitive at (0,2,0). Pairing
-  // `.hud` with a panel's own class is (0,2,0) too and sits later in the file, so
-  // it wins and silently restores the 1rem the primitive is supposed to own —
-  // which is how a migrated panel ends up double-padded and nobody can see why.
-  for (const name of ["city-panel", "logistics-panel", "army-panel", "espionage-panel"]) {
+test("the panel bridge and the column's old surface rule are gone together", () => {
+  // These two only ever made sense as a pair. `.hud section` gave every surface in
+  // the column a background, a radius and 1rem of padding; `.hud .kom-panel`
+  // existed for no other reason than to take that padding back off the primitive
+  // it out-specified. While the first dressed panels, deleting the second
+  // double-padded them; while the second zeroed padding, deleting the first
+  // changed nothing visible. So they had to leave in one commit, and the only way
+  // to keep them gone is to assert both absences rather than describe the plan in
+  // a comment — which is what the bridge's own comment did for two rounds.
+  assert.equal(/\.hud\s+section(?![\w-])/.test(sheet), false, ".hud section is dressing the column's panels again");
+  assert.equal(/\.hud\s+\.kom-panel(?![\w-])/.test(sheet), false, "the .hud .kom-panel bridge is back in styles.css");
+  // What replaced them. A per-panel `margin-top` would space the column too, and
+  // is exactly what came off, so the replacement is asserted positively: the
+  // column is a flex column and the 16px gap is the 1rem the margin used to be.
+  assert.match(sheet, /\.kingdom-column\s*\{[^}]*display:\s*flex[^}]*gap:\s*var\(--kom-space-6\)/,
+    "the kingdom column must own the rhythm the bridge's margin used to hand out");
+  // And the trap that made the bridge fragile, kept as a law now that the bridge
+  // is not there to be out-specified: `.hud` plus a panel's own class is (0,2,0)
+  // and beats every selector the primitive can write for itself.
+  for (const name of ["city-panel", "logistics-panel", "army-panel", "espionage-panel", "alliance-panel", "diplomacy-panel", "events-panel", "archive-panel"]) {
     assert.equal(new RegExp(`\\.hud\\s+\\.${name}(?![\\w-])`).test(sheet), false,
-      `.hud .${name} out-specifies the .hud .kom-panel bridge`);
+      `.hud .${name} out-specifies the panel primitive`);
   }
-  assert.match(sheet, /\.hud \.kom-panel\s*\{[^}]*padding:\s*0/, "the bridge must hand padding to the primitive");
 });
 
 test("the layout layer holds no colour literal", () => {
