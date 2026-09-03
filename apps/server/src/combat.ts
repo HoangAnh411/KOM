@@ -3,6 +3,7 @@ import type { Pool, PoolClient } from "pg";
 import type { Army, AttackOrder, BattleReport, Formation, TerrainType, UnitType, FactionId } from "@kingdoms/shared";
 import { recruitmentCost } from "@kingdoms/shared";
 import type { GameState } from "./types.js";
+import { CommandRegistry } from "./command-registry.js";
 import { resolveBattle } from "./battle-engine.js";
 
 function assertActivePlayer(state: GameState, playerId: string): void { if (state.players.find(player => player.id === playerId)?.status === "banned") throw new Error("ACCOUNT_BANNED"); }
@@ -11,7 +12,6 @@ function assertActiveTarget(state: GameState, playerId: string | null | undefine
 export type AttackOrderCancellation = { orderId: string; armyId: string; targetArmyId: string; reason: "target_destroyed" | "target_frozen"; at: string };
 
 export class CombatRepository {
-  private commands = new Set<string>();
   // Tick-resolved battles and auto-canceled pursuit orders, drained once per
   // tick by the store (ledger) and the HTTP layer (WebSocket broadcast).
   private reportsToBroadcast: BattleReport[] = [];
@@ -20,10 +20,10 @@ export class CombatRepository {
   drainReports(): BattleReport[] { const out = this.reportsToBroadcast; this.reportsToBroadcast = []; return out; }
   drainCancellations(): AttackOrderCancellation[] { const out = this.pendingCancellations; this.pendingCancellations = []; return out; }
 
-  capture(): { commands: string[] } { return { commands: [...this.commands] }; }
-  restore(capture: { commands: string[] }): void { this.commands = new Set(capture.commands); }
-  
-  constructor(private readonly pool?: Pool) {}
+  // No `capture()`/`restore()`: the only state this repository owned outside `GameState` was the
+  // claimed-command Set, and that now lives in the shared `CommandRegistry`, which the store rolls
+  // back once for every repository instead of copying three Sets twice per command.
+  constructor(private readonly pool?: Pool, private readonly commands: CommandRegistry = new CommandRegistry()) {}
 
   seed(state: GameState): void {
     if (!state.terrainMap || Object.keys(state.terrainMap).length === 0) {
@@ -102,9 +102,7 @@ export class CombatRepository {
   }
 
   private claim(commandId: string): boolean {
-    if (this.commands.has(commandId)) return false;
-    this.commands.add(commandId);
-    return true;
+    return this.commands.claim(commandId);
   }
 
   recruit(commandId: string, cityId: string, unitType: UnitType, amount: number, playerId: string, state: GameState): Army {
