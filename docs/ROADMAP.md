@@ -1,6 +1,6 @@
 Kingdoms of Meridian — Tiến trình và Roadmap
 
-> Cập nhật lần cuối: 2026-09-02
+> Cập nhật lần cuối: 2026-09-03
 
 ## Trạng thái hiện tại
 
@@ -9,6 +9,8 @@ Kingdoms of Meridian — Tiến trình và Roadmap
 Đã xác nhận typecheck, build, unit/regression, PostgreSQL restart/multi-instance integration và Playwright đều pass. Từ 7C suite Playwright là Chromium desktop (project `mobile` đã bỏ; `password-auth` gated `E2E_PROD_SMOKE=1`) — xem mục “Test matrix” của Phase 7C. Auth/session PostgreSQL, frozen moderation, world-event NPC, alliance vote và season archive đã có acceptance coverage.
 
 Roadmap này có section Phase 7D bên dưới (viết sau khi đọc lại code, vì `f6085a4` không sửa roadmap). `verify:web-beta` (`npm audit --audit-level=high` + `test:prod-smoke`) và `drill:web-beta` đã được nối vào `.github/workflows/ci.yml`: `npm audit` thành gate 10 của job `verify`, còn hai việc cần Docker tách ra hai job riêng (`prod-smoke`, `recovery-drill`). Hai job đó **chưa quan sát được xanh** — máy contributor không có Docker.
+
+**Toàn bộ công việc sau `f6085a4` đang nằm ở bốn PR chưa merge** (2026-09-03): #1 `feat/situation-room` (shell Situation Room, base `main`) → #2 `docs/truth-pass` → #3 `feat/rate-limit-buckets` (P0.1 + security review, xếp tầng lên #2), và #4 `fix/postgres-test-isolation` (base `main`) sửa race làm gate 5 đỏ ngẫu nhiên. `main` vẫn đứng ở `f6085a4`. Hai gate của CI hiện đỏ **không theo quy luật** và đỏ cả trên `main` — gate 5 (`test:postgres`, race giữa các file integration dùng chung database → PR #4) và gate 7 (Playwright, `map-command.spec.ts` chọn phải NPC `mob_migration` cùng ô, chưa có PR).
 
 ### Đã hoàn thành
 
@@ -140,11 +142,11 @@ Sau mỗi milestone phải chạy verification và cập nhật docs/GAME-DESIGN
 - [X] Backup (`pg_dump` daily/7 + weekly/4, checksum, log) và restore drill script; drill trước beta + mỗi tháng.
 - [X] Prometheus/Grafana dashboard và alert rules cho health, tick, WebSocket, persistence, outbox và DLQ; OpenTelemetry traces deferred 7B.
 - [X] Load-test harness k6: 100 WS 15 phút, 10 cmd/s, reconnect burst, duplicate commandId; seed/verify CLI chỉ nhận DB hậu tố `_loadtest`.
-- [ ] Chạy full load test 15 phút và lưu report trước beta.
+- [ ] Chạy full load test 15 phút và lưu report trước beta. — đang bị chặn hai lớp: command path còn hai chi phí tuyến tính theo lịch sử season (P0.2, P0.3) nên số đo sẽ nói về chúng chứ không nói về gameplay, và sức chứa map (~16 ô đặt thành phố) chưa đủ cho profile 100 người chơi (P0.4, cần owner chốt). `k6` chưa cài ở máy contributor. Xem section "Command path và sức chứa" bên dưới.
 - [X] Ban/unban baseline, atomic audit/session revoke, frozen entities và action guards; abuse detection nâng cao còn deferred.
 - [X] CI thành 10 gates: `npm ci` → migrate fresh → idempotency+checksum → typecheck/build → PostgreSQL integration → unit/regression → Playwright Chromium desktop (7C) → `check:bundle` → `git diff --check` → `npm audit --audit-level=high`. Hai việc cần Docker (`test:prod-smoke`, `drill:web-beta`) là job riêng — xem Phase 7D.
 - [X] Restore drill log trong operations runbook (trước beta). — chạy 2026-09-02 qua `drill:web-beta`: 3/3 pass, RPO 0 ms, RTO 5795 ms; kết quả ở mục "Kết quả drill" của `docs/OPERATIONS.md`, báo cáo đầy đủ ở `infra/backup/drill-report.md`. Caveat đã ghi trong runbook: drill dùng `docker compose exec postgres pg_dump`, nên `infra/backup/backup.sh` / `restore.sh` vẫn chưa được kiểm chứng.
-- [X] Security review auth, permissions, input và secrets. — `docs/SECURITY-REVIEW.md` (2026-09-02): 10 finding, 2 High đã sửa kèm test hồi quy (`request.ip` do client tự khai làm vô hiệu mọi hạn mức theo IP; snapshot phát nội thất city của mọi người chơi), 1 Low hardening (redact `password`). Ba việc còn treo cho owner: tiền đề của `ambush` (luật chơi), có bắt buộc `TRUST_PROXY` ở production hay không, và xác nhận lại chuỗi Caddy → Fastify trên stack thật (máy contributor không có Docker).
+- [X] Security review auth, permissions, input và secrets. — `docs/SECURITY-REVIEW.md` (2026-09-02): 10 finding, 2 High đã sửa kèm test hồi quy (`request.ip` do client tự khai làm vô hiệu mọi hạn mức theo IP; snapshot phát nội thất city của mọi người chơi), 1 Low hardening (redact `password`). **S-5 (`ambush` không có tiền đề không gian) đã được owner chốt 2026-09-03**: đòi người tấn công có quân trong bán kính Manhattan 3 quanh vị trí caravan hiện tại, và `ambush` chuyển sang bucket `combat` (10/phút) — xem section "Command path và sức chứa" bên dưới. Hai việc còn treo cho owner: có bắt buộc `TRUST_PROXY` ở production hay không (S-9), và xác nhận lại chuỗi Caddy → Fastify trên stack thật (S-1, máy contributor không có Docker); thêm S-7 (Zod cho hai route admin) và S-8 (trần WS connection) chờ gộp/chốt số.
 
 **Tiêu chí hoàn thành:** có SLO, load profile, alert và recovery khi worker/gateway restart.
 
@@ -202,7 +204,7 @@ Sau mỗi milestone phải chạy verification và cập nhật docs/GAME-DESIGN
 - [X] `GET /api/battles` keyset pagination (limit mặc định 20, clamp 1–50, cursor base64url `{createdAt,id}` với ISO timestamp + UUID strict, chỉ thấy trận mình tham gia); migration 014 partial index cho attacker/defender.
 - [X] Phá hiệp ước bằng modal React có focus trap + Escape + mô tả “−150 danh tiếng”, thay cho `confirm()` native.
 - [X] Drawer nâng cao (alliance/espionage/events/archive/diplomacy) lazy-load khi mở lần đầu.
-- [X] Test matrix: client unit 76, server unit 117 (102 pass + 15 skip vì gate PostgreSQL), PostgreSQL (014 fresh/rerun/checksum + `/api/battles` dùng index + phân trang + cursor invalid + sống sót restart; chỉ bật integration bằng `RUN_POSTGRES_INTEGRATION` trong runner để gate chạy lặp an toàn), Playwright 18 test / 10 file = 10 gốc + 1 `[reset-world]` setup + 5 regression 7C + 2 layout Situation Room; `password-auth` là project riêng, chỉ chạy khi `E2E_PROD_SMOKE=1`. Năm regression 7C (double-submit dedupe không gửi HTTP thứ hai và nhận cùng kết quả thật, send fail → uncertain + “Thử lại” tái dùng cùng commandId/chặn double-retry, reload khôi phục pending uncertain, battle report chỉ tới participant, treaty modal focus trap/Escape/−150) + reset ở setup project và trước mỗi Chromium scenario (world riêng để khỏi chạm trần ~16 ô đặt thành phố trong một run, battle E2E dùng target dev có xác thực và vị trí deterministic để không phụ thuộc mob tự di chuyển/hết hạn, config env-driven `PLAYWRIGHT_API`/`PLAYWRIGHT_WEB`, webServer bật máy chủ riêng trên port do `PLAYWRIGHT_API` chỉ định), `check:bundle` ≤ 500 KiB, CI gate 8 chuyên cho bundle.
+- [X] Test matrix: client unit 78, server unit 124 (109 pass + 15 skip vì gate PostgreSQL), PostgreSQL (014 fresh/rerun/checksum + `/api/battles` dùng index + phân trang + cursor invalid + sống sót restart; chỉ bật integration bằng `RUN_POSTGRES_INTEGRATION` trong runner để gate chạy lặp an toàn), Playwright 19 test / 10 file = 10 gốc + 1 `[reset-world]` setup + 5 regression 7C + 3 layout Situation Room; `password-auth` là project riêng, chỉ chạy khi `E2E_PROD_SMOKE=1`. Năm regression 7C (double-submit dedupe không gửi HTTP thứ hai và nhận cùng kết quả thật, send fail → uncertain + “Thử lại” tái dùng cùng commandId/chặn double-retry, reload khôi phục pending uncertain, battle report chỉ tới participant, treaty modal focus trap/Escape/−150) + reset ở setup project và trước mỗi Chromium scenario (world riêng để khỏi chạm trần ~16 ô đặt thành phố trong một run, battle E2E dùng target dev có xác thực và vị trí deterministic để không phụ thuộc mob tự di chuyển/hết hạn, config env-driven `PLAYWRIGHT_API`/`PLAYWRIGHT_WEB`, webServer bật máy chủ riêng trên port do `PLAYWRIGHT_API` chỉ định), `check:bundle` ≤ 500 KiB, CI gate 8 chuyên cho bundle.
 - [ ] Manual acceptance: onboarding walkthrough, phiên 30–60 phút, không raw ID / native prompt/confirm, không jank. — kịch bản phiên ở [`docs/ACCEPTANCE-7C.md`](./ACCEPTANCE-7C.md); phần "không còn `prompt(`/`confirm(`/`alert(` trong source" đã được `apps/client/src/no-native-dialogs.test.ts` chặn tự động. Còn lại là phiên do người chạy, nên mục này chưa tick.
 
 **Tiêu chí hoàn thành:** toàn bộ automated gate xanh (`verify:web-alpha` = typecheck/build/test/test:postgres/test:e2e/check:bundle/diff-check) và phiên manual không có blocker.
@@ -222,9 +224,23 @@ Landing ở `f6085a4` (2026-09-02). Roadmap không được commit đó sửa, n
 - [X] Broadcast coalesce: `requestBroadcast()` bật cờ, tick gửi một snapshot — thay cho fan-out full snapshot mỗi command.
 - [X] `verify:web-beta` và `drill:web-beta` vào `.github/workflows/ci.yml`: `npm audit` là gate 10 của job `verify`; `test:prod-smoke` và `drill:web-beta` là hai job riêng vì cần Docker — `prod-smoke` chạy trên `main`/`workflow_dispatch`/schedule, `recovery-drill` chạy `workflow_dispatch` + cron hằng tháng và upload `drill-report.md` làm artifact. **Chưa từng chạy xanh trên runner** — hai job này chưa quan sát được ở máy contributor (không có Docker).
 - [ ] `infra/backup/backup.sh` và `restore.sh` chưa được kiểm chứng lần nào: drill dùng `docker compose exec postgres pg_dump` chứ không gọi hai script đã commit (custom format, retention 7 daily + 4 weekly, checksum vào `backup.log`, guard `BACKUP_ALLOW_LOCAL`). Drill kỳ sau (2026-10-02) nên đi qua đúng hai script đó.
-- [ ] Rate-limit bucket dùng chung — **đã sửa sau 7D**, xem `feat/rate-limit-buckets`: 7D sửa hành vi `rate-limit.ts` nhưng không sửa key, nên mọi command vẫn đếm chung `write:<playerId>`.
+- [X] Rate-limit bucket dùng chung — **đã sửa ở `d1212b4`** (PR #3 `feat/rate-limit-buckets`): 7D sửa hành vi `rate-limit.ts` nhưng không sửa key, nên mọi command vẫn đếm chung `write:<playerId>`. Giờ có bốn bucket mỗi phút mỗi player — `write` 20 / `combat` 10 / `spy` 5 / `read` 60 — khai báo tập trung ở bảng `commandBuckets` trong `apps/server/src/app.ts`, không truyền limit ở từng route, nên một hạn mức không thể lệch khỏi counter nó tiêu.
 
 **Tiêu chí hoàn thành:** `npm run verify:web-beta` xanh trên một runner có Docker; drill hằng tháng chạy và kết quả (RPO/RTO) vào `docs/OPERATIONS.md`; không route vận hành nào (`/metrics`, `/health/ready`, `/api/dev/*`) lộ ra ngoài Caddy.
+
+## Command path và sức chứa (chặn load test [143])
+
+**Mục tiêu:** làm cho một REST command trả tiền theo *chính nó* chứ không theo toàn bộ lịch sử season, và mở đủ sức chứa map để profile load test nói về gameplay. Không thêm gameplay; đây là điều kiện để mục "Chạy full load test 15 phút" ở trên có nghĩa. Số phase để owner đặt.
+
+Hai finding Medium của `docs/SECURITY-REVIEW.md` nằm ở đây: S-3 (`processedCommands` phình vô hạn) = P0.3, S-4 (reload toàn bảng `event_ledger`) = P0.2.
+
+- [ ] **S-5 — `ambush` phải có tiền đề không gian.** Hiện `ambush` chỉ kiểm caravan đang `moving` và không phải của mình: không cần quân, không cần ở gần, không tốn gì, 20 lần/phút → xoá 60% hàng của bất kỳ caravan nào trên map và làm hệ thống hộ tống vô nghĩa. Luật owner chốt 2026-09-03: người tấn công phải có quân (không `frozen`) trong bán kính Manhattan 3 quanh **ô hiện tại** của caravan (lerp `source → destination` theo `progress`, mirror của `apps/client/src/map.ts`), sai thì `AMBUSH_OUT_OF_RANGE` 400; `ambush` vào bucket `combat` 10/phút.
+- [ ] **P0.2 (= S-4) — bỏ full-table ledger reload khỏi command path.** `Store.load()` chạy *bên trong* transaction của mỗi command và kết thúc bằng `EventLedger.load()`, câu này `SELECT` cả bảng `event_ledger` kèm `payload` JSONB (chứa battle report) **không `LIMIT`**. `history` mà nó nạp chỉ có test đọc (6 call site, toàn bộ là test); authority thật ở PG mode là point query `WHERE command_id=$1` + unique partial index `event_ledger_command_idx` (migration 003). Hướng: load một cột có trần (idempotency window), thôi xoá event chưa persist, và command path bỏ hẳn ledger reload.
+- [ ] **P0.3 (= S-3) — gộp dedupe về một đường, có trần.** Hiện có **năm** cơ chế dedupe song song, ba trong số đó bị sao chép **hai lần mỗi command** cho rollback: `EventLedger.commandIds`, unique index + point query, `state.processedCommands: string[]` trong `game_state` JSONB (phình cả trên đĩa), `CombatRepository.commands`, `LogisticsRepository.commands` + `OnboardingRepository.commands`. Không cơ chế nào có trần. Tách hai: P0.3a một registry có trần FIFO thay ba Set của repo (rollback bằng `forget()` thay vì copy cả Set), P0.3b bỏ `state.processedCommands` và strip key cũ khi load.
+- [ ] **P0.4 — sức chứa map. Cần owner chốt.** Trần ~16 ô đặt thành phố còn nguyên, nên profile load test 100 người chơi đồng thời không đặt được. Hai đường: mở map, hay hạ mục tiêu của load test. Đây là quyết định thiết kế, không phải refactor.
+- [ ] **P0.5 — chạy lại load test 15 phút** sau P0.2 + P0.3 + P0.4 và lưu report (đóng luôn mục [143] ở Phase 7A). `k6` chưa cài ở máy contributor.
+
+**Tiêu chí hoàn thành:** một command không phát truy vấn nào tỉ lệ với lịch sử season; mọi cấu trúc dedupe có trần; load test 15 phút chạy được và report vào repo.
 
 ## Phase 8 — Đa nền tảng và phát hành
 
