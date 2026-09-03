@@ -68,19 +68,21 @@ main { height: 100vh; position: relative; overflow: hidden; }
    `auto` row that gains a line when the resource grid wraps at narrow widths. */
 .frozen-banner { position: absolute; top: calc(100% + var(--kom-space-2)); left: 50%; transform: translateX(-50%); z-index: var(--kom-z-alert); max-width: min(92vw, 560px); padding: 8px 14px; border: 1px solid var(--kom-state-frozen-border); border-radius: 8px; color: var(--kom-state-frozen-text); background: var(--kom-state-frozen-fill); font-size: .82rem; text-align: center; }
 
-/* The old 64px rail, folded into the kingdom column's sticky head. Same buttons,
-   same `nav-active` state, laid out as a row of four chips instead of a column of
-   four — which hands the map back the 64px the rail was holding. */
+/* The old 64px rail, folded into the kingdom column's sticky head: a row of four
+   chips instead of a column of four, which hands the map back the 64px the rail
+   was holding.
+
+   `.kom-btn` rather than `button`, and `[aria-current]` rather than the
+   `.nav-active` class only this sheet understood: the chips are ghost `Button`s
+   now, so the open panel is marked in the accessibility tree first and tinted
+   second. (0,2,0) is what it takes to beat `.kom-btn--ghost`'s own colour. */
 .kingdom-nav { display: flex; gap: var(--kom-space-2); margin-top: var(--kom-space-3); }
-.kingdom-nav button { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 2px; padding: var(--kom-space-3) var(--kom-space-1); background: transparent; color: var(--kom-text-muted); border-radius: 10px; }
-.kingdom-nav button:hover { background: var(--kom-surface-hover); }
-.kingdom-nav button.nav-active { background: var(--kom-primary-tint); color: var(--kom-primary); }
-.nav-icon { font-size: 1.05rem; line-height: 1; }
+.kingdom-nav .kom-btn { flex: 1 1 0; min-width: 0; flex-direction: column; gap: 2px; padding: var(--kom-space-3) var(--kom-space-1); color: var(--kom-text-muted); border-radius: 10px; }
+.kingdom-nav .kom-btn[aria-current] { background: var(--kom-primary-tint); color: var(--kom-primary); }
 .nav-label { font-size: .6rem; font-weight: 700; letter-spacing: .01em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
-/* The primitives layer rings `.kom-btn`, and the shell's raw <button>s — nav
-   chips, the map toolbar, the tray's inspector controls — would otherwise fall
-   back to the UA outline. Same token, so the ring looks identical everywhere. */
-.kingdom-nav button:focus-visible,
+/* The primitives layer rings `.kom-btn`; the shell's remaining raw <button>s —
+   the map toolbar and the tray's inspector controls — would otherwise fall back
+   to the UA outline. Same token, so the ring looks identical everywhere. */
 .map-toolbar button:focus-visible,
 .command-tray button:focus-visible { outline: none; box-shadow: var(--kom-focus-ring); }
 
@@ -105,18 +107,13 @@ main { height: 100vh; position: relative; overflow: hidden; }
    side by side left the name ~130px, so every second city wrapped to two lines
    and the sticky head changed height with the city you were looking at. */
 .kingdom-column__head .hud-title { flex-direction: column; align-items: flex-start; gap: 0; }
-/* The three build shortcuts are laid out for a 360px panel. In a 288px track,
-   three `flex: 1` buttons are 72px wide and "Xây trạm trung chuyển" breaks into
-   four lines, so the row wraps two-up instead. */
-.kingdom-column .actions { flex-wrap: wrap; gap: var(--kom-space-3); }
-.kingdom-column .actions button { flex: 1 1 46%; padding: 8px 6px; font-size: .74rem; }
 /* `revealPanel` scrolls with `block: "start"`, which would tuck the target under
    that sticky head without this. 118px clears the head measured in a browser at
    the narrowest track (114px) — title, subtitle and the four nav chips. */
 .kingdom-column > * { scroll-margin-top: 118px; }
 .hud-title { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
 .hud-title h2 { margin: 0; }
-.hud-frozen .actions, .hud-frozen .alliance-panel, .hud-frozen .espionage-panel, .hud-frozen .diplomacy-panel, .hud-frozen .city-panel, .hud-frozen .logistics-panel, .hud-frozen .army-panel { pointer-events: none; opacity: .5; }
+.hud-frozen .alliance-panel, .hud-frozen .espionage-panel, .hud-frozen .diplomacy-panel, .hud-frozen .city-panel, .hud-frozen .logistics-panel, .hud-frozen .army-panel { pointer-events: none; opacity: .5; }
 /* Bridge: `.hud section` is more specific than `.kom-panel`, so a migrated panel
    would take the old sheet's padding and lose the header/body/footer model. This
    keeps the column's rhythm and hands padding back to the primitive. It goes away
@@ -155,10 +152,9 @@ main { height: 100vh; position: relative; overflow: hidden; }
    wrap so a four-tile row keeps one height in every band. */
 .resource-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 7px; }.resource-grid div { background: var(--kom-surface-raised); border-radius: 8px; padding: 8px 5px; text-align: center; }.resource-grid span { display: block; color: var(--kom-text-muted); font-size: .7rem; text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }.resource-grid strong { font-size: .95rem; }
 h1 { margin-top: 0; font-size: 1.6rem; } h2 { font-size: 1rem; margin-bottom: 6px; } p { color: var(--kom-text-body); font-size: .88rem; }
-button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font: inherit; } button { color: var(--kom-on-primary); background: var(--kom-primary); cursor: pointer; font-weight: 700; } button:disabled { cursor: not-allowed; opacity: .45; }.actions { display: flex; gap: 8px; }.actions button { flex: 1; font-size: .78rem; }
+button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font: inherit; } button { color: var(--kom-on-primary); background: var(--kom-primary); cursor: pointer; font-weight: 700; } button:disabled { cursor: not-allowed; opacity: .45; }
 .scores { display: flex; justify-content: space-between; padding: 10px; background: var(--kom-surface-raised); border-radius: 8px; }.login-card { position: absolute; z-index: var(--kom-z-map-overlay); top: 50%; left: 50%; transform: translate(-50%, -50%); width: min(420px, calc(100vw - 32px)); display: grid; gap: 12px; padding: 26px; border-radius: 18px; background: var(--kom-bg-chrome); border: 1px solid var(--kom-border-strong); }.login-card input, .login-card select { color: var(--kom-text); background: var(--kom-surface-raised); }.toast { position: fixed; right: 18px; bottom: 86px; z-index: var(--kom-z-toast); padding: 12px 16px; border-radius: 10px; background: var(--kom-state-rejected-fill); color: var(--kom-state-rejected-text); box-shadow: var(--kom-shadow-raised); pointer-events: none; }
 .toast-info { background: var(--kom-info-fill); color: var(--kom-info-text); border: 1px solid var(--kom-info-border); }
-.logistics-panel { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--kom-border-strong); }.logistics-panel button { margin: 3px; padding: 7px 8px; font-size: .72rem; }
 .event-row, .vote-card { display: grid; grid-template-columns: 1fr auto; gap: 4px 10px; margin: 6px 0; padding: 8px; border-left: 3px solid var(--kom-hostile); background: var(--kom-surface-wash); }.event-gold_rush { border-color: var(--kom-event-boon); }.event-plague { border-color: var(--kom-event-blight); }.governance-actions { display: flex; flex-direction: column; gap: 6px; margin-top: 8px; }.governance-row { display: flex; gap: 6px; }.governance-actions button, .vote-card button, .alliance-panel li button { padding: 5px 7px; font-size: .68rem; }.archive-panel details { margin-top: 7px; color: var(--kom-text-body); }
 .modal-backdrop { position: fixed; inset: 0; z-index: var(--kom-z-modal); display: flex; align-items: center; justify-content: center; background: var(--kom-scrim); }
 .map-toolbar { position: absolute; top: 12px; right: 12px; z-index: var(--kom-z-map-overlay); }.map-toolbar button { font-size: .78rem; padding: 8px 12px; }
@@ -169,31 +165,52 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
 .reputation-cost { color: var(--kom-state-frozen-text); background: var(--kom-state-hostile-fill); border: 1px solid var(--kom-state-frozen-border); border-radius: 8px; padding: 8px 10px; }
 .destructive { background: var(--kom-hostile-deep); color: var(--kom-on-hostile); }
 
-/* Panels (city & logistics & army) */
-.hud section, .hud .logistics-panel, .hud .city-panel { margin-top: 1rem; padding: 1rem; background: var(--kom-surface); border-radius: 12px; }
+/* Panels (city & logistics & army)
+ *
+ * `.hud .city-panel` and `.hud .logistics-panel` used to sit in the selector below
+ * at (0,2,0) — the same weight as the `.hud .kom-panel` bridge but later in the
+ * file, so they would have won and handed the two migrated panels their old 1rem
+ * padding back. What is left is `.hud section`, which is (0,1,1) and loses the
+ * padding to the bridge while still giving every panel the column's surface. */
+.hud section { margin-top: 1rem; padding: 1rem; background: var(--kom-surface); border-radius: 12px; }
 .hint { color: var(--kom-text-hint); font-size: .85em; line-height: 1.45; margin: .3rem 0; }
-.validation-reason { color: var(--kom-hostile-soft); }
-.city-panel h2, .logistics-panel h2 { font-size: 1rem; margin: 0 0 .6rem; }
-.city-panel h3, .logistics-panel h3 { font-size: .9rem; margin: 0 0 .5rem; color: var(--kom-text-heading); }
+.logistics-panel h3 { font-size: .9rem; margin: 0; color: var(--kom-text-heading); }
+/* Not a `Panel` each: a nested `.kom-panel` inside `.hud` picks up the bridge's
+   own `margin-top` and doubles it against the body's gap. A flat block with its
+   own column gap is the same rhythm without the second surface. */
+.logistics-block { display: flex; flex-direction: column; gap: var(--kom-space-3); }
 .building-row, .node-row, .route-row, .caravan-row { padding: .5rem .4rem; border-top: 1px solid var(--kom-border-subtle); display: flex; flex-direction: column; gap: .3rem; }
 .building-row:first-of-type { border-top: none; }
 .building-title { display: flex; justify-content: space-between; align-items: baseline; gap: .5rem; }
-.building-build { align-self: flex-start; }
+/* The three build shortcuts are laid out for a 360px panel. In a 288px track,
+   three `flex: 1` buttons are 72px wide and "Xây trạm trung chuyển" breaks into
+   four lines, so the row wraps two-up instead. */
+.city-actions { display: flex; flex-wrap: wrap; gap: var(--kom-space-3); }
+.city-action { flex: 1 1 46%; display: flex; flex-direction: column; gap: var(--kom-space-2); }
+/* `Button.reason` wraps a gated button in `.kom-btn-gate`, so the width has to be
+   handed down through the wrapper as well: setting it on `.kom-btn` alone would
+   make a shortcut change width the moment it became unaffordable. */
+.city-action .kom-btn-gate, .city-action .kom-btn { width: 100%; }
+/* One control and the status of the order it issued, on one line. */
+.row-actions, .control-status { display: flex; align-items: center; gap: var(--kom-space-2); flex-wrap: wrap; }
 .node-row, .route-row { flex-direction: row; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; }
 .route-creator, .escort-row { display: flex; gap: .4rem; flex-wrap: wrap; align-items: center; }
 .route-creator select, .escort-row select { flex: 1; min-width: 110px; }
-.cargo-grid { display: flex; gap: .6rem; flex-wrap: wrap; margin: .5rem 0; }
-.cargo-grid label { display: inline-flex; gap: .35rem; align-items: center; }
+.cargo-grid { display: flex; gap: .6rem; flex-wrap: wrap; margin: 0; }
+.cargo-stepper { display: inline-flex; gap: .35rem; align-items: center; }
 .cargo-grid strong { min-width: 1.6rem; text-align: center; }
 .export-note { border: 1px dashed var(--kom-border-accent); }
 
 /* Army panel */
 .army-row { padding: .5rem .4rem; border-top: 1px solid var(--kom-border-subtle); display: flex; flex-direction: column; gap: .35rem; }
 .army-row:first-of-type { border-top: none; }
-.army-title, .army-stats, .army-actions { display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; }
-.army-actions select, .army-actions button { font-size: .8rem; }
+.army-title, .army-stats { display: flex; justify-content: space-between; align-items: center; gap: .5rem; flex-wrap: wrap; }
+/* Not `space-between` like the two rows above it: a pending chip appears beside
+   the control that issued the order and disappears when it settles, and a spread
+   row would shove every other control sideways each time it did. */
+.army-actions { display: flex; align-items: center; gap: var(--kom-space-2); flex-wrap: wrap; }
+.army-actions select { font-size: .8rem; }
 .low-supply { color: var(--kom-supply-low); font-weight: 700; }
-.army-panel-footer { margin-top: .5rem; display: flex; gap: .4rem; flex-wrap: wrap; }
 .recruit-choice { display: flex; gap: .5rem; align-items: flex-start; margin: .4rem 0; }
 .modal-actions { display: flex; gap: .5rem; justify-content: flex-end; margin-top: .8rem; }
 
@@ -201,15 +218,12 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
 .drawer { margin-top: 1rem; padding: .8rem 1rem; background: var(--kom-surface); border-radius: 12px; }
 .drawer summary { cursor: pointer; font-weight: 600; color: var(--kom-text-heading); }
 .drawer summary::marker { color: var(--kom-text-link); }
-.onboarding-panel { margin-top: 1rem; padding: 1rem; background: var(--kom-surface); border-radius: 12px; border-left: 3px solid var(--kom-primary-deep); }
-.onboarding-panel.onboarding-done { border-left-color: var(--kom-allied); }
 .onboarding-list { list-style: none; margin: .5rem 0 0; padding: 0; display: flex; flex-direction: column; gap: .35rem; }
 .onboarding-list li { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; }
 .step-dot, .step-check { width: 1.15rem; height: 1.15rem; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center; font-size: .72rem; background: var(--kom-surface-chip); flex: none; }
 .step-check { background: var(--kom-allied-deep); color: var(--kom-allied-soft); }
 .step-done .step-label { color: var(--kom-allied-muted); text-decoration: line-through; }
 .step-actions { display: inline-flex; gap: .35rem; margin-left: auto; }
-.step-actions button { font-size: .78rem; padding: .2rem .5rem; }
 .spy-launch { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: .5rem; }
 /* Inside a panel footer the row *is* the action band, so the footer owns the
    spacing and the row takes the full width its selects were sized against. */
@@ -222,7 +236,6 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
 .pending-strip { margin-top: 1rem; padding: .8rem 1rem; background: var(--kom-surface-sunken); border-radius: 12px; }
 .pending-strip h3 { font-size: .85rem; margin: 0 0 .4rem; color: var(--kom-text-heading); }
 .pending-row { display: flex; justify-content: space-between; align-items: center; gap: .5rem; font-size: .8rem; padding: .3rem 0; }
-.pending-row button { padding: 3px 8px; font-size: .72rem; }
 
 /* ── BANDS ────────────────────────────────────────────────────────────────────
  * The same two numbers as `layoutBreakpoints` in `layout.ts`, which

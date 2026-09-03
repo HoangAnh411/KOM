@@ -22,7 +22,15 @@ export type Density = (typeof densities)[number];
 export const panelAccents = ["brass", "teal", "amber", "crimson", "violet", "slate"] as const;
 export type PanelAccent = (typeof panelAccents)[number];
 
-export const iconNames = ["clock", "alert", "ban", "lock", "link-off", "check", "crosshair", "eye"] as const;
+/** Two groups in one list: the first eight are the semantic-state glyphs
+ *  (`stateIcons` below), the last four are the kingdom column's own subjects —
+ *  a city, an army, a caravan, a treaty. They are in the same registry because
+ *  the pairing test is what stops `iconPaths` and this list from drifting, and
+ *  a second registry would need a second one. */
+export const iconNames = [
+  "clock", "alert", "ban", "lock", "link-off", "check", "crosshair", "eye",
+  "city", "sword", "caravan", "treaty",
+] as const;
 export type IconName = (typeof iconNames)[number];
 
 /** The three custom properties every state defines. Asserted against

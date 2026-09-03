@@ -44,6 +44,25 @@ const referencedVars = (css: string): string[] =>
   [...stripComments(css).matchAll(/var\((--kom-[\w-]+)/g)].map((m) => m[1]!);
 const selector = (name: string): RegExp => new RegExp(`\\.${name}(?![\\w-])`);
 
+/** The opening tag of every `<Name …>` in a file, brace-aware. An `onClick` arrow
+ *  carries a `>` of its own, so the tag ends at the first `>` outside every
+ *  `{…}` expression — which is the difference between reading one element's props
+ *  and reading the whole subtree's. */
+const openingTags = (code: string, name: string): string[] => {
+  const marker = `<${name}`;
+  const tags: string[] = [];
+  for (let start = code.indexOf(marker); start >= 0; start = code.indexOf(marker, start + 1)) {
+    let depth = 0;
+    for (let cursor = start + marker.length; cursor < code.length; cursor += 1) {
+      const char = code[cursor];
+      if (char === "{") depth += 1;
+      else if (char === "}") depth -= 1;
+      else if (char === ">" && depth === 0) { tags.push(code.slice(start, cursor + 1)); break; }
+    }
+  }
+  return tags;
+};
+
 test("colour literals live in the palette layer and nowhere else", () => {
   const marker = tokens.indexOf("PALETTE END");
   assert.ok(tokens.includes("PALETTE BEGIN") && marker > 0, "the palette markers must exist");
@@ -225,5 +244,64 @@ test("the modal primitive names itself, traps Tab, cancels on Escape and gives f
   for (const name of ["modal-backdrop", "modal-card", "modal-actions"]) {
     assert.match(shell, selector(name), `<Modal> asks for .${name}, which has no rule`);
   }
+});
+
+// The kingdom column is the surface a player touches every minute, so it is the
+// one where "assembled from the primitives" has to be a rule and not a habit.
+// `EspionagePanel` is in the list because it was the migration exemplar: if the
+// shape it demonstrated stops being checked, the next panel copies whatever the
+// previous one drifted into.
+
+const kingdomPanels = ["CityPanel.tsx", "ArmyPanel.tsx", "LogisticsPanel.tsx", "OnboardingPanel.tsx", "EspionagePanel.tsx"];
+const panelSource = (name: string): string =>
+  stripSource(readFileSync(new URL(`../src/components/${name}`, import.meta.url), "utf8"));
+
+test("the kingdom column's panels are assembled from the primitives", () => {
+  for (const name of kingdomPanels) {
+    const code = panelSource(name);
+    assert.match(code, /<Panel\b/, `${name} does not render a Panel`);
+    assert.match(code, /<PanelHeader\b/, `${name} writes its own header`);
+    // A hand-rolled `<section>` + `<h2>` is how the four panels drifted apart in
+    // the first place: each one chose its own padding, heading size and spacing.
+    assert.equal(/<section\b/.test(code), false, `${name} still writes its own <section>`);
+    assert.equal(/<h2\b/.test(code), false, `${name} still writes its own heading`);
+    assert.equal(/<button\b/.test(code), false, `${name} still writes a raw <button>`);
+    for (const [token] of code.matchAll(/\bkom-[a-z0-9_-]+/g)) {
+      assert.ok(selector(token).test(primitives) || selector(token).test(readFileSync(new URL("../src/styles.css", import.meta.url), "utf8")),
+        `${name} asks for .${token}, which has no rule in either sheet`);
+    }
+  }
+});
+
+test("a control that issues an order shows the state of that order beside it", () => {
+  // The pending strip at the bottom of the column is a summary, not a status: at
+  // 288px it is below the fold, and in the compact band the whole column is
+  // closed. So each control that can issue an order carries its own chip.
+  for (const name of ["CityPanel.tsx", "ArmyPanel.tsx", "LogisticsPanel.tsx", "OnboardingPanel.tsx"]) {
+    assert.match(panelSource(name), /<PendingChip\b/, `${name} issues orders with no visible status`);
+  }
+  const chip = panelSource("PendingChip.tsx");
+  assert.match(chip, /pendingFor\(/, "the chip must match one command, not any command of that kind");
+  assert.match(chip, /state="pending"/);
+  assert.match(chip, /state="uncertain"/);
+});
+
+test("every gated button carries the reason it is gated", () => {
+  // `disabled` without `reason` is the failure this whole pass exists to remove:
+  // a dead control with no sentence beside it, which a player reads as a broken
+  // game rather than as a rule they have not met yet. A disabled button is also
+  // out of the tab order, so the reason has to be text, not a tooltip.
+  const offenders: string[] = [];
+  let scanned = 0;
+  for (const file of sourceFiles(sourceRoot)) {
+    for (const tag of openingTags(stripSource(readFileSync(file, "utf8")), "Button")) {
+      scanned += 1;
+      if (/\bdisabled=/.test(tag) && !/\breason=/.test(tag)) offenders.push(`${relative(file)}: ${tag.replace(/\s+/g, " ").slice(0, 72)}`);
+    }
+  }
+  assert.deepEqual(offenders, []);
+  // A brace-aware scan that silently matched nothing would pass this test for the
+  // wrong reason, so the count is asserted too.
+  assert.ok(scanned > 20, `expected to read the column's buttons, read ${scanned}`);
 });
 

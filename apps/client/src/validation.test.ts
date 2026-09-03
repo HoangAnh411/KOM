@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { gameRules } from "@kingdoms/shared";
 import type { Army, City, Depot, ResourceNode } from "@kingdoms/shared";
-import { affordable, cargoTotal, cargoWithinCapacity, cargoWithinResources, caravanReady, hasEnemy, harvestReady, isOwnLiveArmy, mergeCandidates, routeReady } from "./validation.js";
+import { affordable, buildQueueRoom, cargoTotal, cargoWithinCapacity, cargoWithinResources, caravanReady, depotFor, firstReason, frozenReason, hasEnemy, harvestReady, isOwnLiveArmy, mergeCandidates, notFrozen, routeReady } from "./validation.js";
 
 const depot = (capacity: number): Depot => ({ cityId: "c1", level: 1, capacity });
 const city = (resources: Partial<City["resources"]>): City => ({ id: "c1", playerId: "p1", playerName: "P1", name: "Meridian", x: 5, y: 5, resources: { food: 0, wood: 0, stone: 0, iron: 0, ...resources }, buildings: {}, queues: [] });
@@ -66,7 +66,10 @@ test("caravanReady reports a reason for every invalid state", () => {
   assert.equal(caravanReady(depot50, rich, { wood: 0, stone: 0, iron: 0 }).ok, false);
   const noDepot = caravanReady(undefined, rich, { wood: 10, stone: 0, iron: 0 });
   assert.equal(noDepot.ok, false);
-  assert.match(noDepot.reason ?? "", /trạm tiếp tế/);
+  // Case-insensitive on purpose: the reason names the building the way the city
+  // panel spells it ("Trạm tiếp tế"), and what matters here is that the player is
+  // pointed at the building, not how the sentence starts.
+  assert.match(noDepot.reason ?? "", /trạm tiếp tế/i);
   const overCap = caravanReady(depot50, rich, { wood: 30, stone: 30, iron: 0 });
   assert.equal(overCap.ok, false);
   assert.match(overCap.reason ?? "", /sức chứa/);
@@ -109,4 +112,52 @@ test("mergeCandidates: same player, unit type and tile, sum under the 500 cap", 
 test("mergeCandidates excludes the army itself", () => {
   const source = army({ id: "a1", strength: 100 });
   assert.deepEqual(mergeCandidates([source], source, "p1"), []);
+});
+
+// The three gates the panels share. They exist so that "why is this button dead?"
+// has one answer per condition instead of one per panel.
+
+const queued = (type: "build" | "research", count: number): City["queues"] =>
+  Array.from({ length: count }, (_, index) => ({
+    id: `${type}-${index}`, type, buildingId: "warehouse", targetLevel: 1, completesAt: "2026-09-03T00:00:00.000Z",
+  }));
+
+test("notFrozen speaks the one frozen wording, and only when the city is frozen", () => {
+  const thawed = city({ wood: 100 });
+  assert.deepEqual(notFrozen(thawed), { ok: true });
+  assert.deepEqual(notFrozen({ ...thawed, frozen: false }), { ok: true }, "an explicit false is not frozen");
+  assert.deepEqual(notFrozen({ ...thawed, frozen: true }), { ok: false, reason: frozenReason });
+  // The wording is worth asserting because it used to be written three times in
+  // three panels; a player reading two variants concludes there are two problems.
+  assert.match(frozenReason, /đóng băng/);
+});
+
+test("firstReason returns the caller's first failing check, or nothing", () => {
+  const pay = { ok: false, reason: "Không đủ Gỗ" };
+  const freeze = { ok: false, reason: frozenReason };
+  assert.equal(firstReason({ ok: true }, { ok: true }), undefined, "nothing to explain when every gate passes");
+  assert.equal(firstReason(freeze, pay), frozenReason, "frozen outranks money because money is not the fixable thing");
+  assert.equal(firstReason(pay, freeze), pay.reason, "…and the order is the caller's, not a hidden priority");
+  assert.equal(firstReason({ ok: true }, pay), pay.reason);
+  assert.equal(firstReason(), undefined, "no checks is not a failure");
+  assert.equal(firstReason({ ok: false }), undefined, "a failing check with no wording explains nothing");
+});
+
+test("buildQueueRoom counts build jobs only, and quotes the count when full", () => {
+  const empty = city({ wood: 500 });
+  assert.deepEqual(buildQueueRoom(empty, 2), { ok: true });
+  assert.deepEqual(buildQueueRoom({ ...empty, queues: queued("build", 1) }, 2), { ok: true });
+  const full = buildQueueRoom({ ...empty, queues: queued("build", 2) }, 2);
+  assert.equal(full.ok, false);
+  assert.match(full.reason ?? "", /2\/2/, "the player is told how full, not just that it is");
+  // Research shares the array but not the cap, so a researching city can still build.
+  assert.deepEqual(buildQueueRoom({ ...empty, queues: queued("research", 3) }, 2), { ok: true });
+  assert.equal(buildQueueRoom({ ...empty, queues: queued("build", 5) }, 2).ok, false, "over the cap stays closed");
+});
+
+test("depotFor picks the depot belonging to the city, not the first one", () => {
+  const depots: Depot[] = [{ cityId: "c0", level: 2, capacity: 90 }, { cityId: "c1", level: 1, capacity: 50 }];
+  assert.equal(depotFor(depots, "c1")?.capacity, 50);
+  assert.equal(depotFor(depots, "c9"), undefined);
+  assert.equal(depotFor([], "c1"), undefined);
 });

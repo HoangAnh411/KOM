@@ -147,6 +147,36 @@ test("the pre-redesign shell is gone rather than left behind as dead CSS", () =>
   }
 });
 
+test("the panels' legacy CSS left with the markup that used it", () => {
+  // Each of these styled markup the kingdom column no longer writes: a `.actions`
+  // band, an emoji `.nav-icon`, a hand-rolled onboarding surface, a paragraph that
+  // carried a validation message the button now carries itself. A deleted rule
+  // nobody asserts is absent is a rule that grows back — someone greps for the
+  // class, finds it in the sheet, and concludes the markup must still exist.
+  for (const name of ["actions", "nav-icon", "validation-reason", "building-build", "onboarding-panel", "army-panel-footer"]) {
+    assert.equal(selector(name).test(sheet), false, `.${name} is still in styles.css`);
+  }
+  // The other half, and the more dangerous one: a bare element in the selector.
+  // `.logistics-panel button` is (0,1,1) and outranks `.kom-btn--compact` at
+  // (0,1,0), so a leftover rule like this does not sit there harmlessly — it takes
+  // the padding back off the primitive for every button inside that panel.
+  for (const dead of [/\.kingdom-nav\s+button/, /\.logistics-panel\s+button/, /\.pending-row\s+button/, /\.step-actions\s+button/, /\.cargo-grid\s+label/, /\.city-panel\s+h2/]) {
+    assert.equal(dead.test(sheet), false, `"${dead.source}" still styles markup the panels no longer write`);
+  }
+});
+
+test("the panel bridge is not out-specified by a panel's own class", () => {
+  // `.hud .kom-panel` hands padding back to the primitive at (0,2,0). Pairing
+  // `.hud` with a panel's own class is (0,2,0) too and sits later in the file, so
+  // it wins and silently restores the 1rem the primitive is supposed to own —
+  // which is how a migrated panel ends up double-padded and nobody can see why.
+  for (const name of ["city-panel", "logistics-panel", "army-panel", "espionage-panel"]) {
+    assert.equal(new RegExp(`\\.hud\\s+\\.${name}(?![\\w-])`).test(sheet), false,
+      `.hud .${name} out-specifies the .hud .kom-panel bridge`);
+  }
+  assert.match(sheet, /\.hud \.kom-panel\s*\{[^}]*padding:\s*0/, "the bridge must hand padding to the primitive");
+});
+
 test("the layout layer holds no colour literal", () => {
   // Same rule PR2 put on the primitives: colours live in the token layer, and a
   // literal here is a colour the palette cannot restyle.

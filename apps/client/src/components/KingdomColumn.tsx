@@ -2,19 +2,29 @@ import { lazy, Suspense } from "react";
 import { revealPanel, usePanelAnchor, type PanelAnchorId } from "../panel-anchors.js";
 import { surfaceElementIds } from "../layout.js";
 import { useGame, type PanelId } from "../state.js";
+import { Button } from "../ui/Button.js";
+import { Icon } from "../ui/Icon.js";
+import type { IconName } from "../ui/tokens.js";
 import { ArmyPanel } from "./ArmyPanel.js";
 import { CityPanel } from "./CityPanel.js";
 import { LogisticsPanel } from "./LogisticsPanel.js";
 import { OnboardingPanel } from "./OnboardingPanel.js";
+import { offlineRetryReason } from "./PendingChip.js";
 
 // The advanced drawer (alliance/espionage/archive/diplomacy) loads on first open.
 const AdvancedDrawer = lazy(() => import("./AdvancedDrawer.js"));
 
-const navEntries: Array<{ id: PanelId & PanelAnchorId; label: string; icon: string }> = [
-  { id: "city", label: "Thành phố", icon: "🏰" },
-  { id: "army", label: "Quân đội", icon: "⚔" },
-  { id: "logistics", label: "Logistics", icon: "🚚" },
-  { id: "diplomacy", label: "Ngoại giao", icon: "🕊" },
+/** The four jump targets. The icons used to be emoji, which meant the nav was
+ *  rendered by whichever font the player's OS supplies for `U+1F3F0` — colour on
+ *  one machine, a monochrome outline on the next, and a wider glyph than the
+ *  label on both. These come from the same stroke set as the rest of the UI and
+ *  inherit `currentColor`, so the active chip's text and its glyph change colour
+ *  together. */
+const navEntries: Array<{ id: PanelId & PanelAnchorId; label: string; icon: IconName }> = [
+  { id: "city", label: "Thành phố", icon: "city" },
+  { id: "army", label: "Quân đội", icon: "sword" },
+  { id: "logistics", label: "Vận tải", icon: "caravan" },
+  { id: "diplomacy", label: "Ngoại giao", icon: "treaty" },
 ];
 
 /** The left column: the same panels the right-hand HUD carried before the
@@ -50,7 +60,13 @@ export function KingdomColumn({ open }: { open: boolean }) {
     <div className="kingdom-column__head">
       <div className="hud-title"><h2 data-testid="city-name">{(myCity ?? state.snapshot?.cities[0])?.name ?? "Thành phố"}</h2><span className="hint">Bảng điều khiển</span></div>
       <nav className="kingdom-nav" aria-label="Điều hướng">
-        {navEntries.map(entry => <button key={entry.id} className={activePanel === entry.id ? "nav-active" : ""} onClick={() => scrollToPanel(entry.id)} title={entry.label}><span className="nav-icon">{entry.icon}</span><span className="nav-label">{entry.label}</span></button>)}
+        {navEntries.map(entry => <Button
+          key={entry.id}
+          variant="ghost"
+          title={entry.label}
+          aria-current={activePanel === entry.id ? "true" : undefined}
+          onClick={() => scrollToPanel(entry.id)}
+        ><Icon name={entry.icon} size="sm" /><span className="nav-label">{entry.label}</span></Button>)}
       </nav>
     </div>
     <OnboardingPanel />
@@ -65,7 +81,13 @@ export function KingdomColumn({ open }: { open: boolean }) {
       <h3>Lệnh đang chờ</h3>
       {pending.map(command => <div className="pending-row" data-testid="pending-command" key={command.commandId}>
         <span>{command.label} {command.status === "sending" ? "…đang gửi" : "— chưa xác nhận"}</span>
-        {command.status === "uncertain" && <button disabled={connection !== "online"} onClick={() => retryPending(command.commandId)}>Thử lại</button>}
+        {command.status === "uncertain" && <Button
+          variant="ghost"
+          density="compact"
+          disabled={connection !== "online"}
+          reason={offlineRetryReason}
+          onClick={() => retryPending(command.commandId)}
+        >Thử lại</Button>}
       </div>)}
     </section>}
   </aside>;
