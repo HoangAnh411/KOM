@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { beginPending, loadPending, markUncertain, pendingStorageKey, resolvePending, restorePending, savePending, type ClientCommand } from "./commands.js";
+import { beginPending, loadPending, markUncertain, pendingFor, pendingStorageKey, resolvePending, restorePending, savePending, type ClientCommand } from "./commands.js";
 
 const command = (overrides: Partial<ClientCommand> = {}): ClientCommand => ({ kind: "build", label: "Xây", path: "/api/commands/build", body: { cityId: "c1", buildingId: "warehouse" }, ...overrides });
 const uuid = (() => { let n = 0; return () => `id-${++n}`; })();
@@ -96,4 +96,42 @@ test("restorePending downgrades everything to uncertain (reload safety)", () => 
   assert.equal(restored[0].status, "uncertain");
   assert.equal(restored[0].startedAt, 9000);
   assert.equal(restored[0].commandId, first.commandId, "same id survives reload");
+});
+
+// `pendingFor` is what lets a control show its own status instead of the player
+// looking for their order in a strip at the bottom of the column. Which means the
+// match has to be exact: a chip on the wrong button is worse than no chip.
+const pending = (kind: string, body: Record<string, unknown>, startedAt: number, status: "sending" | "uncertain" = "sending") =>
+  ({ kind, label: kind, path: `/api/commands/${kind}`, body, commandId: `${kind}-${startedAt}`, status, startedAt });
+
+test("pendingFor tells two commands of the same kind apart by their body", () => {
+  const warehouse = pending("build", { cityId: "c1", buildingId: "warehouse" }, 1000);
+  const barracks = pending("build", { cityId: "c1", buildingId: "barracks" }, 1100);
+  const queue = [warehouse, barracks];
+  // `kind` alone backs all four build buttons, so on its own it would light up the
+  // whole panel for one click.
+  assert.equal(pendingFor(queue, "build", { buildingId: "warehouse" })?.commandId, warehouse.commandId);
+  assert.equal(pendingFor(queue, "build", { buildingId: "barracks" })?.commandId, barracks.commandId);
+  assert.equal(pendingFor(queue, "build", { buildingId: "road_depot" }), undefined, "an unclicked button stays quiet");
+  assert.equal(pendingFor(queue, "harvest", { buildingId: "warehouse" }), undefined, "kind still has to match");
+  // Every named field has to match, not just one of them.
+  assert.equal(pendingFor(queue, "build", { cityId: "c2", buildingId: "warehouse" }), undefined);
+  assert.equal(pendingFor(queue, "build", { cityId: "c1", buildingId: "warehouse" })?.commandId, warehouse.commandId);
+});
+
+test("pendingFor without a match is the whole kind, and reports the status it found", () => {
+  const queue = [pending("caravan", { caravanId: "cv1" }, 1000, "uncertain")];
+  assert.equal(pendingFor(queue, "caravan")?.status, "uncertain", "the caller renders uncertain + Thử lại");
+  assert.equal(pendingFor(queue, "caravan", { caravanId: "cv1" })?.status, "uncertain");
+  assert.equal(pendingFor([], "caravan"), undefined);
+});
+
+test("pendingFor prefers the newest entry for a control", () => {
+  // A timeout leaves an uncertain entry behind; clicking the same control again is
+  // the more current truth, and when it settles the older one surfaces for retry.
+  const stale = pending("escort", { caravanId: "cv1" }, 1000, "uncertain");
+  const fresh = pending("escort", { caravanId: "cv1" }, 5000);
+  assert.equal(pendingFor([stale, fresh], "escort", { caravanId: "cv1" })?.status, "sending");
+  assert.equal(pendingFor([fresh, stale], "escort", { caravanId: "cv1" })?.status, "sending", "order in the array must not decide it");
+  assert.equal(pendingFor(resolvePending([stale, fresh], fresh.commandId), "escort", { caravanId: "cv1" })?.status, "uncertain");
 });

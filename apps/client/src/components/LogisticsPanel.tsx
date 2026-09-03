@@ -3,6 +3,7 @@ import { gameRules } from "@kingdoms/shared";
 import { useGame } from "../state.js";
 import { caravanReady, cargoWithinCapacity, cargoWithinResources, harvestReady, routeReady } from "../validation.js";
 import { usePanelAnchor } from "../panel-anchors.js";
+import { formatCargo, resourceLabels } from "../vocabulary.js";
 
 const nodeNames = { wood: "Rừng", stone: "Mỏ đá", iron: "Mỏ sắt" } as const;
 const cargoOptions = [10, 25, 50] as const;
@@ -83,7 +84,7 @@ export function LogisticsPanel() {
         <p className="hint">Xuất khẩu qua Thương cảng tính vào điểm kinh tế; hàng đến nơi sau thời gian vận chuyển.</p>
         <div className="cargo-grid">
           {(["wood", "stone", "iron"] as const).map(resource => (
-            <label key={resource} className="hint">{resource}
+            <label key={resource} className="hint">{resourceLabels[resource]}
               <button type="button" onClick={() => setCargo(cargo => ({ ...cargo, [resource]: Math.max(0, cargo[resource] - 10) }))}>−</button>
               <strong>{cargo[resource]}</strong>
               <button type="button" onClick={() => setCargo(cargo => ({ ...cargo, [resource]: Math.min(50, cargo[resource] + 10) }))}>+</button>
@@ -104,7 +105,7 @@ export function LogisticsPanel() {
         <div className="caravan-row" data-testid="caravan-row" key={caravan.id}>
           <div>
             <span>{sourceName(caravan.sourceCityId)} → {destinationName(caravan)}</span>
-            <span className="hint"> {Math.round(caravan.progress * 100)}% · còn {caravan.arrivesAt ? countdown(caravan.arrivesAt) : "…"}{caravan.cargo ? ` · hàng ${caravan.cargo.wood}g/${caravan.cargo.stone}đ/${caravan.cargo.iron}s` : ""}</span>
+            <span className="hint"> {Math.round(caravan.progress * 100)}% · còn {caravan.arrivesAt ? countdown(caravan.arrivesAt) : "…"}{caravan.cargo ? ` · hàng ${formatCargo(caravan.cargo)}` : ""}</span>
           </div>
           {!caravan.escortArmyId && myArmies.length > 0 && (
             <div className="escort-row">

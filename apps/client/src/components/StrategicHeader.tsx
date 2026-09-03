@@ -4,6 +4,7 @@ import { surfaceElementIds, type SurfaceId, type SurfaceState } from "../layout.
 import { useGame } from "../state.js";
 import { Button } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
+import { resourceKeys, resourceLabels } from "../vocabulary.js";
 
 const connectionLabels: Record<string, { label: string; className: string }> = {
   connecting: { label: "Đang kết nối…", className: "conn-connecting" },
@@ -40,7 +41,7 @@ export function StrategicHeader({ surfaces, onToggleSurface }: {
     <div className="brand"><strong>{session.player.displayName}</strong><span>{factions[session.player.factionId].name} · <button className="link-button" onClick={logout}>Đăng xuất</button></span></div>
     {city.frozen && <div className="frozen-banner" role="status">Tài khoản đang bị khóa — thành phố, quân đội và caravan đã đóng băng.</div>}
     <div className="resource-grid">
-      {Object.entries(city.resources).map(([key, value]) => <div key={key}><span>{key}</span><strong className="kom-num" data-testid={`resource-${key}`}>{value}</strong></div>)}
+      {resourceKeys.map(key => <div key={key}><span>{resourceLabels[key]}</span><strong className="kom-num" data-testid={`resource-${key}`}>{city.resources[key]}</strong></div>)}
     </div>
     <div className="season">Mùa còn <strong className="kom-num">{Math.floor(seasonSeconds / 60)}m {seasonSeconds % 60}s</strong> · ⚔ {score?.military ?? 0} · ◈ {score?.economy ?? 0} · ✦ {score?.diplomacy ?? 0}</div>
     <div className={`connection-pill ${conn.className}`} role="status"><span className="connection-dot" />{conn.label}</div>

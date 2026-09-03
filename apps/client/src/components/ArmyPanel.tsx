@@ -3,6 +3,8 @@ import { gameRules, recruitmentCost } from "@kingdoms/shared";
 import type { Army, UnitType } from "@kingdoms/shared";
 import { useGame } from "../state.js";
 import { usePanelAnchor } from "../panel-anchors.js";
+import { affordable } from "../validation.js";
+import { formatCost } from "../vocabulary.js";
 
 type RecruitUnitId = keyof typeof gameRules.recruitment;
 
@@ -19,7 +21,9 @@ export function ArmyPanel() {
   const enemyArmies = snapshot.armies.filter(army => army.ownerPlayerId !== session.player.id && army.strength > 0 && !army.frozen);
   const hasBarracks = (city.buildings.barracks ?? 0) >= 1;
   const unitCost = recruitmentCost(recruitUnit, count);
-  const canAfford = city.resources.wood >= unitCost.wood && city.resources.stone >= unitCost.stone && city.resources.iron >= unitCost.iron;
+  // One affordability rule for the whole client (`validation.affordable`), so the
+  // recruit gate and the build gate cannot disagree about what "đủ" means.
+  const costCheck = affordable(city, unitCost);
   const targetName = (army: Army) => army.ownerPlayerId ? (snapshot.cities.find(item => item.playerId === army.ownerPlayerId)?.playerName ?? "?") : army.npcKind ?? "NPC";
   const anchor = usePanelAnchor<HTMLElement>("army");
 
@@ -71,10 +75,11 @@ export function ArmyPanel() {
           ))}
           <p className="hint">Số lượng: {count}</p>
           <input type="range" min={gameRules.army.recruitAmountMin} max={gameRules.army.recruitAmountMax} step={gameRules.army.recruitAmountStep} value={count} onChange={event => setCount(Number(event.target.value))} aria-label="Số lượng" />
-          <p className="hint">Chi phí: {unitCost.wood}g {unitCost.stone}đ {unitCost.iron}s{!canAfford && " — không đủ tài nguyên"}</p>
+          <p className="hint">Chi phí: {formatCost(unitCost)}</p>
+          {!costCheck.ok && <p className="hint validation-reason">{costCheck.reason}</p>}
           <div className="modal-actions">
             <button onClick={() => setModal(null)}>Hủy</button>
-            <button disabled={!canAfford || city.frozen} autoFocus onClick={() => runCommand({ kind: "recruit", label: "Tuyển quân", path: "/api/commands/recruit", body: { cityId: city.id, unitType: recruitUnit, amount: count } }).then(() => setModal(null)).catch(() => undefined)}>Tuyển {count} {gameRules.recruitment[recruitUnit].name}</button>
+            <button disabled={!costCheck.ok || city.frozen} autoFocus onClick={() => runCommand({ kind: "recruit", label: "Tuyển quân", path: "/api/commands/recruit", body: { cityId: city.id, unitType: recruitUnit, amount: count } }).then(() => setModal(null)).catch(() => undefined)}>Tuyển {count} {gameRules.recruitment[recruitUnit].name}</button>
           </div>
         </div>
       </div>

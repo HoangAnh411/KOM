@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { gameRules } from "@kingdoms/shared";
 import { useGame } from "../state.js";
 import { usePanelAnchor } from "../panel-anchors.js";
+import { formatCost } from "../vocabulary.js";
 
 type BuildingId = keyof typeof gameRules.buildings;
 
@@ -32,7 +33,7 @@ export function CityPanel() {
           <p className="hint">{rule.description}</p>
           {queued
             ? <p className="hint">Đang xây · còn {Math.max(0, Math.ceil((Date.parse(queued.completesAt) - now) / 1000))}s</p>
-            : <button className="building-build" disabled={city.frozen || queuesFull} onClick={() => runCommand({ kind: "build", label: `Xây ${rule.name}`, path: "/api/commands/build", body: { cityId: city.id, buildingId: id, queueType: "build" } }).catch(() => undefined)}>Xây · {rule.cost.wood}g {rule.cost.stone}đ {rule.cost.iron}s</button>}
+            : <button className="building-build" disabled={city.frozen || queuesFull} onClick={() => runCommand({ kind: "build", label: `Xây ${rule.name}`, path: "/api/commands/build", body: { cityId: city.id, buildingId: id, queueType: "build" } }).catch(() => undefined)}>Xây · {formatCost(rule.cost)}</button>}
         </div>;
       })}
     </div>

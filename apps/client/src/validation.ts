@@ -1,15 +1,29 @@
-// Client-side logistics validation mirrors the server rules so disabled
-// buttons match what the server accepts (cargo ≤ depot capacity, cargo ≤
-// warehouse resources, harvest ≤ remaining). Reasons are shown in the UI.
+// Client-side validation mirrors the server rules so disabled buttons match what
+// the server accepts (cost ≤ stockpile, cargo ≤ depot capacity, cargo ≤ warehouse
+// resources, harvest ≤ remaining). Reasons are shown in the UI.
 
 import { gameRules } from "@kingdoms/shared";
 import type { Army, City, Depot, ResourceNode } from "@kingdoms/shared";
+import { formatCost, resourceKeys, resourceLabels, type ResourceBundle } from "./vocabulary.js";
 
 export type Cargo = { wood: number; stone: number; iron: number };
 
 export const cargoTotal = (cargo: Cargo): number => cargo.wood + cargo.stone + cargo.iron;
 
 export const depotFor = (depots: Depot[], cityId: string): Depot | undefined => depots.find(depot => depot.cityId === cityId);
+
+/** Whether the city can pay, and if not, *which* resource is short. The reason
+ *  is the point: "không đủ tài nguyên" makes a player guess, and guessing is why
+ *  `CityPanel` used to let them click a build they could not afford and take a
+ *  400 from the server as the answer.
+ *
+ *  Written over `resourceKeys` rather than the three keys costs happen to use
+ *  today, so a future food cost cannot silently pass unchecked. */
+export function affordable(city: City, cost: ResourceBundle): { ok: boolean; reason?: string } {
+  const short = resourceKeys.filter(key => (cost[key] ?? 0) > city.resources[key]);
+  if (short.length === 0) return { ok: true };
+  return { ok: false, reason: `Không đủ ${short.map(key => resourceLabels[key]).join(", ")} — cần ${formatCost(cost)}.` };
+}
 
 export function harvestReady(node: ResourceNode, amount: number): { ok: boolean; reason?: string } {
   if (amount <= 0) return { ok: false, reason: "Chọn lượng khai thác." };

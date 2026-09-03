@@ -2,15 +2,39 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { gameRules } from "@kingdoms/shared";
 import type { Army, City, Depot, ResourceNode } from "@kingdoms/shared";
-import { cargoTotal, cargoWithinCapacity, cargoWithinResources, caravanReady, hasEnemy, harvestReady, isOwnLiveArmy, mergeCandidates, routeReady } from "./validation.js";
+import { affordable, cargoTotal, cargoWithinCapacity, cargoWithinResources, caravanReady, hasEnemy, harvestReady, isOwnLiveArmy, mergeCandidates, routeReady } from "./validation.js";
 
 const depot = (capacity: number): Depot => ({ cityId: "c1", level: 1, capacity });
-const city = (resources: { wood: number; stone: number; iron: number }): City => ({ id: "c1", playerId: "p1", playerName: "P1", name: "Meridian", x: 5, y: 5, resources: { ...resources, food: 0 }, buildings: {}, queues: [] });
+const city = (resources: Partial<City["resources"]>): City => ({ id: "c1", playerId: "p1", playerName: "P1", name: "Meridian", x: 5, y: 5, resources: { food: 0, wood: 0, stone: 0, iron: 0, ...resources }, buildings: {}, queues: [] });
 const node = (remaining: number): ResourceNode => ({ id: "n1", resourceType: "wood", x: 3, y: 3, remaining, capacity: 500, recoveryRate: 1, kingdomId: "k1", regionId: "r1" });
 const army = (overrides: Partial<Army>): Army => ({ id: "a1", ownerPlayerId: "p1", unitType: "infantry", strength: 100, morale: 70, supply: 90, formation: "line", x: 1, y: 1, ...overrides }) as Army;
 
 test("cargoTotal sums the three resources", () => {
   assert.equal(cargoTotal({ wood: 10, stone: 20, iron: 30 }), 60);
+});
+
+test("affordable names the resource that is short, not just that something is", () => {
+  const rich = city({ wood: 100, stone: 100, iron: 100 });
+  // What the player is blamed for, read back out of the sentence: the reason also
+  // quotes the whole price, so matching the bare label would pass either way.
+  const blamed = (reason?: string): string => /Không đủ ([^—]+)—/.exec(reason ?? "")?.[1]?.trim() ?? "";
+  assert.deepEqual(affordable(rich, { wood: 100, stone: 100, iron: 100 }), { ok: true }, "exactly enough is enough");
+  const short = affordable(rich, { wood: 150, stone: 80 });
+  assert.equal(short.ok, false);
+  assert.equal(blamed(short.reason), "Gỗ", "only the resource actually short is blamed");
+  assert.match(short.reason ?? "", /cần 150 Gỗ · 80 Đá/, "and the price is quoted, so the player knows how far off they are");
+  assert.equal(blamed(affordable(city({ wood: 0 }), { wood: 10, iron: 10 }).reason), "Gỗ, Sắt", "two shortfalls, display order");
+});
+
+test("affordable checks every resource, including ones nothing costs today", () => {
+  // Written over `resourceKeys` rather than the three keys costs use now, so a
+  // future food price is gated instead of silently passing.
+  assert.equal(affordable(city({ food: 0, wood: 999 }), { food: 5 }).ok, false);
+  assert.equal(affordable(city({ food: 5 }), { food: 5 }).ok, true);
+  // A missing or zero key is not a shortfall, so a free building is affordable to
+  // a city with nothing in it.
+  assert.deepEqual(affordable(city({}), {}), { ok: true });
+  assert.deepEqual(affordable(city({}), { wood: 0, stone: 0 }), { ok: true });
 });
 
 test("harvestReady rejects zero/negative and over-remaining amounts", () => {
