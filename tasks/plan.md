@@ -32,6 +32,8 @@ Ngoài roadmap, bản audit trước tìm được **5 blocker trong code** khi�
 
 Năm bước đầu là vòng 2026-09-02 (kế hoạch gốc + phần owner mở phạm vi). Năm bước sau là vòng
 2026-09-03: owner hỏi "tiếp theo làm gì" và chốt hai quyết định (push + mở PR; luật `ambush`).
+Ba bước cuối (10–12) là vòng UI cùng ngày: owner nhờ cải thiện **toàn bộ UI/HUD** — nhóm UI ở
+dưới, nhánh `feat/hud-overhaul` cắt từ tip `perf/command-path`.
 Không mở nhóm C/D/E/F/G lúc này.
 
 | Bước | Nội dung | Vì sao đứng ở đây | Trạng thái |
@@ -46,6 +48,9 @@ Không mở nhóm C/D/E/F/G lúc này.
 | **7** | **B.1a (S-5)** — `ambush` đòi quân trong bán kính 3 + bucket `combat` | Đứng **trước** P0.3 vì P0.3 viết lại chính `claim()` của `logistics.ts`; làm sau thì phải rebase file đó hai lần. **Owner đã chốt luật** | **Xong** — server unit 124 → **128** |
 | **8** | **P0.2** (= S-4) — bỏ full-table ledger reload khỏi command path | Rẻ nhất trong ba task command-path và không phụ thuộc gì; nó cũng định nghĩa *idempotency window* mà P0.3a dùng lại làm trần | **Xong** — server unit 128 → **132**, S-4 đóng |
 | **9** | **P0.3a → P0.3b** (= S-3) — gộp 5 cơ chế dedupe về một registry có trần | Phải sau P0.2 để dùng chung một con số window; tách 2 task để mỗi task ≤ 5 file và verify riêng được | **Xong** — server unit 132 → **139** (P0.3a `97822af`) → **141** (P0.3b `f94ac22`), S-3 đóng |
+| **10** | **UI-1 + UI-2** — từ vựng/gate/pending selector, rồi một primitive modal | Owner nhờ cải thiện **toàn bộ UI/HUD**. Hai task này là nền dùng chung của năm task sau, và UI-2 đứng trước UI-3 vì `ArmyPanel` có hai modal inline — làm ngược lại là sửa cùng file hai lần | **Xong** — `bae7060` + `1d1723a`, Checkpoint A xanh |
+| **11** | **UI-3 + UI-4** — lắp cột kingdom rồi drawer từ primitives, **xoá rule bridge** | Bridge `.hud .kom-panel` chỉ xoá được khi **cả** cột và drawer đã lắp từ panel — đúng điều kiện comment của nó ghi từ vòng trước. Đóng luôn nợ kỹ thuật lớn nhất của redesign | **Xong** — `b7ee0a4` + `a7434b6`, Checkpoint B xanh (13/13 bề mặt, client unit 101) |
+| **12** | **UI-5 → UI-7** — lấp hai slot đặt chỗ (`ActivityColumn`, nửa phải `CommandTray`) + chrome/a11y pass | Hai slot đó là hai comment "PR4"/"PR5" mà vòng trước tự để lại; UI-7 đi sau cùng vì nó chạm phần còn lại (toast, frozen, heading, `AuthScreen`, map toolbar) | **Xong** — `c8a4f84` + `0895bd1` + `d19cd0e`, Checkpoint C xanh (client unit 101 → **146**, e2e 21 → **28/28** một lần chạy) |
 
 Còn chặn thật, đã báo thay vì làm dở: **P0.4** (sức chứa thế giới — quyết định gameplay, OQ #2), **P0.5 + B.3** `[141]` (không `k6`, và deps P0.2–P0.4), **B.2b** + hai job CI Docker (không Docker ở máy này — sau PR.1 thì `recovery-drill` trên CI là chỗ quan sát đầu tiên, cần `workflow_dispatch`), **A.1** phần phiên tay 30–60 phút (người phải chạy), **S-7 / S-8 / S-9** (gộp PR admin kế tiếp / owner chốt con số / owner quyết guard boot), flake gate 7 `map-command.spec.ts` (đã ghi, chưa có PR), nhóm **D** (owner chốt hướng persistence), phần lớn **Phase 8** và **G.2–G.5** (bundle ID, signing, license).
 
@@ -508,6 +513,185 @@ Drill đã chạy thật ngày 2026-09-02 qua `npm run drill:web-beta` (3/3 pass
 - [ ] `[204]`, `[141]` tick được, hoặc blocker ghi rõ (`[144]` đã tick ở Z.2/Z.3, `[145]` đã tick ở B.1)
 - [ ] Report load test lưu và link từ `OPERATIONS.md`
 - [ ] Phase 7C đóng; Phase 7A hết mục "trước beta"
+
+## Nhóm UI — Cải tổ HUD, Situation Room vòng 2 (2026-09-03)
+
+Owner nhờ cải thiện **toàn bộ UI/HUD**. Việc này không bắt đầu từ số không: vòng redesign trước
+ship Situation Room thành ba phần (tokens + primitives, Pixi resize bridge, shell 5 vùng) và **tự
+để lại ba mốc trong code** nói rõ phần còn thiếu — `ActivityColumn.tsx:6` ("PR4 replaces the whole
+`<ActivityFeed />` slot below"), `CommandTray.tsx:17` ("PR5 fills it with contextual command
+groups") và bridge `.hud .kom-panel` ở `styles.css:120-124` ("It goes away with `.hud section`
+once the column is assembled from panels"). Nên "cải thiện toàn bộ" = **đi hết con đường đã
+vạch** + bịt 12 lỗi đọc được từ code, **không** đổi hướng thiết kế.
+
+Ràng buộc chung cho cả nhóm: **không sửa một file nào trong `apps/server` hoặc `packages/shared`**
+(nên vòng này không cần owner ping cho hot file, và con số server unit **141** phải không đổi);
+client test chạy trên bare `node --test` nên mọi logic mới là **module thuần**, contract CSS/markup
+assert bằng **text scan** theo idiom `ui-primitives.test.ts` / `layout.test.ts`; 5 tên class e2e đo
+(`.strategic-header` `.kingdom-column` `.map` `.activity-column` `.command-tray`) là **bất biến**;
+`<MapSurface />` không re-key, không `position: absolute` cho column.
+
+### UI-1 — Từ vựng, gate giá và selector pending ✅ `bae7060`
+
+Ba module thuần mọi task sau đều cần, cộng consumer đầu tiên để task tự đứng được. `StrategicHeader.tsx:43`
+in **key snapshot tiếng Anh thô** (`food`/`wood`/`stone`/`iron`) trong UI tiếng Việt, và ba panel
+viết giá theo ba cách (`{cost.wood}g {cost.stone}đ {cost.iron}s`, `hàng {cargo.wood}g/...`, một
+biến thể ở `ArmyPanel`), không chỗ nào dùng `.kom-num`.
+
+**Acceptance criteria:**
+- [X] `ui/vocabulary.ts`: `resourceLabels` phủ `keyof Resources` (import read-only từ shared) → thêm resource mới là **lỗi compile**, không phải lỗi hiển thị
+- [X] `formatCost` / `formatCargo` là **một** cách viết duy nhất; không component nào còn template giá viết tay
+- [X] `affordable(city, cost)` trả `{ ok, reason }` nêu **đúng** loại tài nguyên thiếu, không phải "không đủ tài nguyên" chung
+- [X] `pendingFor(pending, kind, match?)` phân biệt hai lệnh cùng `kind` khác `body`, và phân biệt `sending` vs `uncertain`
+- [X] `data-testid={`resource-${key}`}` **không đổi** → không spec e2e nào phải sửa
+
+**Verification:** `vocabulary.test.ts` (nhãn đủ, một cách viết giá, text scan chặn chuỗi giá viết tay) + `validation.test.ts` (đủ/thiếu từng loại) + `commands.test.ts` (`pendingFor` theo `body`/`status`); typecheck sạch
+
+**Files:** `ui/vocabulary.ts` (mới), `validation.ts`, `commands.ts`, `components/StrategicHeader.tsx`, test mới · **Deps:** none
+
+### UI-2 — Một implementation modal duy nhất ✅ `1d1723a`
+
+Bốn modal, ba cái sai. `TreatyBreakModal` (`AdvancedDrawer.tsx:12-42`) đã làm đúng: focus trap,
+Escape, restore focus. Nâng nó thành primitive rồi kéo ba cái còn lại vào. Đứng **trước** UI-3 vì
+`ArmyPanel` có hai modal inline — làm ngược lại là sửa cùng file hai lần.
+
+**Acceptance criteria:**
+- [X] Cả bốn modal: Tab không rời dialog, Escape đóng, focus về đúng control đã mở nó
+- [X] Mỗi dialog có `aria-modal="true"` và được đặt tên bằng chính tiêu đề của nó
+- [X] `role="dialog"` chỉ xuất hiện ở `ui/Modal.tsx`
+- [X] Không thêm `confirm()`/`alert()` (`no-native-dialogs.test.ts` vẫn xanh)
+
+**Verification:** text scan mới trong `ui-primitives.test.ts` (file duy nhất chứa `role="dialog"`); e2e treaty modal (focus trap / Escape / −150) **xanh không sửa assertion** — bằng chứng primitive không làm rớt hành vi
+
+**Files:** `ui/Modal.tsx` (mới), `components/BattleReportModal.tsx`, `components/ArmyPanel.tsx`, `components/AdvancedDrawer.tsx`, `ui-primitives.test.ts` · **Deps:** none
+
+### UI-3 — Cột kingdom: bốn panel người chơi dùng mỗi phút ✅ `b7ee0a4`
+
+Task lớn nhất và là chỗ đổi cảm giác chơi nhiều nhất. Mỗi panel đi một lượt **trọn vẹn** (markup →
+gate → pending → state per-row → test) thay vì ba lượt ngang qua cả bốn file.
+
+**Acceptance criteria:**
+- [X] Nav bỏ emoji `🏰 ⚔ 🚚 🕊` → `Icon`, `<button>` thô → `Button variant="ghost"`, giữ `aria-current`
+- [X] Không còn `<section className="...-panel">` + `<h2>` viết tay; tất cả qua `Panel`/`PanelHeader`/`PanelBody`
+- [X] Không nút nào `disabled` mà không có `reason` nhìn thấy được (guard trong `ui-primitives.test.ts`)
+- [X] `CityPanel` khoá nút Xây khi thiếu tài nguyên, nêu **thiếu loại nào** — không còn để server trả 400
+- [X] Chip pending xuất hiện **cạnh chính control đã phát lệnh**, thành `uncertain` + "Thử lại" khi timeout; `.pending-strip` giữ làm bản tổng hợp cho band compact
+- [X] `escortId` của `LogisticsPanel` và `targetId` của `ArmyPanel` thành state **theo từng hàng** — chọn ở hàng 1 không còn áp cho hàng 3
+- [X] Bề rộng cột và vị trí map không đổi (`situation-room.spec.ts` xanh không sửa)
+
+**Verification:** `ui-primitives.test.ts` + `layout.test.ts` (CSS legacy vào danh sách dead-CSS absence); client unit xanh; e2e layout + double-submit xanh
+
+**Files:** `components/KingdomColumn.tsx`, `CityPanel.tsx`, `ArmyPanel.tsx`, `LogisticsPanel.tsx`, `OnboardingPanel.tsx`, `styles.css`, `styles/primitives.css`, hai file test · **Deps:** UI-1, UI-2
+
+### UI-4 — Drawer nâng cao, rồi xoá rule bridge ✅ `a7434b6`
+
+Cặp `.hud section` + `.hud .kom-panel` **tự duy trì nhau**: khi `.hud section` còn dressing panel
+thì xoá bridge làm padding gấp đôi; khi bridge còn zero padding thì xoá `.hud section` không thấy
+gì đổi. Nên hai rule phải đi trong **một** commit, và `margin-top: 1rem` từng phát cho mỗi panel
+được thay bằng `gap` của chính cột.
+
+**Acceptance criteria:**
+- [X] Bốn bề mặt drawer (`AlliancePanel` `EventsPanel` `ArchivePanel` `DiplomacyPanel`) qua primitives → **13/13** bề mặt dùng design system
+- [X] Không component nào in raw enum/ID cho người chơi đọc (`worldEventLabels` / `treatyLabels` / `allianceRoleLabels`)
+- [X] `.hud section` và `.hud .kom-panel` **không còn** trong `styles.css`, mà panel vẫn đúng khoảng cách (`.kingdom-column` flex + `gap: var(--kom-space-6)`)
+- [X] `DiplomacyPanel` hết nhảy `h2` → `h4`
+- [X] `AdvancedDrawer` vẫn lazy — chunk riêng 16.5 KiB, `check:bundle` 6/6 trong hạn
+
+**Verification:** `layout.test.ts` khẳng định **cả hai absence + bản thay thế** (không để rule mọc lại sau một comment hứa xoá sau); `ui-primitives.test.ts` mirror test "một wording, một glyph, một chip cho mỗi world event"; ba assertion e2e đổi sang wording tiếng Việt người chơi thật đọc
+
+**Phát sinh sửa kèm:** `.pending-strip` (0,1,0) từng bị `.hud section` (0,1,1) đè nên render nổi trên `--kom-surface` thay vì hộp sunken nó tự khai — đọc specificity phát hiện, không phải nhìn màn hình.
+
+**Files:** `components/AdvancedDrawer.tsx`, `KingdomColumn.tsx`, `ui/vocabulary.ts`, `styles.css`, `styles/tokens.css`, `layout.test.ts`, `ui-primitives.test.ts`, `e2e/phase7c.spec.ts`, `e2e/production-loop.spec.ts` · **Deps:** UI-1, UI-3
+
+### Checkpoint A — sau UI-1 + UI-2 ✅
+- [X] Không còn chuỗi giá viết tay; header hết key tiếng Anh
+- [X] Cả 4 modal có focus trap + Escape + restore focus; `role="dialog"` chỉ ở `ui/Modal.tsx`
+- [X] typecheck sạch, client unit xanh, e2e treaty regression xanh **không sửa assertion**
+
+### Checkpoint B — sau UI-3 + UI-4 ✅
+- [X] **13/13** bề mặt qua primitives; **rule bridge `.hud .kom-panel` và `.hud section` đã xoá**
+- [X] Không nút khoá nào thiếu lý do; pending hiện tại chỗ control
+- [X] Bug state dùng chung (`escortId`, `targetId`) đã hết
+- [X] `layout.test.ts` dead-CSS absence phủ mọi rule vừa xoá → không thể mọc lại
+- [X] typecheck sạch; shared **3**, server **141** (126 pass + 15 skip, **không đổi** — không sửa file server nào), client **101/101**
+- [X] `check:bundle` 6/6 chunk ≤ 500 KiB; `AdvancedDrawer` vẫn lazy
+- [X] E2E **20/21** trong một lần chạy full trên port 3100/5174, test thứ 21 (`phase7c` treaty break) **xanh khi chạy riêng** — đúng dấu flake đã ghi, không phải regression
+
+### UI-5 — Cột hoạt động: feed thật, suy từ client (slot "PR4") ✅ `c8a4f84`
+
+Slot được đặt chỗ có chủ ý kèm lý do: *"Inventing rows that look like real events would be worse
+than an empty state."* Nên feed **chỉ** dựng từ nguồn client đã giữ — pending transition, `reports`,
+`notices`, diff snapshot — **không** thêm route, không thêm event server, không sửa protocol.
+
+**Acceptance criteria:**
+- [X] Mỗi lệnh người chơi phát sinh **đúng một** hàng feed, không trùng khi snapshot lặp — dedupe theo id của chính sự việc, không theo "đổi so với tick trước"
+- [X] Ring có trần 50, mới nhất trên đầu, không rò bộ nhớ theo thời gian chơi; tick không có gì mới trả **cùng một array** (identity) nên không re-render
+- [X] Mỗi `kind` có đúng một state + một icon + một wording (**dùng chung** map với `EventsPanel` của UI-4); thêm `kind` mà quên wording là **lỗi test**
+- [X] Không hàng nào in raw ID/enum; hàng có `anchor` thì click gọi `revealPanel()` đã có (`openSurface` là cái mới: `toggleSurface` sẽ đóng đúng cột mà cú nhảy đang mở)
+- [X] Rỗng thì vẫn là empty state thật ("Chưa có gì cần chú ý."), không skeleton giả
+- [X] Cột không đổi bề rộng, không sinh scroll ngang ở band `wide`
+- [X] Thêm panel **"Cần chú ý"** đọc trực tiếp từ snapshot hiện tại (lệnh chưa xác nhận, treaty/vote chờ ta trả lời, quân dưới ngưỡng attrition) — nằm **trên** feed vì cột là chỗ scroll, việc chờ trả lời không được nằm dưới 50 hàng lịch sử
+
+**Verification:** `activity.test.ts` (bare node: dedupe, thứ tự, trần 50, mọi `kind` có wording+icon+state, diff snapshot sinh đúng hàng cho từng loại thay đổi); `ui-primitives.test.ts` khẳng định `ActivityColumn` không còn `placeholderRows`/skeleton `aria-hidden`; `layout.test.ts` thêm class skeleton vào dead-CSS absence; e2e mới (một lệnh = một hàng qua 8 giây snapshot; hàng nhảy tới panel ở cả band medium và compact) — client unit 101 → **124**, e2e **23/23**
+
+**Files:** `activity.ts` + `activity.test.ts` (mới), `state.tsx`, `components/ActivityColumn.tsx`, `ui/vocabulary.ts`, `styles.css`, `layout.test.ts`, `e2e/` · **Deps:** UI-1 (+ dùng chung wording với UI-4)
+
+### UI-6 — Command tray: nhóm lệnh theo ngữ cảnh + cross-highlight (slot "PR5") ✅ `0895bd1`
+
+**Acceptance criteria:**
+- [X] `tray-groups.ts` thuần: chọn army của mình → nhóm lệnh quân; city của mình → nhóm xây/logistics; ô trống → gợi ý; của người khác → **chỉ thông tin, không lệnh**
+- [X] Chỉ nhóm lại **lệnh đã tồn tại** — không thêm command server nào; `cancel_army_order` dùng **đúng** payload `ArmyPanel` gửi (hai cách viết một lệnh sẽ để chip pending của panel tối trong lúc lệnh đang bay)
+- [X] Lệnh không hợp lệ hiện **khoá kèm lý do**, không ẩn đi (ẩn làm người chơi tưởng game thiếu tính năng)
+- [X] Tray **không đổi chiều cao** khi nhóm lệnh xuất hiện/biến mất — `trayCommandLimit = 4` và độ dài nhãn/tiêu đề là test, vì bare `node --test` không đo được pixel
+- [X] Band compact (<1024px) thấy nhóm lệnh — `.command-tray__reserved` và rule `display: none` của nó bị xoá
+- [X] Selection đồng bộ hai chiều map ↔ panel, **không** thêm method cho `WorldMap`, **không** re-key `MapSurface`; ref `pickedHere` phân biệt hai chiều nên camera không giật về mỗi tick
+- [X] Nửa phải nói **việc làm được**, không phải bản sao thứ hai của nửa trái (sửa ở UI-7 sau khi soi bằng mắt: ba selection đang in lại y nguyên nửa trái)
+
+**Verification:** `tray-groups.test.ts` (bảng selection × nhóm mong đợi, gồm ca "của người khác" và "ô trống"); `layout.test.ts` (`command-tray__reserved` vào dead-CSS absence); e2e mới (chọn army → thấy nhóm; chiều cao tray đo trước/sau bằng nhau; ở 900px nhóm vẫn hiện); `situation-room.spec.ts` assert `tray.w === viewport width` vẫn xanh — client unit 124 → **139**, e2e **7/7** ở lần chạy task
+
+**Files:** `tray-groups.ts` + test (mới), `components/CommandTray.tsx`, `components/MapSurface.tsx`, `styles.css`, `layout.test.ts`, `e2e/` · **Deps:** UI-1
+
+### UI-7 — Chrome và accessibility pass ✅ `d19cd0e`
+
+Phần còn lại, mỗi mục là **một lỗi đã xác định**, không phải "polish" chung chung.
+
+**Acceptance criteria:**
+- [X] Toast: `onClick` chết trên `<div>` bị xoá, thay bằng `Button` đóng thật — thân toast **giữ** `pointer-events: none` (roadmap dòng 199 yêu cầu toast không chặn pointer) nên chỉ nút đóng nhận pointer; `role="status"` + `aria-live="polite"` trên **một layer** thay vì mỗi toast `position: fixed` cùng một góc
+- [X] Thêm Escape xoá cả stack — nút đóng focus được nhưng tab tới nó mất nhiều hơn 4 giây toast sống; listener chỉ mắc khi có notice, và nhường Escape mà dialog đã xử lý (`ui/Modal.tsx` gọi `preventDefault()`)
+- [X] `.hud-frozen` thôi dùng `opacity: .5` + `pointer-events: none` → `<fieldset disabled>` quanh ba panel lệnh (thứ **duy nhất** trong platform disable mọi control bên trong: rule cũ chỉ chặn chuột, nút vẫn trong tab order và vẫn kích hoạt bằng Enter, chữ dưới opacity đó tụt dưới 3:1) + `StatusChip state="frozen"` nêu lý do một lần ở head
+- [X] Trang sau login có **đúng một `h1`** (hiện `AuthScreen` là chỗ duy nhất có `h1`, và nó unmount khi vào game); không nhảy cấp heading ở bất kỳ bề mặt nào
+- [X] `AuthScreen` dựng lại bằng primitives, **label thật** cho input (tên field trước đó chỉ sống trong `placeholder` — chữ biến mất ngay khi người chơi gõ)
+- [X] `.map-toolbar` sang `Button` + `Icon`, thêm "Về giữa map" dùng `focusCity` đã có
+- [X] Không component nào (trừ `ui/Button.tsx`) còn `<button` thô — còn lại: `AuthScreen`, `BattleReportModal`, `CommandTray`, `MapSurface`, `StrategicHeader`
+- [X] "Build queues: N/2" (chuỗi tiếng Anh cuối cùng người chơi đọc) sang tiếng Việt, kèm **14 assertion** e2e trong 6 spec đang đo nó (đo bằng `git show d19cd0e -- e2e/`; assertion thứ 15 là câu *reason* "Hàng đợi xây đang đầy (2/2)" của `validation.ts`, đã có từ UI-3)
+- [X] `BattleReportModal` thôi in `⚔ 120 - 80` — glyph không có tên đọc được và dấu gạch để người đọc tự đoán số nào của bên nào; hai bên lấy tên từ `sideNames` mà các cột trên đã dùng
+
+**Verification:** `ui-primitives.test.ts` (`.toast` vẫn `pointer-events: none` **và** nút đóng `pointer-events: auto`; `.hud-frozen` hết `opacity: .5`; text scan `<button` thô; ba assertion cho listener Escape); e2e mới `chrome-a11y.spec.ts` 3 test (đóng bằng chuột **và** Escape; `elementFromPoint` ở tâm thân toast và tâm nút — kiểm từ **cả hai** phía; hai toast xếp chồng chứ không in lên nhau) — client unit 139 → **146**, e2e **28/28**
+
+**Bug tìm được nhờ mục "kiểm bằng mắt ở 5 viewport" của kế hoạch — không text-scan test nào thấy được:** `.kom-panel` có `overflow: hidden`, nên automatic minimum size của panel là 0 → mọi panel là flex item **co được** trong một cột ngắn hơn nội dung. Browser làm đúng điều đó: bóp tất cả cho vừa, `scrollHeight` của cột bằng luôn `clientHeight` (**không còn gì để scroll**), và mỗi panel tự cắt nội dung của mình. `OnboardingPanel` đang vẽ 67px của một checklist 445px, các nút "Đi tới" của nó **có trên trang, đo được, và không được vẽ ở đâu cả** — ba spec xanh chỉ vì `scrollIntoViewIfNeeded` scroll được bên trong một box `overflow: hidden`. `<fieldset>` không co được nên từ chối hấp thụ phần thiếu, panel tụt còn **2px** và click rơi xuống cột phía sau. Sửa: `flex: none` cho con của hai cột + của fieldset; khoá bằng luật mới trong `layout.test.ts` đọc **body** của rule trong stylesheet.
+
+**Files:** `App.tsx`, `components/AuthScreen.tsx`, `MapSurface.tsx`, `StrategicHeader.tsx`, `KingdomColumn.tsx`, `CityPanel.tsx`, `BattleReportModal.tsx`, `tray-groups.ts`, `styles.css`, `layout.test.ts`, `ui-primitives.test.ts`, `tray-groups.test.ts`, `e2e/chrome-a11y.spec.ts` (mới) + 6 spec đo câu tiếng Anh cũ · **Deps:** UI-3, UI-6
+
+### Checkpoint C — sau UI-5 + UI-6 + UI-7 ✅
+- [X] `ActivityColumn` và nửa phải `CommandTray` không còn placeholder nào trong code
+- [X] Ba comment "PR4" / "PR5" / "Bridge" **xoá khỏi source** cùng với thứ chúng mô tả (bridge đã xong ở UI-4) — chỗ nào còn nhắc tên chúng là **test khẳng định chúng không mọc lại** hoặc comment kể lại vì sao, không phải lời hứa còn nợ
+- [X] E2E cũ xanh + spec mới xanh trên port 3100/5174 — **28/28 trong một lần chạy**, không lần nào phải chạy lại lẻ
+- [X] Đo lại rồi mới cập nhật ma trận test ở `docs/ROADMAP.md` — **đo trước, sửa sau** (vòng trước đã sai đúng lỗi này): shared **3**, server **141** (126 pass + 15 skip, **không đổi** — không sửa file server nào), client **146**, e2e **28** trong 14 spec (`password-auth.spec.ts` là project riêng, chỉ chạy khi `E2E_PROD_SMOKE=1`, nên không nằm trong 28)
+- [X] `check:bundle` 6/6 chunk ≤ 500 KiB (`pixi` 465.0 KiB là chunk lớn nhất; `AdvancedDrawer` vẫn lazy 16.4 KiB)
+- [X] `test:postgres` báo **skipped** ở máy này (không Docker, không `DATABASE_URL`); **không** viết `verify:web-alpha` xanh
+- [X] Kiểm mắt ở 5 viewport (1920/1440/1280/1024/900) — **đây là gate tìm ra hai lỗi nặng nhất của cả vòng**, cả hai không test nào bắt được: cột kingdom không scroll (`overflow: hidden` cho panel min-height 0 → flex bóp mọi panel vừa khung) và tray in cùng một câu ở cả hai nửa. Cả hai đã sửa trong UI-7 và giờ đều có test
+- [X] `docs/ROADMAP.md`: thêm section "Cải tổ HUD — Situation Room vòng 2" (**không** tự đặt số phase, ghi "Số phase để owner đặt" đúng như section command path), sửa ma trận test dòng 207 **sau khi đo**, bổ sung một câu ở dòng 197 rằng vòng 1 để lại hai slot + bridge và vòng 2 đã đóng cả ba, và ghi vào dòng 199 (yêu cầu toast không chặn pointer) rằng thân toast vẫn `pointer-events: none` — chỉ nút đóng được bật lại
+
+### Không mở trong nhóm UI — và vì sao
+
+| Việc | Chặn bởi |
+|---|---|
+| Touch pan/zoom trên map, safe-area inset | **E.3** (Phase 8) — cần project e2e mobile riêng, khác scope desktop HUD |
+| Đổi palette / art direction / asset thật | **G.1** cần owner chốt art style guide trước |
+| Thêm command server mới cho tray | Cố ý: UI-6 chỉ nhóm lại lệnh đã có. Command mới là gameplay, không phải UI |
+| `misinformation` trong drawer espionage | **C.1**, cần server trước |
+| Sức chứa map | **P0.4** — owner quyết (OQ #2), không liên quan UI |
+| Primitive `Select` thay `<select>` thô | Làm ở đuôi UI-3 nếu rẻ; nếu phải thêm >1 rule CSS mới thì tách task riêng để `emitted.size` của `ui-primitives.test.ts` không bị nới lỏng vội |
 
 ## Nhóm C — Feature debt
 
