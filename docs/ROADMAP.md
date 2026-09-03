@@ -100,8 +100,8 @@ Sau mỗi milestone phải chạy verification và cập nhật docs/GAME-DESIGN
 **Mục tiêu:** thêm lớp thông tin, rủi ro và biến động bản đồ.
 
 - [X] Spy missions với cost, duration, accuracy và cooldown ở server domain.
-- [X] Sabotage, steal và counter-intelligence; misinformation còn thiếu.
-- [X] Report access control theo actor và audit command; audit persistence đầy đủ còn thiếu.
+- [X] Sabotage, steal, counter-intelligence và misinformation (cắm lên một đối thủ, bóp méo scout report của họ về ta trong 20 phút).
+- [X] Report access control theo actor và audit command; mission resolve ghi `spy.<missionType>.<status>` và `spy.misinformation.consumed` vào event ledger.
 - [X] Resource depletion theo node/vùng.
 - [X] Thiên tai, dịch bệnh và di cư mob deterministic; NPC combat dùng shared resolver và audit seed/input/result.
 - [X] Theo dõi faction win rate, spy success rate và ignored objectives theo season.
@@ -300,11 +300,10 @@ Vòng 1 (Phase 7C, Situation Room) tự để lại ba mốc trong code nói rõ
 
 ## Bước tiếp theo
 
-1. Hoàn thiện misinformation của espionage.
-2. Phase 7C: phiên manual acceptance (30–60 phút) rồi đóng phase.
-3. Phase 7: chat/mail moderation, battle worker và Redis outbox publisher.
-4. Bổ sung load test WebSocket/tick/queue/caravan và backup/restore runbook.
-5. Giữ các gate regression: `npm run typecheck`, `npm run build`, `npm test`, Playwright Chromium desktop và PostgreSQL migrations.
+1. Phase 7C: phiên manual acceptance (30–60 phút) rồi đóng phase.
+2. Phase 7: chat/mail moderation, battle worker và Redis outbox publisher.
+3. Bổ sung load test WebSocket/tick/queue/caravan và backup/restore runbook.
+4. Giữ các gate regression: `npm run typecheck`, `npm run build`, `npm test`, Playwright Chromium desktop và PostgreSQL migrations.
 
 ## Quy tắc cập nhật
 

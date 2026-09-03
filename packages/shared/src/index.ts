@@ -199,7 +199,7 @@ export const diplomacyStatsSchema = z.object({
 });
 export type DiplomacyStats = z.infer<typeof diplomacyStatsSchema>;
 // === PHASE 5: ESPIONAGE & WORLD EVENTS ===
-export const spyMissionTypes = ["scout", "sabotage", "steal", "counter_intel"] as const;
+export const spyMissionTypes = ["scout", "sabotage", "steal", "counter_intel", "misinformation"] as const;
 export type SpyMissionType = (typeof spyMissionTypes)[number];
 export const spyMissionStatuses = ["in_progress", "success", "failed", "intercepted"] as const;
 export type SpyMissionStatus = (typeof spyMissionStatuses)[number];
@@ -208,7 +208,21 @@ export const spyMissionConfig = {
   sabotage: { baseCost: 150, durationSeconds: 600, cooldownSeconds: 1200, baseAccuracy: 0.4 },
   steal: { baseCost: 100, durationSeconds: 450, cooldownSeconds: 900, baseAccuracy: 0.5 },
   counter_intel: { baseCost: 80, durationSeconds: 0, cooldownSeconds: 1800, baseAccuracy: 0.7 },
+  misinformation: { baseCost: 120, durationSeconds: 540, cooldownSeconds: 1800, baseAccuracy: 0.45 },
 } as const;
+/** How long a successful `misinformation` mission keeps feeding the target's
+ *  scouts false numbers. It has to stay *below* that mission's cooldown, or a
+ *  player could re-plant before the previous lie lapsed and blind an opponent
+ *  permanently; with 20 minutes of effect against a 30-minute cooldown there is
+ *  always a ≥10-minute honest window, and `espionage.test.ts` asserts the gap so
+ *  a later balance pass cannot close it by accident. */
+export const misinformationEffectSeconds = 1200;
+/** The missions `/api/commands/spy/launch` accepts. `counter_intel` is not one of
+ *  them — it has its own endpoint and no target — and stating the subset here
+ *  rather than repeating a literal union in the schema is what keeps the client's
+ *  mission picker and the server's validator from drifting apart. */
+export const launchableSpyMissionTypes = ["scout", "sabotage", "steal", "misinformation"] as const satisfies ReadonlyArray<Exclude<SpyMissionType, "counter_intel">>;
+export type LaunchableSpyMissionType = (typeof launchableSpyMissionTypes)[number];
 export const spyMissionSchema = z.object({
   id: z.string(), kingdomId: z.string(), actorPlayerId: z.string(), targetPlayerId: z.string(),
   missionType: z.enum(spyMissionTypes), status: z.enum(spyMissionStatuses), accuracy: z.number().min(0).max(1),
@@ -312,7 +326,7 @@ export type ProposeTreatyCommand = z.infer<typeof proposeTreatyCommandSchema>;
 export const respondTreatyCommandSchema = z.object({ commandId: z.string().min(8), treatyId: z.string(), accept: z.boolean() });
 export type RespondTreatyCommand = z.infer<typeof respondTreatyCommandSchema>;
 export const breakTreatyCommandSchema = z.object({ commandId: z.string().min(8), treatyId: z.string() });
-export type BreakTreatyCommand = z.infer<typeof breakTreatyCommandSchema>;export const launchSpyCommandSchema = z.object({ commandId: z.string().min(8), targetPlayerId: z.string(), missionType: z.enum(["scout", "sabotage", "steal"]) });
+export type BreakTreatyCommand = z.infer<typeof breakTreatyCommandSchema>;export const launchSpyCommandSchema = z.object({ commandId: z.string().min(8), targetPlayerId: z.string(), missionType: z.enum(launchableSpyMissionTypes) });
 export type LaunchSpyCommand = z.infer<typeof launchSpyCommandSchema>;
 export const counterIntelCommandSchema = z.object({ commandId: z.string().min(8) });
 export type CounterIntelCommand = z.infer<typeof counterIntelCommandSchema>;

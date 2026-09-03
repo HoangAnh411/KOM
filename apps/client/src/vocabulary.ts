@@ -117,6 +117,7 @@ export const spyMissionLabels: Record<SpyMissionType, string> = {
   sabotage: "Phá hoại",
   steal: "Đánh cắp",
   counter_intel: "Phản gián",
+  misinformation: "Tung tin giả",
 };
 
 // ── What an army is called ───────────────────────────────────────────────────
