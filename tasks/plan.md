@@ -42,8 +42,8 @@ Không mở nhóm C/D/E/F/G lúc này.
 | **3** | Mở rộng theo yêu cầu owner ("làm hết tất cả"): **N.1**, **N.2**, nửa tự động của **A.1**, **E.3-pre**, ba việc dọn nhỏ | Đều là việc đã có đủ dữ kiện để làm đúng, không cần quyết định thiết kế mới. Những mục còn lại bị chặn bởi Docker/`k6`/quyết định gameplay thì **không** làm dở dang | **Xong** — cùng nhánh, `acf454a` `10c153d` `afa072b` `4817d1a` |
 | **4** | **B.1** `[145]` — security review auth / permissions / input / secrets | Dependency duy nhất của nó (P0.1) vừa xong ở Bước 2, và P0.1 đã dời hai finding cũ (bucket dùng chung, GET không hạn mức) ra khỏi phạm vi review nên review có baseline đúng. Đọc code phát hiện thêm **hai lỗ High chưa từng được ghi ở đâu** | **Xong** — cùng nhánh, `docs/SECURITY-REVIEW.md` + hai bản sửa High kèm test |
 | **5** | **PR.1** — push 3 nhánh + mở PR xếp tầng | 16 commit đã verify nhưng chỉ tồn tại trên một máy là rủi ro lớn hơn mọi mục roadmap còn lại; và hai gate Docker chỉ CI quan sát được. **Owner đã chốt** | **Xong** — 4 PR (phát sinh PR #4 vì CI gate 5 đỏ) |
-| **6** | **Z.5** — ROADMAP/docs truth pass vòng 2 | Chính yêu cầu của owner ("nhớ cập nhật lại roadmap"); doc-only nên chạy song song được với phần code | **Đang làm** — nhánh `perf/command-path` |
-| **7** | **S5** — `ambush` đòi quân trong bán kính 3 + bucket `combat` | Đứng **trước** P0.3 vì P0.3 viết lại chính `claim()` của `logistics.ts`; làm sau thì phải rebase file đó hai lần. **Owner đã chốt luật** | Chưa |
+| **6** | **Z.5** — ROADMAP/docs truth pass vòng 2 | Chính yêu cầu của owner ("nhớ cập nhật lại roadmap"); doc-only nên chạy song song được với phần code | **Xong** — `dbf5c6f` + Z.5b đóng cùng B.1a |
+| **7** | **B.1a (S-5)** — `ambush` đòi quân trong bán kính 3 + bucket `combat` | Đứng **trước** P0.3 vì P0.3 viết lại chính `claim()` của `logistics.ts`; làm sau thì phải rebase file đó hai lần. **Owner đã chốt luật** | **Xong** — server unit 124 → **128** |
 | **8** | **P0.2** (= S-4) — bỏ full-table ledger reload khỏi command path | Rẻ nhất trong ba task command-path và không phụ thuộc gì; nó cũng định nghĩa *idempotency window* mà P0.3a dùng lại làm trần | Chưa |
 | **9** | **P0.3a → P0.3b** (= S-3) — gộp 5 cơ chế dedupe về một registry có trần | Phải sau P0.2 để dùng chung một con số window; tách 2 task để mỗi task ≤ 5 file và verify riêng được | Chưa |
 
@@ -434,7 +434,7 @@ Owner đang ở 7D nên **rất có thể mục này thuộc phần owner tự c
 
 **Việc còn treo cho owner** (đã vào Open questions #10, #11): ~~tiền đề không gian của `ambush`~~ → **S-5 đã được owner chốt 2026-09-03**, thành task B.1a ngay dưới; còn lại là có bắt buộc `TRUST_PROXY` ở production không (S-9, guard đó có thể chặn boot một deployment tôi không kiểm chứng được) và xác nhận S-1 trên stack thật có Docker. Ba Low còn lại (S-7 admin route không Zod, S-8 trần WS connection, S-10 status `ADMIN_DISABLED` lệch) đã vào mục "việc dọn nhỏ".
 
-### B.1a — S-5: `ambush` phải có tiền đề không gian
+### B.1a — S-5: `ambush` phải có tiền đề không gian ✅ (2026-09-03)
 
 `logistics.ts:166-186` hôm nay chỉ kiểm ba thứ: player active, caravan đang `moving`, và không
 phải caravan của mình. **Không** đòi có quân, không đòi ở gần, không tốn tài nguyên, không
@@ -452,20 +452,25 @@ quanh vị trí caravan hiện tại, và `ambush` chuyển sang bucket **`comba
 - `app.ts:125`: thêm `ambush: "combat"` vào `commandBuckets`. Không đổi mã lỗi, không đổi schema, không đổi `PROTOCOL_VERSION`.
 
 **Acceptance criteria:**
-- [ ] Ambush không có quân trong bán kính 3 → 400 `AMBUSH_OUT_OF_RANGE`, caravan **không** đổi trạng thái và **không** tiêu `commandId`
-- [ ] Quân ở đúng khoảng cách 3 → chấp nhận; khoảng cách 4 → từ chối (test biên hai phía)
-- [ ] Army đang `frozen` không tính là hợp lệ
-- [ ] `ambush` tiêu bucket `combat`: cạn 10 lệnh combat thì ambush bị 429, và ambush **không** làm 429 lệnh build
-- [ ] Ô kiểm là ô lerp theo `progress`, không phải city nguồn — caravan giữa đường vẫn ambush được nếu quân ở gần *nó*
+- [X] Ambush không có quân trong bán kính 3 → 400 `AMBUSH_OUT_OF_RANGE`, caravan **không** đổi trạng thái và **không** tiêu `commandId`
+- [X] Quân ở đúng khoảng cách 3 → chấp nhận; khoảng cách 4 → từ chối (test biên hai phía)
+- [X] Army đang `frozen` không tính là hợp lệ
+- [X] `ambush` tiêu bucket `combat`: cạn 10 lệnh combat thì ambush bị 429, và ambush **không** làm 429 lệnh build
+- [X] Ô kiểm là ô lerp theo `progress`, không phải city nguồn — caravan giữa đường vẫn ambush được nếu quân ở gần *nó*
 
 **Verification:**
-- [ ] `logistics.test.ts:42` (test ambush sẵn có) cập nhật: đặt army của `enemy` cạnh caravan; thêm test out-of-range, test biên 3/4, test frozen army
-- [ ] Test bucket cho `ambush` → `combat` trong `rate-limit.test.ts` hoặc `app.test.ts`
-- [ ] `npm test -w @kingdoms/server` xanh (124 + test mới); `npm run typecheck` sạch
-- [ ] E2E không bị ảnh hưởng — đã grep `e2e/`, không spec nào gọi `ambush`
+- [X] `logistics.test.ts:42` (test ambush sẵn có) cập nhật: helper `ambushScenario()` dựng cảnh, test cũ đặt army của `enemy` cạnh caravan (8,9); thêm 4 test — out-of-range + `commandId` chưa bị tiêu, biên 3/4 + ô theo `progress` 0.6 → (11,10), `frozen`/`strength 0`, và `caravanTile` mirror + fail closed
+- [X] Test bucket cho `ambush` → `combat`: mở rộng `app.test.ts` "command rate-limit buckets are independent per command group" — vòng 10 lệnh combat luân phiên attack/formation/**ambush**, lệnh 11 (attack) 429, ambush cũng 429, harvest vẫn không 429
+- [X] `npm test -w @kingdoms/server` xanh: **128 test → 113 pass / 0 fail / 15 skip** (từ 124/109); `npm run typecheck` sạch
+- [X] E2E không bị ảnh hưởng — đã grep `e2e/`, không spec nào gọi `ambush`
+
+**Ghi chú thực thi (khác plan gốc ở ba điểm, đều là chặt hơn):**
+1. Guard đòi thêm `army.strength > 0`. Army `strength 0` bị xoá khỏi `state.armies` ở `combat.ts:320-321` và tick bỏ qua ở `:329-330`, `attack` chặn bằng `ARMY_DESTROYED` (`combat.ts:151`) — nếu không kiểm, một army chết vẫn "canh đường" cho tới tick sau. Định nghĩa "army còn sống" của repo là `strength > 0 && !frozen`.
+2. `caravanTile()` trả `undefined` khi không resolve được hai đầu route → guard **fail closed** (`AMBUSH_OUT_OF_RANGE`). Client cũng ẩn caravan đó (`visible = false`), nên không có ô nào người chơi có thể đứng cạnh một cách hợp lệ.
+3. `caravanTile` được `export` để test lerp trực tiếp (biên rounding), không chỉ test qua `ambush()`. `ambushRange = 3` là hằng module cạnh `mapExtent`, có comment vì sao là 3.
 
 **Dependencies:** None — nhưng **đứng trước P0.3** để P0.3 không phải rebase `logistics.ts` hai lần · **Scope:** S · ⚠️ chạm `app.ts` một dòng
-**Files:** `apps/server/src/logistics.ts`, `apps/server/src/app.ts`, `apps/server/src/logistics.test.ts`, `docs/API.md`, `docs/SECURITY-REVIEW.md`, `docs/ROADMAP.md`
+**Files:** `apps/server/src/logistics.ts` (`ambushRange` :16, `caravanTile` :42, guard :192), `apps/server/src/app.ts` (:125), `apps/server/src/logistics.test.ts`, `apps/server/src/app.test.ts`, `docs/API.md`, `docs/SECURITY-REVIEW.md`, `docs/ROADMAP.md`
 
 ### B.2 — [144] Restore drill + log vào runbook ✅ → **đóng ở Z.2**
 

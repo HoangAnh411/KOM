@@ -29,7 +29,7 @@ Không chạy pentest động, không fuzz, không kiểm tra dependency ngoài 
 | S-2 | **High** | permissions / rò rỉ dữ liệu | ✅ đã sửa + test hồi quy |
 | S-3 | Medium | availability | ⏳ P0.3 (đã có task) |
 | S-4 | Medium | availability | ⏳ P0.2 (đã có task) |
-| S-5 | Medium | permissions / abuse | ⚠️ **owner quyết** (là luật gameplay) |
+| S-5 | Medium | permissions / abuse | ✅ đã sửa + test (owner chốt luật 2026-09-03) |
 | S-6 | Low | secrets / log | ✅ đã sửa (hardening) |
 | S-7 | Low | input | 📝 ghi nhận, không sửa |
 | S-8 | Low | availability | 📝 ghi nhận, không sửa |
@@ -129,7 +129,8 @@ Cùng họ với S-3: `hasCommand()` nạp lại toàn bộ ledger thay vì poin
 
 ## S-5 (Medium) — `ambush` không có tiền đề không gian nào
 
-**Chứng cứ:** `logistics.ts:166-186`. `ambush` kiểm: người chơi active, caravan tồn tại và
+**Chứng cứ (trạng thái lúc review, trước bản sửa bên dưới):** `logistics.ts:166-186`. `ambush`
+kiểm: người chơi active, caravan tồn tại và
 đang `moving`, không phải caravan của chính mình (`INVALID_ATTACKER`, `:171`), và phá treaty
 nếu có. Nó **không** đòi người chơi có quân, không đòi quân ở gần caravan, không tốn tài
 nguyên, không có cooldown, và `ambush` không nằm trong `commandBuckets` nên chạy ở bucket
@@ -143,10 +144,24 @@ combat có tiền đề không gian, `ambush` là ngoại lệ.
 (25% nếu có hộ tống), 20 lần/phút, từ bất kỳ đâu, miễn phí. Đó là công cụ griefing hoàn
 chỉnh và nó vô hiệu hoá toàn bộ hệ thống hộ tống/escort.
 
-**Không sửa** — tiền đề đúng là quyết định luật chơi (bán kính bao nhiêu ô? tốn gì? cooldown
-bao lâu?) thuộc `docs/GAME-DESIGN.md`, không phải thứ review tự đặt ra. Đề xuất tối thiểu để
-owner chọn: đòi một army của người tấn công trong bán kính N ô của vị trí caravan hiện tại,
-và/hoặc đưa `ambush` sang bucket `combat` (10/phút).
+**Đã sửa (owner chốt 2026-09-03):** tiền đề là luật chơi nên review không tự đặt; owner chọn
+**bán kính Manhattan 3 ô + bucket `combat`**.
+
+- `logistics.ts:192` — guard mới, đặt **sau** `INVALID_ATTACKER` và **trước** `claim()`: phải có
+  ít nhất một army `ownerPlayerId === attackerPlayerId`, không `frozen`, `strength > 0`, cách ô
+  hiện tại của caravan ≤ 3 (Manhattan, viết inline đúng idiom `HARVEST_OUT_OF_RANGE` ở `:111`).
+  Sai → `AMBUSH_OUT_OF_RANGE` → 400. Vì guard chạy trước `claim()`, lệnh bị từ chối **không**
+  tiêu `commandId`: người chơi gửi lại đúng lệnh đó sau khi quân hành quân tới.
+- `logistics.ts:42` — `caravanTile()`: caravan không có `x`/`y`, vị trí là lerp
+  `source → destination` theo `progress`. Helper này là bản mirror của `apps/client/src/map.ts:326-332`
+  nên server kiểm đúng ô người chơi nhìn thấy. Không resolve được hai đầu route → fail closed
+  (client cũng ẩn caravan đó).
+- `logistics.ts:16` — `ambushRange = 3` đứng một chỗ, có comment giải thích vì sao là 3.
+- `app.ts:125` — `ambush: "combat"`: 10/phút, dùng chung counter với `attack`, thay vì 20/phút ở
+  bucket `write`. Một cuộc cướp caravan không còn rẻ gấp đôi trận đánh mà nó thay thế.
+- Test: `logistics.test.ts` (out-of-range, biên 3 vs 4, ô theo `progress`, army `frozen`/`strength 0`,
+  `caravanTile` mirror + fail closed, và `commandId` không bị tiêu), `app.test.ts` (ambush tiêu bucket
+  `combat`, không làm 429 lệnh write). Không đổi mã lỗi cũ, schema hay `PROTOCOL_VERSION`.
 
 ## S-6 (Low) — `redact` của logger không có `password`
 
@@ -225,7 +240,7 @@ không có bề mặt CSRF cho command.
 | `routes` | chủ city nguồn **và** city đích | `logistics.ts:130`, `:131` |
 | `caravans` | chủ route | `logistics.ts:145` |
 | `escort` | chủ caravan **và** chủ army | `logistics.ts:158`, `:159` |
-| `ambush` | không phải caravan của mình — **xem S-5** | `logistics.ts:171` |
+| `ambush` | không phải caravan của mình, **và** có army còn sống trong 3 ô của caravan | `logistics.ts:186`, `:192` |
 | `spy/launch` | không tự nhắm mình, có city, hết cooldown, đủ iron | `espionage.ts:52` |
 | `spy/counter-intel` | có city | `espionage.ts:53` |
 | `alliance/create`, `join` | chưa thuộc alliance nào; join thêm trần 10 thành viên | `diplomacy.ts:42`, `:63`, `:67` |
@@ -296,12 +311,10 @@ tay quên nó sẽ mất cả khối. Xem S-9.
 
 ## Việc còn treo cho owner
 
-1. **S-5** — tiền đề của `ambush` là luật chơi, cần owner chốt (bán kính / chi phí /
-   cooldown / bucket).
-2. **S-9** — có thêm guard "production phải khai `TRUST_PROXY`" không?
-3. **S-1** — xác nhận lại một lần trên stack thật (Caddy → Fastify) sau khi merge, vì máy
+1. **S-9** — có thêm guard "production phải khai `TRUST_PROXY`" không?
+2. **S-1** — xác nhận lại một lần trên stack thật (Caddy → Fastify) sau khi merge, vì máy
    contributor không có Docker.
-4. **S-7** — schema Zod cho hai route admin, gộp vào PR admin kế tiếp.
-5. **S-8** — con số trần WebSocket connection.
-6. `npm audit --audit-level=high` exit 0 tại thời điểm review; nó là gate 10 của CI nên
+3. **S-7** — schema Zod cho hai route admin, gộp vào PR admin kế tiếp.
+4. **S-8** — con số trần WebSocket connection.
+5. `npm audit --audit-level=high` exit 0 tại thời điểm review; nó là gate 10 của CI nên
    không cần theo dõi tay.
