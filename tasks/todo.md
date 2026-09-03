@@ -4,7 +4,7 @@ Chi tiết acceptance criteria / verification / files: [`tasks/plan.md`](./plan.
 
 Bối cảnh: tôi là **contributor**. Owner **đã push Phase 7D** (`f6085a4`, 2026-09-02) — xem mục "Phase 7D đã landing" bên dưới. Task chạm `apps/server/src/store.ts`, `apps/server/src/app.ts`, `packages/shared/src/index.ts` vẫn đánh dấu ⚠️ hot file; owner đã cho phép mở phạm vi nên P0.1 chạm `app.ts` và mục dọn nhỏ chạm `store.ts`, nhưng đều ở nhánh riêng, **không chạm `main`**.
 
-**Cập nhật 2026-09-03:** owner đã chốt push, nên 16 commit giờ nằm ở **bốn PR chưa merge** (`main` vẫn ở `f6085a4`, không merge PR nào) — xem PR.1 bên dưới. Vòng code tiếp theo đã đi trên nhánh `perf/command-path` cắt từ `feat/rate-limit-buckets` và giờ là **PR #5** (base #3, 6 commit), nên chồng có **năm** PR.
+**Cập nhật 2026-09-03:** owner đã chốt push, nên 16 commit giờ nằm ở **bốn PR chưa merge** (`main` vẫn ở `f6085a4`, không merge PR nào) — xem PR.1 bên dưới. Vòng code tiếp theo đã đi trên nhánh `perf/command-path` cắt từ `feat/rate-limit-buckets` và giờ là **PR #5** (base #3, 6 commit), nên chồng có **năm** PR. Vòng cải tổ HUD thêm **PR #6** (`feat/hud-overhaul`, base #5, 8 commit) → chồng thành **sáu**.
 
 Gate mỗi PR: `npm run verify:web-alpha` + tick checkbox tương ứng trong `docs/ROADMAP.md`. 7D thêm gate mạnh hơn `npm run verify:web-beta` (có `npm audit --audit-level=high` + `test:prod-smoke`); N.2 đã nối nó vào CI thành hai job Docker, nhưng **chưa từng quan sát xanh** vì máy này không có Docker **và** vì `if:` của hai job đó không chạy từ push nhánh PR — cần `workflow_dispatch`. Ở máy này `test:postgres` chỉ skip (không Docker, không `DATABASE_URL`) → báo từng gate riêng, **không** viết "`verify:web-alpha` xanh".
 
@@ -109,7 +109,7 @@ Các nhãn `[NNN]` là **ID task ổn định** theo số dòng ROADMAP *trướ
 
 Owner nhờ cải thiện **toàn bộ UI/HUD**. Nhánh `feat/hud-overhaul` cắt từ tip `perf/command-path`, mỗi task một commit, sẽ mở **PR #6** base `perf/command-path`. **Không sửa file nào trong `apps/server` / `packages/shared`** → server unit phải đứng nguyên **141** (126 pass + 15 skip); không chạm `main`.
 
-**Phần "push lên GitHub" của yêu cầu: không có gì để push.** `git fetch --all` rồi `git log --branches --not --remotes --oneline` → **rỗng**; sáu nhánh local đều đã có trên `origin`, working tree sạch, không nhánh nào ahead/behind, năm PR (#1–#5) đang mở nguyên trạng. Nên vòng này chỉ phát sinh **một** nhánh mới để push khi PR #6 mở.
+**Phần "push lên GitHub" của yêu cầu: lúc bắt đầu vòng không có gì để push.** `git fetch --all` rồi `git log --branches --not --remotes --oneline` → **rỗng**; sáu nhánh local đều đã có trên `origin`, working tree sạch, không nhánh nào ahead/behind, năm PR (#1–#5) đang mở nguyên trạng. Nên vòng này phát sinh đúng **một** nhánh mới để push — `feat/hud-overhaul`, đã push 2026-09-03 và mở [PR #6](https://github.com/HoangAnh411/KOM/pull/6) base `perf/command-path`.
 
 Điểm khởi đầu không phải số không: vòng redesign trước **tự để lại ba mốc trong code** nói rõ phần còn thiếu — `ActivityColumn.tsx:6` ("PR4 replaces the whole `<ActivityFeed />` slot"), `CommandTray.tsx:17` ("PR5 fills it with contextual command groups"), bridge `.hud .kom-panel` ở `styles.css:120-124` ("It goes away with `.hud section` once the column is assembled from panels"). Lúc bắt đầu chỉ **3/13** bề mặt dùng design system.
 
@@ -145,7 +145,7 @@ Owner nhờ cải thiện **toàn bộ UI/HUD**. Nhánh `feat/hud-overhaul` cắ
 - [X] Kiểm mắt ở 5 viewport (1920/1440/1280/1024/900) — tìm ra **hai** lỗi không test nào bắt được: cột kingdom không scroll (flex-shrink bóp panel) và tray in cùng một câu ở cả hai nửa. Cả hai đã sửa trong UI-7, cả hai giờ có test
 - [X] Ma trận test ở `docs/ROADMAP.md` cập nhật **sau khi đo**, không sửa trước (vòng trước đã sai đúng lỗi này)
 - [X] `test:postgres` báo **skipped** (không Docker / `DATABASE_URL`) → **không** viết `verify:web-alpha` xanh
-- [ ] Push `feat/hud-overhaul`, mở **PR #6** base `perf/command-path` → chồng thành **sáu** PR
+- [X] Push `feat/hud-overhaul`, mở **PR #6** base `perf/command-path` → chồng thành **sáu** PR. Xong 2026-09-03: 8 commit (7 task + `597b921` docs), [PR #6](https://github.com/HoangAnh411/KOM/pull/6). `main` không bị chạm; base local trùng `origin/perf/command-path` (`b285293`) nên diff của PR đúng 8 commit đó, không lẫn commit của PR dưới
 
 ## Phase C — Feature debt
 
