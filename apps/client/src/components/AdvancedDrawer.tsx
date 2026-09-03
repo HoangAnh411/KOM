@@ -1,44 +1,24 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import type { SeasonArchive, Treaty } from "@kingdoms/shared";
 import * as api from "../api.js";
 import { useGame } from "../state.js";
 import { usePanelAnchor } from "../panel-anchors.js";
+import { Modal } from "../ui/Modal.js";
 import { EspionagePanel } from "./EspionagePanel.js";
 
 const countdown = (endsAt: string, now: number) => { const seconds = Math.max(0, Math.ceil((Date.parse(endsAt) - now) / 1000)); return `${Math.floor(seconds / 60)}m ${seconds % 60}s`; };
 
-/** Confirm for the "-150 reputation" cost of breaking a treaty: focus-trapped
- * dialog with Escape-to-cancel, replacing the old native confirm(). */
+/** Confirm for the "-150 reputation" cost of breaking a treaty. This dialog was the
+ * one that did focus trap / Escape / focus restore correctly, so `ui/Modal.tsx` is
+ * its mechanism lifted out; what is left here is only the wording and the cost. */
 export function TreatyBreakModal({ treaty, partnerName, onConfirm, onClose }: { treaty: Treaty; partnerName: string; onConfirm: () => void; onClose: () => void }) {
-  const card = useRef<HTMLDivElement>(null);
-  const cancelButton = useRef<HTMLButtonElement>(null);
-  const focusedRef = useRef<HTMLElement | undefined>();
-  useEffect(() => {
-    focusedRef.current = document.activeElement as HTMLElement;
-    cancelButton.current?.focus();
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { event.preventDefault(); onClose(); return; }
-      if (event.key !== "Tab" || !card.current) return;
-      const focusable = Array.from(card.current.querySelectorAll<HTMLElement>("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])"));
-      if (focusable.length === 0) return;
-      const firstEl = focusable[0]; const lastEl = focusable[focusable.length - 1];
-      if (event.shiftKey && document.activeElement === firstEl) { event.preventDefault(); lastEl.focus(); }
-      else if (!event.shiftKey && document.activeElement === lastEl) { event.preventDefault(); firstEl.focus(); }
-    };
-    document.addEventListener("keydown", onKeyDown);
-    return () => { document.removeEventListener("keydown", onKeyDown); focusedRef.current?.focus?.(); };
-  }, [onClose]);
-  return <div className="modal-backdrop" onClick={onClose}>
-    <div className="modal-card treaty-break-modal" role="dialog" aria-modal="true" aria-label="Xóa hiệp ước" ref={card} onClick={event => event.stopPropagation()}>
-      <h2>Xóa hiệp ước?</h2>
-      <p>Bạn đang xóa hiệp ước <strong>{treaty.treatyType}</strong> với <strong>{partnerName}</strong>.</p>
-      <p className="reputation-cost">Trừ <strong>150 điểm danh tiếng</strong> — phá hiệp ước làm mất uy tín của bạn trong khu vực và các hiệp ước khác sẽ khó được chấp nhận hơn.</p>
-      <div className="modal-actions">
-        <button autoFocus ref={cancelButton} onClick={onClose}>Hủy</button>
-        <button className="destructive" onClick={onConfirm}>Phá hiệp ước (−150 danh tiếng)</button>
-      </div>
-    </div>
-  </div>;
+  return <Modal title="Xóa hiệp ước?" onClose={onClose} actions={<>
+    <button onClick={onClose}>Hủy</button>
+    <button className="destructive" onClick={onConfirm}>Phá hiệp ước (−150 danh tiếng)</button>
+  </>}>
+    <p>Bạn đang xóa hiệp ước <strong>{treaty.treatyType}</strong> với <strong>{partnerName}</strong>.</p>
+    <p className="reputation-cost">Trừ <strong>150 điểm danh tiếng</strong> — phá hiệp ước làm mất uy tín của bạn trong khu vực và các hiệp ước khác sẽ khó được chấp nhận hơn.</p>
+  </Modal>;
 }
 
 function AlliancePanel() {

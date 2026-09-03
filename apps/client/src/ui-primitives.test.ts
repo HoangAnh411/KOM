@@ -1,5 +1,7 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { iconPaths, iconViewBox } from "./ui/icon-paths.js";
 import {
@@ -21,6 +23,18 @@ const component = (name: string): string =>
 
 const tokens = source("tokens.css");
 const primitives = source("primitives.css");
+
+const sourceRoot = fileURLToPath(new URL("../src/", import.meta.url));
+const sourceFiles = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+  const path = join(dir, entry.name);
+  if (entry.isDirectory()) return sourceFiles(path);
+  return /\.tsx?$/.test(entry.name) && !entry.name.endsWith(".test.ts") ? [path] : [];
+});
+const relative = (path: string): string => path.slice(sourceRoot.length).replace(/\\/g, "/");
+/** A component's own comment quoting the markup it no longer writes must not read
+ *  as the markup — the same rule `vocabulary.test.ts` scans under. */
+const stripSource = (code: string): string =>
+  code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`\\])\/\/[^\n]*/g, "$1");
 
 const stripComments = (css: string): string => css.replace(/\/\*[\s\S]*?\*\//g, "");
 const COLOUR = /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/;
@@ -174,3 +188,42 @@ test("buttons keep a visible focus ring and a redrawn disabled state", () => {
   assert.match(disabled, /border:[^;]*dashed/);
   assert.match(disabled, /cursor:\s*not-allowed/);
 });
+
+// A dialog is four behaviours, not a class name, and three of the four shipped
+// modals had only the markup: no trap, no Escape, no focus restore. The fix is
+// worth nothing if the next modal is hand-rolled again, so the scan is the rule.
+
+test("only ui/Modal.tsx builds a dialog", () => {
+  const files = sourceFiles(sourceRoot).filter((file) => relative(file) !== "ui/Modal.tsx");
+  assert.ok(files.length > 10, `expected to scan the client source tree, found ${files.length} files`);
+  const offenders = (pattern: RegExp): string[] =>
+    files.filter((file) => pattern.test(stripSource(readFileSync(file, "utf8")))).map(relative);
+  assert.deepEqual(offenders(/role="(?:dialog|alertdialog)"/), [], "render <Modal> instead of writing role=dialog");
+  // Catches the other half: a scrim and a card with the ARIA left off is still a
+  // hand-rolled dialog, and a `role`-only scan would wave it through.
+  assert.deepEqual(offenders(/className="modal-(?:backdrop|card)/), [], "the scrim and the card belong to the primitive");
+});
+
+test("the modal primitive names itself, traps Tab, cancels on Escape and gives focus back", () => {
+  const modal = component("Modal.tsx");
+  assert.match(modal, /aria-modal="true"/);
+  assert.match(modal, /aria-labelledby=\{titleId\}/, "the dialog is named by its own title, not a duplicated string");
+  assert.match(modal, /event\.key === "Escape"/);
+  assert.match(modal, /event\.key !== "Tab"/);
+  // The cleanup has to do both jobs: an unhooked listener that forgets the focus
+  // leaves the player's caret on a node that no longer exists.
+  assert.match(modal, /return \(\) => \{[^}]*removeEventListener\("keydown"[^}]*\.focus\?\.\(\)/);
+  const focusable = /focusableSelector = "([^"]+)"/.exec(modal)?.[1] ?? "";
+  for (const control of ["button", "input", "select", "textarea", "summary"]) {
+    assert.ok(focusable.split(", ").includes(control), `${control} is unreachable inside the trap`);
+  }
+  assert.match(focusable, /\[tabindex\]:not\(\[tabindex='-1'\]\)/, "an opted-in tabindex must cycle, an opted-out one must not");
+  // The scrim, the card and the action band are the primitive's rules now. Named
+  // here so the legacy-CSS sweep cannot take them along with the modals they used
+  // to belong to.
+  const shell = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  for (const name of ["modal-backdrop", "modal-card", "modal-actions"]) {
+    assert.match(shell, selector(name), `<Modal> asks for .${name}, which has no rule`);
+  }
+});
+

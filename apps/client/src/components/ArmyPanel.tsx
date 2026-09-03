@@ -3,6 +3,7 @@ import { gameRules, recruitmentCost } from "@kingdoms/shared";
 import type { Army, UnitType } from "@kingdoms/shared";
 import { useGame } from "../state.js";
 import { usePanelAnchor } from "../panel-anchors.js";
+import { Modal } from "../ui/Modal.js";
 import { affordable } from "../validation.js";
 import { formatCost } from "../vocabulary.js";
 
@@ -64,47 +65,39 @@ export function ArmyPanel() {
     </div>
 
     {modal?.kind === "recruit" && (
-      <div className="modal-backdrop" onClick={() => setModal(null)}>
-        <div className="modal-card" role="dialog" aria-label="Tuyển quân" onClick={event => event.stopPropagation()}>
-          <h3>Tuyển quân</h3>
-          {(["infantry", "cavalry", "archer"] as RecruitUnitId[]).map(id => (
-            <label key={id} className="recruit-choice">
-              <input type="radio" name="recruit-unit" checked={recruitUnit === id} onChange={() => setRecruitUnit(id)} />
-              <span><strong>{gameRules.recruitment[id].name}</strong> · {gameRules.recruitment[id].description}</span>
-            </label>
-          ))}
-          <p className="hint">Số lượng: {count}</p>
-          <input type="range" min={gameRules.army.recruitAmountMin} max={gameRules.army.recruitAmountMax} step={gameRules.army.recruitAmountStep} value={count} onChange={event => setCount(Number(event.target.value))} aria-label="Số lượng" />
-          <p className="hint">Chi phí: {formatCost(unitCost)}</p>
-          {!costCheck.ok && <p className="hint validation-reason">{costCheck.reason}</p>}
-          <div className="modal-actions">
-            <button onClick={() => setModal(null)}>Hủy</button>
-            <button disabled={!costCheck.ok || city.frozen} autoFocus onClick={() => runCommand({ kind: "recruit", label: "Tuyển quân", path: "/api/commands/recruit", body: { cityId: city.id, unitType: recruitUnit, amount: count } }).then(() => setModal(null)).catch(() => undefined)}>Tuyển {count} {gameRules.recruitment[recruitUnit].name}</button>
-          </div>
-        </div>
-      </div>
+      <Modal title="Tuyển quân" onClose={() => setModal(null)} actions={<>
+        <button onClick={() => setModal(null)}>Hủy</button>
+        <button disabled={!costCheck.ok || city.frozen} onClick={() => runCommand({ kind: "recruit", label: "Tuyển quân", path: "/api/commands/recruit", body: { cityId: city.id, unitType: recruitUnit, amount: count } }).then(() => setModal(null)).catch(() => undefined)}>Tuyển {count} {gameRules.recruitment[recruitUnit].name}</button>
+      </>}>
+        {(["infantry", "cavalry", "archer"] as RecruitUnitId[]).map(id => (
+          <label key={id} className="recruit-choice">
+            <input type="radio" name="recruit-unit" checked={recruitUnit === id} onChange={() => setRecruitUnit(id)} />
+            <span><strong>{gameRules.recruitment[id].name}</strong> · {gameRules.recruitment[id].description}</span>
+          </label>
+        ))}
+        <p className="hint">Số lượng: {count}</p>
+        <input type="range" min={gameRules.army.recruitAmountMin} max={gameRules.army.recruitAmountMax} step={gameRules.army.recruitAmountStep} value={count} onChange={event => setCount(Number(event.target.value))} aria-label="Số lượng" />
+        <p className="hint">Chi phí: {formatCost(unitCost)}</p>
+        {!costCheck.ok && <p className="hint validation-reason">{costCheck.reason}</p>}
+      </Modal>
     )}
 
     {modal?.kind === "attack" && (
-      <div className="modal-backdrop" onClick={() => setModal(null)}>
-        <div className="modal-card" role="dialog" aria-label="Tấn công" onClick={event => event.stopPropagation()}>
-          <h3>Tấn công</h3>
-          <p className="hint">Chọn mục tiêu gần nhất. Quân đội sẽ truy đuổi mục tiêu đang chạy; lệnh có thể bị hủy bất kỳ lúc nào.</p>
-          <select value={targetId} onChange={event => setTargetId(event.target.value)} aria-label="Mục tiêu tấn công">
-            <option value="">Chọn mục tiêu…</option>
-            {enemyArmies
-              .map(target => ({ target, distance: Math.abs(target.x - city.x) + Math.abs(target.y - city.y) }))
-              .sort((a, b) => a.distance - b.distance)
-              .map(({ target, distance }) => (
-                <option value={target.id} key={target.id}>{targetName(target)} · {gameRules.recruitment[target.unitType as RecruitUnitId]?.name ?? target.unitType} · {target.strength} ({distance} ô)</option>
-              ))}
-          </select>
-          <div className="modal-actions">
-            <button onClick={() => setModal(null)}>Hủy</button>
-            <button disabled={!targetId || city.frozen} autoFocus onClick={() => runCommand({ kind: "attack", label: "Ra lệnh tấn công", path: "/api/commands/attack", body: { armyId: modal.armyId, targetArmyId: targetId } }).then(() => setModal(null)).catch(() => undefined)}>Ra lệnh tấn công</button>
-          </div>
-        </div>
-      </div>
+      <Modal title="Tấn công" onClose={() => setModal(null)} actions={<>
+        <button onClick={() => setModal(null)}>Hủy</button>
+        <button disabled={!targetId || city.frozen} onClick={() => runCommand({ kind: "attack", label: "Ra lệnh tấn công", path: "/api/commands/attack", body: { armyId: modal.armyId, targetArmyId: targetId } }).then(() => setModal(null)).catch(() => undefined)}>Ra lệnh tấn công</button>
+      </>}>
+        <p className="hint">Chọn mục tiêu gần nhất. Quân đội sẽ truy đuổi mục tiêu đang chạy; lệnh có thể bị hủy bất kỳ lúc nào.</p>
+        <select value={targetId} onChange={event => setTargetId(event.target.value)} aria-label="Mục tiêu tấn công">
+          <option value="">Chọn mục tiêu…</option>
+          {enemyArmies
+            .map(target => ({ target, distance: Math.abs(target.x - city.x) + Math.abs(target.y - city.y) }))
+            .sort((a, b) => a.distance - b.distance)
+            .map(({ target, distance }) => (
+              <option value={target.id} key={target.id}>{targetName(target)} · {gameRules.recruitment[target.unitType as RecruitUnitId]?.name ?? target.unitType} · {target.strength} ({distance} ô)</option>
+            ))}
+        </select>
+      </Modal>
     )}
   </section>;
 }
