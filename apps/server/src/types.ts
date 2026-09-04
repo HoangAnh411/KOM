@@ -25,12 +25,21 @@ export type GameState = {
   seasonHistory: Array<{ seasonId: string; rankings: Array<{ playerId: string; rank: number; overall: number; scores: Scores }>; closedAt: string }>;
   legacyRecords: LegacyRecord[];
   battleReports: BattleReport[];
+  /** Tiles that differ from the authored world in `@kingdoms/shared`, keyed `"x,y"` — not the
+   *  world itself. Read it through `terrainOf()`, which falls through to `terrainAt()`. Only
+   *  `map_tiles` rows put anything here, so today it is empty. */
   terrainMap: Record<string, TerrainType>;
   alliances: Alliance[];
   allianceVotes: AllianceVote[];
   treaties: Treaty[];
   diplomacyThroughput: Record<string, DiplomacyStats>;
   militaryThroughput: Record<string, MilitaryStats>;
+  /** Who holds each province, keyed by province code — recomputed every tick by
+   *  `recalculateScores`, not accumulated. Cached here rather than derived in `getSnapshot`
+   *  because that runs once per connected viewer: one pass over the armies per tick instead
+   *  of one per spectator. Persisted with the rest of the state only incidentally; a load
+   *  that predates the field starts empty and the next tick fills it in. */
+  regionControl: Record<string, string>;
   spyMissions: SpyMission[];
   worldEvents: WorldEvent[];
   counterIntelActive: Record<string, string>;

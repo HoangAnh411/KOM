@@ -7,7 +7,7 @@ import { CombatRepository } from "./combat.js";
 import { EventLedger } from "./event-ledger.js";
 
 const unitTypes: UnitType[] = ["infantry", "cavalry", "archer"];
-const mapExtent = 20;
+const mapExtent = gameRules.map.extent;
 
 function hash(value: string): number { return Array.from(value).reduce((total, char) => (Math.imul(total, 31) + char.charCodeAt(0)) >>> 0, 2166136261); }
 

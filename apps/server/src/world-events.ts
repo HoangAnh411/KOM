@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Army, UnitType, WorldEvent, WorldEventType } from "@kingdoms/shared";
+import { gameRules } from "@kingdoms/shared";
 import type { GameState } from "./types.js";
 import { CombatRepository } from "./combat.js";
 import { EventLedger } from "./event-ledger.js";
@@ -24,8 +25,13 @@ export class WorldEventEngine {
   }
 
   spawn(state: GameState, eventType: WorldEventType, seed: number, now = Date.now()): WorldEvent {
-    const rng = random(seed); const x = Math.floor(rng() * 16) + 2; const y = Math.floor(rng() * 16) + 2;
-    const affectedTiles = [{ x, y }, { x: x + 1, y }, { x: x - 1, y }, { x, y: y + 1 }, { x, y: y - 1 }].filter(tile => tile.x >= 0 && tile.x < 20 && tile.y >= 0 && tile.y < 20);
+    // The epicentre is drawn inside the placement margin so all five tiles of the cross
+    // land on the board, and the filter below is the belt to that braces. Both read the
+    // one map rule instead of spelling out the world's width a second time.
+    const { extent, placementMargin } = gameRules.map;
+    const span = extent - placementMargin * 2;
+    const rng = random(seed); const x = Math.floor(rng() * span) + placementMargin; const y = Math.floor(rng() * span) + placementMargin;
+    const affectedTiles = [{ x, y }, { x: x + 1, y }, { x: x - 1, y }, { x, y: y + 1 }, { x, y: y - 1 }].filter(tile => tile.x >= 0 && tile.x < extent && tile.y >= 0 && tile.y < extent);
     const [min, max] = eventDuration[eventType];
     const event: WorldEvent = {
       id: randomUUID(), kingdomId: state.kingdom.id, eventType, affectedTiles,

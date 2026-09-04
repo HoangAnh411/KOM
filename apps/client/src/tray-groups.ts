@@ -18,6 +18,7 @@
 // That is why every command carries a `Check` and no builder filters its list.
 
 import type { Army, City, ResourceNode, WorldSnapshot } from "@kingdoms/shared";
+import { gameRules, regionAt, regions } from "@kingdoms/shared";
 import type { ClientCommand } from "./commands.js";
 import type { MapSelection } from "./map.js";
 import type { PanelAnchorId } from "./panel-anchors.js";
@@ -216,6 +217,30 @@ function cityGroup(snapshot: WorldSnapshot, cityId: string, playerId: string): T
 
 function tileGroup(snapshot: WorldSnapshot, x: number, y: number): TrayGroup {
   const node = nodeAt(snapshot, x, y);
+  // A seat is the one tile in eighty that decides who scores the province, so it
+  // gets its own group rather than reading as empty ground. The left half already
+  // names the province and its holder; what the tray adds is the rule — the seat
+  // is held by standing an army on or beside it — and the panel that owns the
+  // army you would send.
+  //
+  // Tested before the mine, and that order is the whole of it: every one of the
+  // sixteen seats is also an anchor — twelve mines and the four markets — so asking
+  // about the mine first made this branch dead code for twelve provinces, and the
+  // tray answered "Điểm khai thác" for the tile a province is won on. Nothing about
+  // the mine is lost by yielding the title: the left half names it and prints what
+  // is left in it, and the harvest route stays here as its own button.
+  const seat = seatAt(x, y);
+  if (seat) {
+    return {
+      id: `seat-${seat.code}`,
+      title: `Ô lỵ sở ${seat.name}`,
+      icon: "banner",
+      hint: `Đóng quân trong ${gameRules.territory.captureRadius} ô quanh đây để giữ cả vùng.`,
+      commands: node
+        ? [panelCommand("army", "Mở bảng Quân đội"), panelCommand("logistics", "Mở bảng Vận tải")]
+        : [panelCommand("army", "Mở bảng Quân đội")],
+    };
+  }
   if (node) {
     return {
       id: `node-${node.id}`,
@@ -241,6 +266,23 @@ function tileGroup(snapshot: WorldSnapshot, x: number, y: number): TrayGroup {
   };
 }
 
+/** The province a tile belongs to, and who holds it — read from the world authored in
+ *  `@kingdoms/shared` plus the one thing the snapshot carries about territory. Off-map
+ *  coordinates answer `undefined`, which is how the callers below say nothing rather than
+ *  inventing a province for a tile outside the world. */
+const seatAt = (x: number, y: number) => regions.find(region => region.seatX === x && region.seatY === y);
+const provinceDetail = (snapshot: WorldSnapshot, x: number, y: number, playerId: string): string | undefined => {
+  const region = regionAt(x, y);
+  if (!region) return undefined;
+  const holder = (snapshot.regionControl ?? {})[region.code];
+  const who = !holder
+    ? "chưa ai giữ"
+    : holder === playerId
+      ? "bạn đang giữ"
+      : `${snapshot.cities.find(city => city.playerId === holder)?.playerName ?? "người chơi khác"} đang giữ`;
+  return `Vùng ${region.name} · ${who}`;
+};
+
 /** An army carries only its owner's id, so the name has to come from that
  *  player's city — the one place a snapshot spells it out. */
 const ownerLabel = (snapshot: WorldSnapshot, army: Army, playerId: string): string => {
@@ -255,9 +297,10 @@ const ownerLabel = (snapshot: WorldSnapshot, army: Army, playerId: string): stri
 export function traySubject(selection: MapSelection | undefined, snapshot: WorldSnapshot | undefined, playerId: string): TraySubject {
   if (!snapshot || !selection) return { title: "Chưa chọn gì", detail: "Nhấp vào quân đội, thành phố hoặc ô đất trên bản đồ." };
   if (selection.kind === "tile") {
+    const province = provinceDetail(snapshot, selection.x, selection.y, playerId);
     const node = nodeAt(snapshot, selection.x, selection.y);
-    if (node) return { title: `Mỏ ${resourceLabels[node.resourceType]}`, detail: `Còn ${node.remaining}/${node.capacity} · Vị trí (${node.x},${node.y})` };
-    return { title: `Ô đất (${selection.x},${selection.y})`, detail: "Chưa có gì ở ô này." };
+    if (node) return { title: `Mỏ ${resourceLabels[node.resourceType]}`, detail: [`Còn ${node.remaining}/${node.capacity}`, province, `Vị trí (${node.x},${node.y})`].filter(Boolean).join(" · ") };
+    return { title: `Ô đất (${selection.x},${selection.y})`, detail: province ?? "Chưa có gì ở ô này." };
   }
   if (selection.kind === "army") {
     const army = armyIn(snapshot, selection.id);

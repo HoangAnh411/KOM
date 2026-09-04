@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { worldExtent, worldTerrainTypes } from "./world-map.js";
 
 export const factionIds = ["meridian", "bastion", "ravager", "veiled"] as const;
 export type FactionId = (typeof factionIds)[number];
@@ -9,6 +10,26 @@ export const factions: Record<FactionId, { name: string; description: string }> 
   ravager: { name: "Ravager Clans", description: "Cơ động và phục kích logistics." },
   veiled: { name: "Veiled Concord", description: "Tình báo và ngoại giao." }
 };
+
+// === MAP SIZE ===
+//
+// The world is a square grid of `mapExtent × mapExtent` tiles, coordinates
+// `[0..mapExtent-1]` on both axes. This is the only place that number is written
+// down: the server's terrain seed, its raider and world-event spawn scans, the
+// client's hit test and terrain texture, and the move-command validator all read
+// it back off `gameRules.map`, so resizing the world is an edit here and nowhere
+// else. That drift is not hypothetical — the same 20 used to be spelled out in
+// eight places, and `map-size.test.ts` now scans the repo to keep it at one.
+//
+// And the number is not even written here: it is how many rows the authored map in
+// `world-map.ts` has. Resizing the world means authoring a different world, which
+// removes the last way for the size and the map to disagree.
+const mapExtent = worldExtent;
+
+// Tiles kept clear of the world edge. A city needs room for its
+// `minDistanceBetweenCities` ring and a world event for its five-tile cross, so
+// both windows inset by this much instead of each carrying its own bounds.
+const placementMargin = 2;
 
 export const resourceSchema = z.object({ food: z.number().int().nonnegative(), wood: z.number().int().nonnegative(), stone: z.number().int().nonnegative(), iron: z.number().int().nonnegative() });
 export type Resources = z.infer<typeof resourceSchema>;
@@ -45,7 +66,10 @@ export const counterMatrix: Record<UnitType, Record<UnitType, number>> = {
   archer:   { infantry: 0.7, cavalry: 1.5, archer: 1.0 },
 };
 
-export const terrainTypes = ["plains", "forest", "hills", "swamp"] as const;
+/** Re-exported, not restated: the authored map spells its tiles with these four names, and
+ *  a fifth terrain in the grid that the schema rejected would be a map the client draws and
+ *  the server refuses to send. One list, in the file that owns the map. */
+export const terrainTypes = worldTerrainTypes;
 export type TerrainType = (typeof terrainTypes)[number];
 
 export const terrainModifiers: Record<TerrainType, Record<UnitType, number>> = {
@@ -252,11 +276,34 @@ export type OnboardingAckCommand = z.infer<typeof onboardingAckCommandSchema>;
 
 // Protocol version of the world snapshot contract. Clients lock game commands
 // and ask for a refresh when the server speaks a different version.
-export const PROTOCOL_VERSION = 1;
+//
+// Bumped to 2 when the terrain grid left the wire. The snapshot used to carry a
+// tile-by-tile `terrainMap`; the world is now authored in `world-map.ts`, which
+// both sides import, and the snapshot carries only `terrainOverrides` (tiles that
+// differ from it) plus `worldMapDigest` to name which world that is. Both fields
+// are optional, and a missing tile defaults to plains, so *without* this bump the
+// mismatch would be silent in both directions: a v1 client against a v2 server
+// paints the whole world plains, and a v2 client against a v1 server draws the
+// authored map while the server adjudicates battles on the old modulo terrain.
+// Silence is the failure mode the version gate exists to convert into a message.
+//
+// `regionControl` joined the same bump rather than earning a third version: v2 has not
+// shipped yet, and a client that cannot read territory would draw an unheld world — quiet
+// in exactly the way this comment is about.
+export const PROTOCOL_VERSION = 2;
 export const battleHistoryResponseSchema = z.object({ items: z.array(battleReportSchema), nextCursor: z.string().optional() });
 export type BattleHistoryResponse = z.infer<typeof battleHistoryResponseSchema>;
 
-export const snapshotSchema = z.object({ protocolVersion: z.number().int().default(PROTOCOL_VERSION), kingdom: z.object({ id: z.string(), name: z.string() }), season: z.object({ id: z.string(), status: z.enum(["SCHEDULED", "ACTIVE", "FINALIZING", "CLOSED"]), endsAt: z.string() }), cities: z.array(citySchema), caravans: z.array(caravanSchema), armies: z.array(armySchema), heroes: z.array(heroSchema), scores: z.record(scoreSchema), factionCatalog: z.record(z.object({ name: z.string(), description: z.string() })), logistics: logisticsSnapshotSchema, battleReports: z.array(battleReportSchema).optional(), terrainMap: z.record(z.enum(terrainTypes)).optional(), alliances: z.array(allianceSchema).optional(), allianceVotes: z.array(allianceVoteSchema).optional(), treaties: z.array(treatySchema).optional(), spyMissions: z.array(spyMissionSchema).optional(), worldEvents: z.array(worldEventSchema).optional(), onboarding: onboardingProgressSchema.optional() });
+// Who holds the sixteen provinces: province code → controller player id, held ones only.
+// Deliberately *only* the controller. A province's name, seat and tile count are authored in
+// `world-map.ts`, which the client imports, so putting them on the wire every tick would be
+// the same mistake `terrainMap` was — sixteen rows of never-changing text at 1000ms. An
+// absent code reads as unheld, which is also the state at season start, so `{}` is honest
+// rather than a gap. Optional for the same reason every field added since v1 is: a snapshot
+// replayed from an older ledger row has no opinion about territory.
+export const regionControlSchema = z.record(z.string());
+
+export const snapshotSchema = z.object({ protocolVersion: z.number().int().default(PROTOCOL_VERSION), kingdom: z.object({ id: z.string(), name: z.string() }), season: z.object({ id: z.string(), status: z.enum(["SCHEDULED", "ACTIVE", "FINALIZING", "CLOSED"]), endsAt: z.string() }), cities: z.array(citySchema), caravans: z.array(caravanSchema), armies: z.array(armySchema), heroes: z.array(heroSchema), scores: z.record(scoreSchema), factionCatalog: z.record(z.object({ name: z.string(), description: z.string() })), logistics: logisticsSnapshotSchema, battleReports: z.array(battleReportSchema).optional(), worldMapDigest: z.string().optional(), terrainOverrides: z.record(z.enum(terrainTypes)).optional(), regionControl: regionControlSchema.optional(), alliances: z.array(allianceSchema).optional(), allianceVotes: z.array(allianceVoteSchema).optional(), treaties: z.array(treatySchema).optional(), spyMissions: z.array(spyMissionSchema).optional(), worldEvents: z.array(worldEventSchema).optional(), onboarding: onboardingProgressSchema.optional() });
 export type WorldSnapshot = z.infer<typeof snapshotSchema>;
 
 // === PHASE 7B: COMMAND RESPONSE CONTRACT ===
@@ -289,7 +336,7 @@ export const ambushCommandSchema = z.object({ commandId: z.string().min(8), cara
 // === PHASE 3: COMBAT COMMAND SCHEMAS ===
 export const attackCommandSchema = z.object({ commandId: z.string().min(8), armyId: z.string(), targetArmyId: z.string() });
 export type AttackCommand = z.infer<typeof attackCommandSchema>;
-export const moveArmyCommandSchema = z.object({ commandId: z.string().min(8), armyId: z.string(), targetX: z.number().int().min(0).max(19), targetY: z.number().int().min(0).max(19) });
+export const moveArmyCommandSchema = z.object({ commandId: z.string().min(8), armyId: z.string(), targetX: z.number().int().min(0).max(mapExtent - 1), targetY: z.number().int().min(0).max(mapExtent - 1) });
 export type MoveArmyCommand = z.infer<typeof moveArmyCommandSchema>;
 export const recruitCommandSchema = z.object({ commandId: z.string().min(8), cityId: z.string(), unitType: z.enum(unitTypes), amount: z.number().int().min(10).max(50) });
 export type RecruitCommand = z.infer<typeof recruitCommandSchema>;
@@ -364,7 +411,12 @@ export function overallScore(scores: Pick<Scores, "military" | "economy" | "dipl
 
 export function militaryScore(stats: { victories: number; draws: number; tilesControlled: number; successfulDefenses: number }): number {
   const battleScore = Math.min(400, stats.victories * 50 + stats.draws * 10);
-  const territoryScore = Math.min(300, stats.tilesControlled * 5);
+  // Scaled against a quarter of the world rather than a flat 5 points a tile. The flat rate
+  // saturated at 60 tiles — less than one of the sixteen provinces — so holding a single
+  // province paid the same 300 as holding half the map, which turned 30% of the military axis
+  // into a switch with two positions. `gameRules.territory` is read at call time so the rule
+  // has one home; nothing calls this during module evaluation.
+  const territoryScore = Math.min(300, Math.floor((stats.tilesControlled * 300) / gameRules.territory.fullScoreTiles));
   const defenseScore = Math.min(300, stats.successfulDefenses * 40);
   return Math.min(1000, battleScore + territoryScore + defenseScore);
 }
@@ -409,8 +461,10 @@ export const gameRules = {
     minTilesFromCity: 4,
   } as const,
   market: {
-    name: "Thương cảng Meridian",
-    anchorX: 10, anchorY: 10,
+    /** How far a city must sit from a port. The ports themselves — where they are and what they
+     *  are called — are authored in `world-map.ts`, four of them now, so this rule carries no
+     *  name or tile of its own that could drift away from the map. Prose that has to say "a port"
+     *  before the player picks one says it in the player's language, in the panel that asks. */
     minTilesFromCity: 3,
   } as const,
   supply: {
@@ -421,10 +475,55 @@ export const gameRules = {
     attritionBelowSupply: 25, attritionStrengthPerMinute: 1, attritionMoralePerMinute: 2,
     min: 0, max: 100,
   } as const,
+  map: {
+    /** Grid is `extent × extent`; valid tiles are `[0..extent-1]` on both axes. */
+    extent: mapExtent,
+    placementMargin,
+    /** RenderTexture resolution the client bakes terrain at (`apps/client/src/map.ts`).
+     *  It belongs to the rules because it is half of the arithmetic that caps
+     *  `extent`: the bake is a single texture `(56 · extent + 2) · resolution` px
+     *  wide, and WebGL only guarantees 4096. At extent 36 that is 4036 px, with 60
+     *  to spare; extent 40 would need a chunked renderer.
+     *  `map-geometry.test.ts` asserts the ceiling so it stays a test, not luck. */
+    textureResolution: 2,
+  } as const,
+  logistics: {
+    /** How far a city may reach a mine. This was a bare `10` inside `logistics.ts`, which was half
+     *  the width of the 20-wide world it was written for — with three mines in the middle of that
+     *  world it never refused anything. Written as half the extent it goes on meaning the same
+     *  thing on a map three times the size; left at 10 it would strand a third of the city sites
+     *  with no iron within reach, and a player there runs out after the starter package with no
+     *  local source at all. Which resources a city can actually reach is now a placement rule, so
+     *  lowering this deliberately — to make trade the answer for what you cannot mine — shrinks
+     *  capacity rather than quietly producing dead-end cities: 12 gives 120 sites, 14 gives 130,
+     *  this gives 135. */
+    harvestRange: mapExtent / 2,
+  } as const,
+  territory: {
+    /** Manhattan distance from a province seat an army must be within to claim the province.
+     *  One tile: standing beside the seat, not merely somewhere in the province — a province is
+     *  eighty tiles and "somewhere in it" would make control a thing you drift into. Nearest
+     *  live army wins, a tie leaves the province unheld, and NPCs never contest (a raider
+     *  parked on a seat would otherwise make a province nobody can hold). */
+    captureRadius: 1,
+    /** Tiles that earn the full 300 territory points: a quarter of the world, which is about
+     *  four of the sixteen provinces (they run 79–83 tiles, so it is four of the larger ones or
+     *  a bit more of the smaller). Written as a share of the map so resizing the world keeps the
+     *  meaning instead of quietly making territory cheaper or dearer. */
+    fullScoreTiles: (mapExtent * mapExtent) / 4,
+  } as const,
   cityPlacement: {
-    minX: 2, maxX: 17, minY: 2, maxY: 17,
+    minX: placementMargin, maxX: mapExtent - 1 - placementMargin,
+    minY: placementMargin, maxY: mapExtent - 1 - placementMargin,
+    /** Not loosened, and that is the point: cities stay three tiles apart, so the capacity of a
+     *  kingdom is a property of how many anchors the map authors, not of how tightly towns may be
+     *  packed. */
     minDistanceBetweenCities: 3,
-    maxDistanceToHubOrNode: 2,
+    /** Reach from a port or a mine. Two gave 111 sites on the authored world — under the 120 the
+     *  load-test profile seeds — and buying the difference with more anchors would mean 49 of them,
+     *  past what is worth drawing by hand. Three gives 135, and a city three tiles from its mine is
+     *  still a city that grew around it. */
+    maxDistanceToHubOrNode: 3,
   } as const,
 } as const;
 
@@ -437,4 +536,10 @@ export function recruitmentCost(unitType: RecruitUnitId, amount: number): { wood
   const multiplier = amount / gameRules.army.recruitAmountStep;
   return { wood: cost.wood * multiplier, stone: cost.stone * multiplier, iron: cost.iron * multiplier };
 }
+
+/** The authored world, re-exported through the barrel because the package has no subpath
+ *  exports: `@kingdoms/shared` is the one door, and both the server's terrain seed and the
+ *  client's terrain bake come through it — which is the mechanism that stops them drifting
+ *  apart. Kept at the bottom so `world-map.ts`'s own imports of nothing stay obvious. */
+export * from "./world-map.js";
 

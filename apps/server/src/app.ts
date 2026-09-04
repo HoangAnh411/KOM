@@ -31,7 +31,9 @@ import {
   respondTreatyCommandSchema,
   routeCommandSchema,
   setFormationCommandSchema,
+  gameRules,
   PROTOCOL_VERSION,
+  worldMapDigest,
   type BattleHistoryResponse,
   type BattleReport,
   type ServerMessage,
@@ -107,7 +109,14 @@ export function createServer(): { app: FastifyInstance; store: GameStore; start:
       const named = { ...city, playerName: store.findPlayer(city.playerId)?.displayName ?? "Unknown" };
       return viewerId && city.playerId !== viewerId ? { ...named, resources: { food: 0, wood: 0, stone: 0, iron: 0 }, buildings: {}, queues: [] } : named;
     });
-    return { protocolVersion: PROTOCOL_VERSION, kingdom: store.snapshot.kingdom, season: { id: store.snapshot.season.id, status: store.snapshot.season.status, endsAt: store.snapshot.season.endsAt }, cities, caravans: store.logistics.caravans(), armies: store.snapshot.armies, heroes: store.snapshot.heroes, scores: store.snapshot.scores, factionCatalog: factions, logistics: store.logistics.snapshot(), battleReports, terrainMap: store.snapshot.terrainMap, alliances: store.snapshot.alliances, allianceVotes: store.snapshot.allianceVotes, treaties: store.snapshot.treaties, spyMissions: store.snapshot.spyMissions.filter(m => !viewerId || m.actorPlayerId === viewerId), worldEvents: store.snapshot.worldEvents, onboarding: store.onboarding.progressFor(viewerId) };
+    // The world itself is not in here. It is authored in `@kingdoms/shared` and both
+    // sides import it, so the snapshot names the world (`worldMapDigest`) and carries
+    // only the tiles that differ from it (`terrainOverrides`, empty until something
+    // writes `map_tiles`). This field used to be a tile-by-tile `terrainMap`: 6 323
+    // bytes of never-changing data to every viewer every tick, and 21 061 at 36×36.
+    // `regionControl` follows the same rule: sixteen province names, seats and tile
+    // counts are authored data the client already has, so only the controller travels.
+    return { protocolVersion: PROTOCOL_VERSION, kingdom: store.snapshot.kingdom, season: { id: store.snapshot.season.id, status: store.snapshot.season.status, endsAt: store.snapshot.season.endsAt }, cities, caravans: store.logistics.caravans(), armies: store.snapshot.armies, heroes: store.snapshot.heroes, scores: store.snapshot.scores, factionCatalog: factions, logistics: store.logistics.snapshot(), battleReports, worldMapDigest: worldMapDigest(), terrainOverrides: store.snapshot.terrainMap, regionControl: store.snapshot.regionControl, alliances: store.snapshot.alliances, allianceVotes: store.snapshot.allianceVotes, treaties: store.snapshot.treaties, spyMissions: store.snapshot.spyMissions.filter(m => !viewerId || m.actorPlayerId === viewerId), worldEvents: store.snapshot.worldEvents, onboarding: store.onboarding.progressFor(viewerId) };
   };
   let pendingBroadcast = false; const requestBroadcast = () => { pendingBroadcast = true; };
   const send = (socket: WebSocket, message: ServerMessage) => { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message)); }; const doBroadcast = () => { for (const [client, playerId] of clients) send(client, { type: "SNAPSHOT", payload: getSnapshot(playerId) }); };
@@ -169,7 +178,8 @@ export function createServer(): { app: FastifyInstance; store: GameStore; start:
     const event = store.worldEvents.spawn(store.snapshot, "mob_migration", 0x7cba771e, now);
     const target = store.snapshot.armies.find(army => army.sourceWorldEventId === event.id);
     if (!target) return reply.code(500).send({ code: "TARGET_SPAWN_FAILED" });
-    target.x = city.x <= 16 ? city.x + 3 : city.x - 3;
+    // Park the mob three tiles from the city, on whichever side is still on the board.
+    target.x = city.x + 3 <= gameRules.map.extent - 1 ? city.x + 3 : city.x - 3;
     target.y = city.y;
     target.strength = 5;
     target.nextActionAt = new Date(now + 60 * 60 * 1000).toISOString();

@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { GameStore } from "./store.js";
-import { gameRules } from "@kingdoms/shared";
+import { gameRules, militaryScore, regionTileCounts, regions } from "@kingdoms/shared";
 
 test("build commands enforce ownership, costs, and the two-queue limit", () => {
   const store = new GameStore();
@@ -123,4 +123,33 @@ test("a build that fails on cost leaves its commandId claimable", async () => {
   assert.equal(city().queues.length, 1);
   assert.equal((await issue()).result, "already_processed", "and only applies once");
   assert.equal(city().queues.length, 1);
+});
+
+// The 300 territory points of `militaryScore` had no writer until now: `militaryThroughput` rows
+// were created by `combat.ts` when a player first fought, so a player who never fought could not
+// score territory at all, and one who did carried a `tilesControlled` that never moved off zero.
+test("territory score follows where armies stand, and needs no battle to exist", () => {
+  const store = new GameStore();
+  const player = store.snapshot.players[0]!;
+  const army = store.snapshot.armies.find(item => item.ownerPlayerId === player.id)!;
+  const province = regions.find(region => region.name === "Cửa Chợ Meridian")!;
+  const tiles = regionTileCounts()[province.code]!;
+  const stats = () => store.snapshot.militaryThroughput[player.id];
+  const military = () => store.snapshot.scores[player.id]!.military;
+
+  store.recalculateScores();
+  assert.equal(stats(), undefined, "no battle and no ground held is still no row");
+  assert.equal(military(), 0);
+
+  army.x = province.seatX; army.y = province.seatY;
+  store.recalculateScores();
+  assert.equal(stats()!.tilesControlled, tiles, "a row appears the moment the province is held");
+  assert.equal(stats()!.victories, 0, "and it did not have to be won in a battle");
+  assert.equal(military(), militaryScore({ victories: 0, draws: 0, tilesControlled: tiles, successfulDefenses: 0 }));
+  assert.ok(military() > 0 && military() < 300, `one province pays ${military()}, which is neither nothing nor the cap`);
+
+  army.x = 0; army.y = 0;
+  store.recalculateScores();
+  assert.equal(stats()!.tilesControlled, 0, "marching away gives the province up");
+  assert.equal(military(), 0);
 });

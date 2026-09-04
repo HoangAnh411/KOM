@@ -35,6 +35,7 @@ Danh sách để đối chiếu khi review, không phải script để chạy ta
 | `012_outbox_worker.sql` | outbox retry/claim/dead-letter + partial index cho pending và DLQ |
 | `013_web_playable_alpha.sql` | market hub (một/kingdom), NPC raider, attack pursuit, supply zone, onboarding persisted, city placement |
 | `014_web_closed_alpha.sql` | partial index `battle_reports (attacker_id\|defender_id, created_at DESC, id DESC)` cho keyset pagination của `/api/battles` |
+| `015_world_map_36.sql` | bốn thương cảng mỗi kingdom: bỏ unique index `market_hubs (kingdom_id)` của `013`, thay bằng index thường. Bản đồ 36×36 nằm ở code (`packages/shared/src/world-map.ts`), không có bảng nào cho nó |
 
-`012`–`014` viết idempotent (`IF NOT EXISTS`), an toàn cả trên database mới và
+`012`–`015` viết idempotent (`IF NOT EXISTS`), an toàn cả trên database mới và
 database đã có `001`–`011`; điều đó **không** miễn cho việc chạy qua runner.

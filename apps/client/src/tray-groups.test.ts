@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
-import { gameRules } from "@kingdoms/shared";
+import { gameRules, regions } from "@kingdoms/shared";
 import type { Army, City, ResourceNode, WorldSnapshot } from "@kingdoms/shared";
 import type { MapSelection } from "./map.js";
 import type { InteractionMode } from "./state.js";
@@ -208,6 +208,57 @@ test("a tile says what is on it, and a resource node says what to do about it", 
   const empty = only({ kind: "tile", x: 18, y: 18 }, snapshot);
   assert.deepEqual(empty.commands, []);
   assert.ok((empty.hint?.length ?? 0) > 0);
+});
+
+test("a province seat is not empty ground, and says what standing there is worth", () => {
+  const seat = regions[0]!;
+  const group = only({ kind: "tile", x: seat.seatX, y: seat.seatY });
+  assert.notEqual(group.id, `tile-${seat.seatX}-${seat.seatY}`, "one tile in eighty decides a province — it cannot read as dirt");
+  assert.match(group.title, new RegExp(seat.name), "the seat names the province it holds");
+  assert.deepEqual(group.commands.map(command => command.intent), [{ kind: "panel", anchor: "army" }]);
+  // The radius comes from the rules, not from a number retyped here: the placement test
+  // above this file's history already drifted once by restating a constant of the rules.
+  assert.match(group.hint ?? "", new RegExp(String(gameRules.territory.captureRadius)), "the hint must state the capture rule");
+});
+
+test("a seat that is also a mine is still a seat, and keeps the harvest route", () => {
+  // The case that shipped broken, and the only case that occurs: all sixteen seats are
+  // anchors — twelve mines and the four markets — so a tray that asked about the mine
+  // first called the tile a province is won on "Điểm khai thác" for twelve provinces.
+  const seat = regions[0]!;
+  const onSeat = node({ id: "node-seat", x: seat.seatX, y: seat.seatY });
+  const snapshot = world({ logistics: { ...world().logistics, resourceNodes: [onSeat, node()] } });
+  const group = only({ kind: "tile", x: seat.seatX, y: seat.seatY }, snapshot);
+  assert.match(group.title, new RegExp(seat.name), "the rarer fact takes the title: sixteen seats against thirty-six anchors");
+  assert.deepEqual(
+    group.commands.map(command => command.intent),
+    [{ kind: "panel", anchor: "army" }, { kind: "panel", anchor: "logistics" }],
+    "both routes: the army that takes the province, and the panel that harvests the mine",
+  );
+  // Nothing about the mine is lost — the half that identifies things still names it and
+  // says what is left, which is why the title could be spent on the seat.
+  const subject = traySubject({ kind: "tile", x: seat.seatX, y: seat.seatY }, snapshot, ME);
+  assert.equal(subject.title, `Mỏ ${resourceLabels.wood}`);
+  assert.match(subject.detail, /400\/800/);
+  // And a mine that is not a seat is unchanged.
+  assert.equal(only({ kind: "tile", x: 3, y: 4 }, snapshot).title, "Điểm khai thác");
+});
+
+test("the left half of a tile names its province and who holds it", () => {
+  const seat = regions[0]!;
+  const tile: MapSelection = { kind: "tile", x: seat.seatX, y: seat.seatY };
+  const unheld = traySubject(tile, world(), ME);
+  assert.match(unheld.detail, new RegExp(seat.name));
+  assert.match(unheld.detail, /chưa ai giữ/, "an unclaimed province says so rather than saying nothing");
+  assert.match(traySubject(tile, world({ regionControl: { [seat.code]: ME } }), ME).detail, /bạn đang giữ/);
+  // A rival is named by their city, the same way a rival's army is — the snapshot
+  // carries only the holder's id.
+  assert.match(traySubject(tile, world({ regionControl: { [seat.code]: FOE } }), ME).detail, /Rival đang giữ/);
+  // Never the province code: `A` on screen is a leak of the authoring format.
+  for (const held of [world(), world({ regionControl: { [seat.code]: FOE } })]) {
+    const detail = traySubject(tile, held, ME).detail;
+    assert.ok(!new RegExp(`\\b${seat.code}\\b`).test(detail), `the province code leaked into "${detail}"`);
+  }
 });
 
 test("an order in progress replaces the selection's commands with one way to stop", () => {
