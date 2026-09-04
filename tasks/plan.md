@@ -54,11 +54,11 @@ Không mở nhóm D/E/F/G lúc này.
 | **11** | **UI-3 + UI-4** — lắp cột kingdom rồi drawer từ primitives, **xoá rule bridge** | Bridge `.hud .kom-panel` chỉ xoá được khi **cả** cột và drawer đã lắp từ panel — đúng điều kiện comment của nó ghi từ vòng trước. Đóng luôn nợ kỹ thuật lớn nhất của redesign | **Xong** — `b7ee0a4` + `a7434b6`, Checkpoint B xanh (13/13 bề mặt, client unit 101) |
 | **12** | **UI-5 → UI-7** — lấp hai slot đặt chỗ (`ActivityColumn`, nửa phải `CommandTray`) + chrome/a11y pass | Hai slot đó là hai comment "PR4"/"PR5" mà vòng trước tự để lại; UI-7 đi sau cùng vì nó chạm phần còn lại (toast, frozen, heading, `AuthScreen`, map toolbar) | **Xong** — `c8a4f84` + `0895bd1` + `d19cd0e`, Checkpoint C xanh (client unit 101 → **146**, e2e 21 → **28/28** một lần chạy) |
 | **13** | **M-1 → M-2 → M-4** — một nguồn sự thật cho kích thước, thế giới 36×36 vẽ tay, rồi sức chứa | Owner nhờ "thiết kế map", tức chính **P0.4** đang chặn P0.5 và `[141]`. M-1 đứng trước vì M-2 đổi extent — làm ngược lại là sửa 8 chỗ rồi sửa tiếp, và một trong 8 chỗ (`moveArmyCommandSchema .max(19)`) sẽ ship thành bug im lặng. M-4 đi sớm trong ba task sau M-2 vì nó là cái đang chặn roadmap | **Xong** — `143a0dc` + `f62d64a` + `fa6fd0d`; sức chứa **14 → 135**, P0.4 đóng |
-| **14** | **M-3 + M-5 + M-6** — protocol version, chiếm vùng bằng quân đóng, vùng hiện ra trên màn hình | Ba task còn lại của nhóm M, độc lập với nhau sau M-2. M-6 chờ M-5 vì không có gì để vẽ trước khi có chủ vùng; M-5 đổi **luật tính điểm** nên owner phải thấy (OQ #15) | **M-3 + M-5 xong** — `9603f1b` terrain rời dây + `PROTOCOL_VERSION = 2`; `f3e9b1a` lãnh thổ có người ghi, một tỉnh 73–76 điểm thay vì 300. M-6 chưa làm |
+| **14** | **M-3 + M-5 + M-6** — protocol version, chiếm vùng bằng quân đóng, vùng hiện ra trên màn hình | Ba task còn lại của nhóm M, độc lập với nhau sau M-2. M-6 chờ M-5 vì không có gì để vẽ trước khi có chủ vùng; M-5 đổi **luật tính điểm** nên owner phải thấy (OQ #15) | **Xong** — `9603f1b` terrain rời dây + `PROTOCOL_VERSION = 2`; `f3e9b1a` lãnh thổ có người ghi, một tỉnh 73–76 điểm thay vì 300; `5dd2e87` + `0169655` vùng hiện ra trên map/feed/tray, dây chở **18 byte** thay vì 1 493 mỗi tick. E2E full **29/29**, không spec nào flake |
 
 Bảng trên không có hàng cho **C.1** (misinformation, `fb27af7`): nó chạy giữa Bước 12 và Bước 13 như một mục của nhóm C, không phải một bước của vòng nào.
 
-Còn chặn thật, đã báo thay vì làm dở: **P0.5 + B.3** `[141]` (không `k6`; deps P0.4 **đã hết** — sức chứa 135 ≥ profile 120), **B.2b** + hai job CI Docker (không Docker ở máy này — sau PR.1 thì `recovery-drill` trên CI là chỗ quan sát đầu tiên, cần `workflow_dispatch`), **A.1** phần phiên tay 30–60 phút (người phải chạy), **S-7 / S-8 / S-9** (gộp PR admin kế tiếp / owner chốt con số / owner quyết guard boot), nhóm **D** (owner chốt hướng persistence), phần lớn **Phase 8** và **G.2–G.5** (bundle ID, signing, license). **M-5 đã làm và đã đo** (`f3e9b1a`), nhưng thang điểm mới là **đổi luật**, nên OQ #15 vẫn mở: owner giữ hoặc đổi `fullScoreTiles`, một hằng số và một fixture.
+Còn chặn thật, đã báo thay vì làm dở: **P0.5 + B.3** `[141]` (không `k6`; deps P0.4 **đã hết** — sức chứa 135 ≥ profile 120), **B.2b** + hai job CI Docker (không Docker ở máy này — sau PR.1 thì `recovery-drill` trên CI là chỗ quan sát đầu tiên, cần `workflow_dispatch`), **A.1** phần phiên tay 30–60 phút (người phải chạy), **S-7 / S-8 / S-9** (gộp PR admin kế tiếp / owner chốt con số / owner quyết guard boot), nhóm **D** (owner chốt hướng persistence), phần lớn **Phase 8** và **G.2–G.5** (bundle ID, signing, license). **M-5 đã làm và đã đo** (`f3e9b1a`), nhưng thang điểm mới là **đổi luật**, nên OQ #15 vẫn mở: owner giữ hoặc đổi `fullScoreTiles`, một hằng số và một fixture. Nhóm **M đã xong cả sáu task**; còn đúng **một** việc cần người: kiểm bằng mắt ở 5 viewport (marker seat và tên tỉnh có đè lên quân/thành không) — máy đo được kích thước và zoom gate, không đo được "đọc có rối không".
 
 Lý do **không** đảo Bước 1 lên trước Bước 0: mọi verification của Bước 1 (số test, band layout) đọc từ code trong working tree; nếu tree mất thì tài liệu vừa viết cũng sai theo.
 
@@ -927,25 +927,34 @@ không âm thầm làm lãnh thổ rẻ đi hay đắt lên.
 
 **Files:** `apps/server/src/territory.ts` (mới), `territory.test.ts` (mới), `apps/server/src/store.ts` ⚠️, `packages/shared/src/index.ts` ⚠️, `packages/shared/src/index.test.ts`, `docs/GAME-DESIGN.md` · **Deps:** M-2 · **Scope:** M
 
-### M-6 — Vùng hiện ra trên màn hình
+### M-6 — Vùng hiện ra trên màn hình ✅ `5dd2e87` + `0169655`
 
 Chiếm vùng mà không thấy được thì là điểm số bí ẩn. Phần này dùng **đúng những bề mặt vừa làm xong ở
 nhóm UI**, không thêm panel nào.
 
 **Acceptance criteria:**
-- [ ] Snapshot thêm `regions: Array<{ id, name, seatX, seatY, tileCount, controllerPlayerId | null }>` — 16 hàng, phần tĩnh lấy từ `world-map.ts`, chỉ `controllerPlayerId` đổi theo tick; tăng **≤2 KB** (vẫn nhỏ hơn 6.3 KiB terrain đã bỏ)
-- [ ] Đổi chủ vùng sinh **đúng một** hàng feed, không trùng khi snapshot lặp; không hàng nào in raw ID/enum
-- [ ] `kind` mới `region-captured` / `region-lost` có đủ **một** wording tiếng Việt + **một** glyph + **một** trong 8 state UI (thiếu là test đỏ)
-- [ ] Seat và tên vùng không đè lên quân/thành ở zoom mặc định; tên vùng chỉ hiện khi zoom ≥ 1.0
-- [ ] Chọn một ô thì tray nói **vùng nào, ai giữ**, kèm lý do khoá nếu lệnh không hợp lệ (dùng `{ ok, reason }` sẵn có)
-- [ ] Cột hoạt động và tray **không đổi** chiều cao/bề rộng; map không remount (`canvas.dataset.pr3`)
+- [X] Snapshot chở **`regionControl: Record<mã tỉnh, id người giữ>`**, không phải 16 hàng — **lệch có chủ ý so với plan, và lý do là số đo**: hình đầy đủ tốn **1 493 byte mỗi tick** lúc chưa ai giữ gì, tức đúng khuyết điểm M-3 vừa bỏ (dữ liệu authored đứng yên, gửi cho mọi người xem, mỗi giây). Hình đã chọn: **18 byte** rỗng, **189** ở bốn tỉnh, **705** ở trần cả mười sáu tỉnh. Tên, seat và số ô client đã `import` từ `world-map.ts`. Cả hai hình đều thoả "≤2 KB", nhưng chỉ một hình không lặp lại lỗi cũ
+- [X] Đổi chủ vùng sinh **đúng một** hàng feed — khoá theo id của chính sự thật (`region:<mã>:<người giữ>`), không theo "đổi so với snapshot trước", nên đứng yên sáu giây vẫn một hàng (e2e assert đúng chỗ đó). Không hàng nào in mã tỉnh hay id
+- [X] `region-captured` / `region-lost` có đủ **một** wording + **một** glyph + **một** state; hàng nói **tên tỉnh và số ô** vì số ô là thứ quy ra điểm. Feed chỉ kể tỉnh **của người xem** — trong vương quốc 122 người, người lạ đổi chác vùng sẽ chôn mất hàng người chơi làm được gì đó với; bản đồ vẫn vẽ của tất cả
+- [X] Tên tỉnh gate ở **`regionLabelZoom = 1.0`** (`regionLabelsVisible`, thuần, có test); ở sàn zoom 0.4 mười sáu cái tên cách nhau ~20px và đè lên chính quân/thành mà chúng phải ở phía sau. **Marker không bao giờ tắt** — chỉ chữ tắt, nên không tỉnh nào biến mất. Seat vẽ **viền** hình thoi chứ không tô kín: địa hình dưới seat cũng là thông tin
+- [X] Tray: chọn ô nào trong tỉnh cũng nói **tỉnh nào, ai giữ**; chưa ai giữ thì nói *"chưa ai giữ"* thay vì im lặng. Ô lỵ sở có nhóm riêng, nêu luật `captureRadius`, và **hỏi trước ô mỏ** — xem ghi chú lỗi dưới
+- [X] Cột hoạt động và tray **không đổi** chiều cao/bề rộng; map không remount — ba spec HUD xanh không sửa một assertion nào
 
 **Verification:**
-- [ ] `activity.test.ts` (dedupe, thứ tự, trần 50) + `ui-primitives.test.ts` (một wording + một glyph cho mỗi state mới)
-- [ ] e2e mới: đóng quân cạnh seat → feed hiện hàng "đã kiểm soát …", click hàng nhảy đúng panel
-- [ ] `situation-room.spec.ts` + `activity-feed.spec.ts` + `command-tray.spec.ts` xanh **không sửa**
+- [X] `activity.test.ts` + `ui-primitives.test.ts` xanh; `map-geometry.test.ts` thêm hai test thuần: `seatSig` (ba màu theo *cờ ai bay*, mọi người lạ là **một** marker) và cái gate zoom là **luật** (`minZoom < regionLabelZoom ≤ maxZoom`, và ở sàn thì tắt)
+- [X] `territory.spec.ts` (mới): seat trước khi chiếm → hành quân → **một** hàng `region-captured` kèm tên tỉnh và số ô → đứng yên 6 giây vẫn một hàng → ô bên cạnh nói "bạn đang giữ" → hàng feed nhảy đúng panel Quân đội (sau khi đã rời panel đó). Không toạ độ nào viết cứng: thành từ `/api/bootstrap`, seat từ `regions`, điểm click từ `worldPoint` của chính renderer
+- [X] `situation-room` + `activity-feed` + `command-tray` **8/8**, `map` + `map-command` + `hud-gates` **5/5**, xanh **không sửa**; **full suite 29/29 (3.9m)** trên 3100/5174, config tạm đã xoá — lần này **không** spec nào flake, kể cả `production-loop` season close và `phase7c` treaty break
+- [X] `typecheck` sạch; shared **20/20**, server **160** (145 pass + 15 skip), client **156 → 157/157**
 
-**Files:** `apps/server/src/app.ts` ⚠️, `packages/shared/src/index.ts` ⚠️, `apps/client/src/{map,activity,tray-groups}.ts`, `apps/client/src/ui/vocabulary.ts`, các test tương ứng · **Deps:** M-5 (và M-3 nếu muốn gộp một lần bump protocol) · **Scope:** M
+**Một lỗi thật, do e2e bắt được** (`0169655`): nhóm seat là **code chết ở 12 trong 16 tỉnh** vì
+`tileGroup` hỏi `nodeAt` trước `seatAt`, mà **cả mười sáu seat đều là anchor** (12 mỏ + 4 thương
+cảng) — nên ô quyết định cả một tỉnh tự giới thiệu là "Điểm khai thác". Bốn tỉnh đọc đúng là bốn tỉnh
+có thương cảng làm seat, và đó đúng là bốn tỉnh unit test tình cờ không chạm. Sửa: seat hỏi trước, và
+một ô là cả hai thì mang **cả hai** lệnh (mỏ không mất gì — nửa trái vẫn in `Còn 1000/1000`). Ưu tiên
+theo cái hiếm hơn: 16 seat so với 36 anchor. Bài học: một test thuần chọn `regions[0]` mà `regions[0]`
+tình cờ **không** có mỏ thì nó chứng minh ít hơn nó trông như đang chứng minh.
+
+**Files:** `apps/server/src/app.ts` ⚠️, `packages/shared/src/index.ts` ⚠️, `apps/client/src/{map,map-geometry,activity,tray-groups}.ts`, `apps/client/src/ui/vocabulary.ts`, `e2e/territory.spec.ts` (mới), `docs/GAME-DESIGN.md`, các test tương ứng · **Deps:** M-5 (và M-3 nếu muốn gộp một lần bump protocol) · **Scope:** M
 
 ### Checkpoint A — sau M-1 + M-2 + M-3: thế giới mới đã landing ✅ (còn kiểm mắt 5 viewport)
 - [X] `mapExtent` là chỗ duy nhất khai kích thước; trần texture 4096 là test đỏ được (4036 ở extent 36)
@@ -964,12 +973,13 @@ nhóm UI**, không thêm panel nào.
 - [X] E2E **28/28** xanh trên thế giới mới (cổng 3100/5174, config tạm đã xoá) — gồm `economy`, `army`, `map-command`, `production-loop`
 - [ ] `test:postgres` / `verify:web-alpha` **skipped ở máy này** — và vòng này **có** đổi đường ghi `resource_nodes`/`market_hubs` (+ migration 015) nên rủi ro ở gate đó **không** bằng không
 
-### Checkpoint C — sau M-3 + M-5 + M-6 (lãnh thổ có nghĩa)
+### Checkpoint C — sau M-3 + M-5 + M-6 (lãnh thổ có nghĩa) ✅ (còn kiểm mắt 5 viewport)
 - [X] `PROTOCOL_VERSION = 2`, client cũ bị khoá kèm câu tiếng Việt (`9603f1b`)
 - [X] `tilesControlled` sống, thang điểm mới có test (`f3e9b1a`); **16 tỉnh giờ là dữ liệu thật** — `resource_nodes.region_id` mang id tỉnh thật từ M-2, và luật vùng đọc chính nó. Hai thứ **vẫn là di tích**: bảng `regions` (không dòng nào INSERT) và cột `map_tiles.region_id` (không dòng nào ghi `map_tiles` — nó chỉ được *đọc* làm override terrain). Xoá chúng là một migration, không phải một phần của M-5
 - [X] 2 assertion shared đã đổi fixture, ghi rõ vì sao. Đo lại phát biểu: **một phần tư bản đồ** cho 300 điểm — bốn tỉnh cho 292–300 tuỳ chọn bốn tỉnh nào, một tỉnh cho 73–76
-- [ ] Vùng thấy được trên map + feed; không placeholder nào còn lại — **M-6, chưa làm**
-- [ ] Đo lại ma trận test ở `docs/ROADMAP.md:207` — **đo trước, sửa sau** (đã bị đúng lỗi này một lần)
+- [X] Vùng thấy được trên map + feed + tray (`5dd2e87`, sửa ở `0169655`); không placeholder nào còn lại. Dây chở **18 byte** lúc chưa ai giữ thay vì 1 493 mỗi tick — số đo, không phải ước lượng
+- [X] Đo lại ma trận test ở `docs/ROADMAP.md:207` — **đo trước, sửa sau**: shared **20**, server **160** (145+15 skip), client **157**, e2e **29/29**
+- [ ] Kiểm bằng mắt ở 5 viewport (1920/1440/1280/1024/900) — **chưa**, cần người xem `npm run dev:web`: marker seat + tên tỉnh có đè lên quân/thành không, ở 900px cả thế giới có đọc được không
 
 **Không làm vòng này, và vì sao:** terrain ảnh hưởng di chuyển / thu hoạch / tầm nhìn (là luật
 gameplay mới, không phải hệ quả của việc có bản đồ thật), fog of war (cần luật tình báo mới, và
