@@ -44,10 +44,11 @@ Request:
 
 Server kiểm tra season, rate-limit, schema, ownership, queue capacity, resource cost và idempotency trước khi chấp nhận.
 
-### `GET /health` và `GET /metrics`
+### `GET /health`, `/health/live`, `/health/ready` và `GET /metrics`
 
-- `/health` dùng cho liveness.
-- `/metrics` trả Prometheus-compatible metrics, không yêu cầu auth trong local MVP.
+- `/health` và `/health/live` dùng cho liveness — luôn `{ ok: true }` khi process còn sống.
+- `/health/ready` là readiness thật: trả 503 kèm `reason` khi đang shutdown (`shutting_down`), chưa nạp state (`state_not_loaded`), PostgreSQL hoặc Redis không ping được (`postgres` / `redis`), hoặc tick trễ hơn `tickMs * 3` (`tick_lag`). Nhiều lỗi cùng lúc trả `reason: "unhealthy"` kèm mảng `checks`.
+- `/metrics` trả Prometheus-compatible metrics. Ở `AUTH_MODE=password` cần `Authorization: Bearer <METRICS_TOKEN>`; ở dev mode không yêu cầu auth. Trong prod compose, Caddy không public `/metrics`, `/health/ready` và `/api/dev/*` ra ngoài.
 
 ## WebSocket
 
@@ -55,9 +56,11 @@ Kết nối: `ws://localhost:3000/ws`, sau đó gửi `{ "type": "AUTH", "token"
 
 Server gửi message `SNAPSHOT` chứa kingdom, season, cities, caravans, armies, heroes, scores, alliance, treaty, spy mission của người xem, world event và faction catalog.
 
-Gameplay command đi qua REST; WebSocket dùng cho snapshot và battle report realtime sau khi xác thực.
+Gameplay command đi qua REST; WebSocket dùng cho snapshot và battle report realtime sau khi xác thực. Sau khi `AUTH` thành công, server **bỏ qua mọi message client gửi tiếp** (socket vẫn mở) — không có đường command nào qua WS.
 
-Lỗi có dạng `ERROR` với code ổn định như `RATE_LIMITED`, `QUEUE_LIMIT_REACHED`, `CITY_ACCESS_DENIED`, `INSUFFICIENT_RESOURCES`.
+Nhịp push: broadcast là change-driven và được coalesce vào vòng tick (`tickMs`, mặc định 1000 ms) — `requestBroadcast()` chỉ bật cờ, chính tick mới gửi snapshot. Hệ quả: (a) một REST command tới được các client trong vòng ≤ ~1 tick (đo trên dev in-memory: 0,2–1,0 s), (b) thế giới không thay đổi thì không có push nào, vì tài nguyên chỉ đổi qua harvest/caravan/queue chứ không trickle thụ động.
+
+Lỗi có dạng `ERROR` với code ổn định như `RATE_LIMITED`, `QUEUE_LIMIT_REACHED`, `CITY_ACCESS_DENIED`, `INSUFFICIENT_RESOURCES`. REST command còn có thể trả 503 `DEPENDENCY_UNAVAILABLE` khi dependency bắt buộc (Redis) không dùng được ở production.
 
 ## Quy tắc protocol
 
@@ -68,11 +71,19 @@ Lỗi có dạng `ERROR` với code ổn định như `RATE_LIMITED`, `QUEUE_LIM
 
 ## Rate-limit mặc định
 
-- Read REST: 60/phút/player.
-- Write REST: 20/phút/player.
-- WebSocket command: 30/phút/player.
-- Command tốn kém như spy/battle/caravan reroute: 5/phút/player khi được bật.
-- Login: 10/phút/IP.
+Mỗi hạn mức là một bucket theo `key` trong `apps/server/src/app.ts`; vượt hạn mức trả HTTP 429 với code `RATE_LIMITED`.
+
+- Write command REST: 20/phút/player — key `write:<playerId>` (`app.ts:98`).
+- Command tốn kém (spy 5/phút, combat 10/phút): **hạn mức có nhưng bucket chưa tách** — mọi command vẫn đếm chung `write:<playerId>`, nên tiêu hạn mức bằng lệnh build cũng làm lệnh spy kế tiếp bị 429, và `attack` chạy ở 20 thay vì 10. Cần tách bucket theo nhóm command để khớp thiết kế này.
+- Register: 3/giờ/IP — `register:<ip>`.
+- Login ở `AUTH_MODE=password`: 5 lần mỗi 15 phút, khoá theo IP **và** username — `login:<ip>:<username>`.
+- Login dev (`POST /api/auth/dev`): 30/phút/IP — `login:<ip>`.
+- Refresh: 30/phút/IP — `refresh:<ip>`.
+- Admin: moderation 10/phút/IP, season close 5/phút/IP — `admin:<ip>`.
+- Read REST (`/api/bootstrap`, `/api/season-history`, `/api/battles`): **hiện không có rate-limit**.
+- WebSocket: không có hạn mức command, vì WS không nhận command (xem mục WebSocket).
+
+Ở production limiter **fail-closed**: khi Redis không dùng được, request trả 503 `DEPENDENCY_UNAVAILABLE` chứ không cho qua.
 
 
 ### Logistics commands
