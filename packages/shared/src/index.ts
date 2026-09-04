@@ -398,7 +398,12 @@ export function overallScore(scores: Pick<Scores, "military" | "economy" | "dipl
 
 export function militaryScore(stats: { victories: number; draws: number; tilesControlled: number; successfulDefenses: number }): number {
   const battleScore = Math.min(400, stats.victories * 50 + stats.draws * 10);
-  const territoryScore = Math.min(300, stats.tilesControlled * 5);
+  // Scaled against a quarter of the world rather than a flat 5 points a tile. The flat rate
+  // saturated at 60 tiles — less than one of the sixteen provinces — so holding a single
+  // province paid the same 300 as holding half the map, which turned 30% of the military axis
+  // into a switch with two positions. `gameRules.territory` is read at call time so the rule
+  // has one home; nothing calls this during module evaluation.
+  const territoryScore = Math.min(300, Math.floor((stats.tilesControlled * 300) / gameRules.territory.fullScoreTiles));
   const defenseScore = Math.min(300, stats.successfulDefenses * 40);
   return Math.min(1000, battleScore + territoryScore + defenseScore);
 }
@@ -480,6 +485,19 @@ export const gameRules = {
      *  capacity rather than quietly producing dead-end cities: 12 gives 120 sites, 14 gives 130,
      *  this gives 135. */
     harvestRange: mapExtent / 2,
+  } as const,
+  territory: {
+    /** Manhattan distance from a province seat an army must be within to claim the province.
+     *  One tile: standing beside the seat, not merely somewhere in the province — a province is
+     *  eighty tiles and "somewhere in it" would make control a thing you drift into. Nearest
+     *  live army wins, a tie leaves the province unheld, and NPCs never contest (a raider
+     *  parked on a seat would otherwise make a province nobody can hold). */
+    captureRadius: 1,
+    /** Tiles that earn the full 300 territory points: a quarter of the world, which is about
+     *  four of the sixteen provinces (they run 79–83 tiles, so it is four of the larger ones or
+     *  a bit more of the smaller). Written as a share of the map so resizing the world keeps the
+     *  meaning instead of quietly making territory cheaper or dearer. */
+    fullScoreTiles: (mapExtent * mapExtent) / 4,
   } as const,
   cityPlacement: {
     minX: placementMargin, maxX: mapExtent - 1 - placementMargin,

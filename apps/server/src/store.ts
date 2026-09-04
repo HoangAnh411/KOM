@@ -6,6 +6,7 @@ import { config } from "./config.js";
 import { LogisticsRepository } from "./logistics.js";
 import { EventLedger } from "./event-ledger.js";
 import { CombatRepository } from "./combat.js";
+import { controlledTiles } from "./territory.js";
 import { DiplomacyRepository } from "./diplomacy.js";
 import { EspionageRepository } from "./espionage.js";
 import { WorldEventEngine } from "./world-events.js";
@@ -214,7 +215,14 @@ export class GameStore {
   // reads only these four — losses cost a player nothing on the scoreboard today.
   // That is a design decision belonging to `docs/GAME-DESIGN.md`, not a bug to patch
   // here, so the zero-fallback stops claiming values the formula never looks at.
-  recalculateScores(): void { for (const player of this.state.players) { const delivered = this.logistics.snapshot().throughput[player.id]; const stats = this.state.militaryThroughput[player.id] ?? { victories: 0, draws: 0, tilesControlled: 0, successfulDefenses: 0 }; const economy = Math.min(1000, Math.floor(((delivered?.wood ?? 0) + (delivered?.stone ?? 0) + (delivered?.iron ?? 0) * 2) / 2)); const military = militaryScore(stats); const scores = { military, economy, diplomacy: diplomacyScore(this.diplomacy.getStats(player.id, this.state)), overall: 0 } satisfies Scores; scores.overall = overallScore(scores); this.state.scores[player.id] = scores; } }
+  //
+  // `tilesControlled` is written here rather than accumulated: it is recomputed from where
+  // armies stand this tick, so it falls back to nothing when they march away. An entry is
+  // created the first time a player holds ground, the way `combat.ts` creates one the first
+  // time they fight — which is what stops territory score from depending on having been in a
+  // battle. A player who holds nothing and never fought still gets no row, so
+  // `military_throughput` stays the size of the players who did something.
+  recalculateScores(): void { const held = controlledTiles(this.state.armies, playerId => this.isPlayerFrozen(playerId)); for (const player of this.state.players) { const delivered = this.logistics.snapshot().throughput[player.id]; const tilesControlled = held[player.id] ?? 0; let stats = this.state.militaryThroughput[player.id]; if (!stats && tilesControlled > 0) stats = this.state.militaryThroughput[player.id] = { victories: 0, defeats: 0, draws: 0, strengthDestroyed: 0, strengthLost: 0, tilesControlled: 0, successfulDefenses: 0 }; if (stats) stats.tilesControlled = tilesControlled; const economy = Math.min(1000, Math.floor(((delivered?.wood ?? 0) + (delivered?.stone ?? 0) + (delivered?.iron ?? 0) * 2) / 2)); const military = militaryScore(stats ?? { victories: 0, draws: 0, tilesControlled: 0, successfulDefenses: 0 }); const scores = { military, economy, diplomacy: diplomacyScore(this.diplomacy.getStats(player.id, this.state)), overall: 0 } satisfies Scores; scores.overall = overallScore(scores); this.state.scores[player.id] = scores; } }
   // Per-minute supply cycle: army.Source zones re-evaluated each elapsed minute
   // from last_supply_at; +10 inside own city radius, +15 at own depot radius
   // (higher wins, not stacked), -5 outside; attrition below 25 supply. NPCs and

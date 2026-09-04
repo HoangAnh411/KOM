@@ -106,6 +106,35 @@ hai lưới vuông, chỉ ký tự hợp lệ, mười sáu tỉnh liền khối
 tỉnh, và một **digest vàng** (`worldMapDigest()`) nên một thay đổi với thế giới là một dòng diff
 phải cố ý.
 
+### Chiếm vùng và điểm lãnh thổ
+
+**Một tỉnh thuộc về người có quân sống đứng gần ô lỵ sở nhất, trong bán kính Manhattan
+`gameRules.territory.captureRadius` = 1.** Đứng **cạnh** seat, không phải "đâu đó trong tỉnh": một
+tỉnh rộng tám mươi ô, và "đâu đó trong nó" biến quyền kiểm soát thành thứ người ta trôi vào chứ
+không phải thứ người ta giữ. Hai người cùng khoảng cách → tỉnh **vô chủ**, không ai được điểm: thứ
+tự quân trong state là tình cờ của thứ tự chèn, và một tỉnh đang tranh chấp nên đọc ra là đang
+tranh chấp thay vì một dòng bảng điểm đổi chủ khi một hàng dịch chỗ. Quân **NPC không tranh vùng** —
+cố ý: một raider đậu trên seat sẽ tạo ra một tỉnh không ai giữ được. Quân chết (`strength = 0`),
+quân `frozen` và quân của người bị ban cũng không.
+
+Kiểm soát là **ảnh chụp bàn cờ, không phải tổng cộng dồn**: tính lại mỗi tick, nên tỉnh đổi chủ
+ngay lúc có người tiến vào, và rút quân đi là mất. Đó là điều ngược với `victories` — thứ chỉ tăng —
+và là lý do giữ đất phải **giữ** thật. Luật sống ở `apps/server/src/territory.ts`, thuần, nhận quân
+và trả về ô.
+
+**Thang điểm: `tilesControlled` được chia theo một phần tư bản đồ** (`fullScoreTiles` = 1296/4 =
+324), không phải 5 điểm một ô. Thang cũ bão hoà ở 60 ô — **ít hơn một tỉnh** — nên giữ một tỉnh ăn
+trọn 300 điểm giống như giữ nửa thế giới, biến 30% trục quân sự thành một cái công tắc hai vị trí.
+Thang mới: một tỉnh (79–83 ô) cho **73–76 điểm**, bốn tỉnh cho **292–300** tuỳ chọn bốn tỉnh nào,
+và trần vẫn là 300. Viết thành *tỷ lệ của bản đồ* nên đổi kích thước thế giới không âm thầm làm
+lãnh thổ rẻ đi hay đắt lên.
+
+Trước vòng này, 300 điểm lãnh thổ **không có ai ghi**: hàng `military_throughput` chỉ sinh ra khi
+một người đánh nhau lần đầu (`combat.ts`), nên người chưa từng đánh nhau không thể có điểm lãnh thổ,
+còn người từng đánh thì mang một `tilesControlled` vĩnh viễn bằng 0. Ba phần mười trục quân sự là
+chỗ chết, và bảng `regions` cùng `map_tiles.region_id` là di tích trỏ vào nó. Giờ hàng được tạo ở
+lần đầu **giữ đất**, không cần trận nào.
+
 ## Faction identity
 
 - Meridian League: thương mại, capacity và throughput.
