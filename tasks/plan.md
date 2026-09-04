@@ -54,7 +54,7 @@ Không mở nhóm D/E/F/G lúc này.
 | **11** | **UI-3 + UI-4** — lắp cột kingdom rồi drawer từ primitives, **xoá rule bridge** | Bridge `.hud .kom-panel` chỉ xoá được khi **cả** cột và drawer đã lắp từ panel — đúng điều kiện comment của nó ghi từ vòng trước. Đóng luôn nợ kỹ thuật lớn nhất của redesign | **Xong** — `b7ee0a4` + `a7434b6`, Checkpoint B xanh (13/13 bề mặt, client unit 101) |
 | **12** | **UI-5 → UI-7** — lấp hai slot đặt chỗ (`ActivityColumn`, nửa phải `CommandTray`) + chrome/a11y pass | Hai slot đó là hai comment "PR4"/"PR5" mà vòng trước tự để lại; UI-7 đi sau cùng vì nó chạm phần còn lại (toast, frozen, heading, `AuthScreen`, map toolbar) | **Xong** — `c8a4f84` + `0895bd1` + `d19cd0e`, Checkpoint C xanh (client unit 101 → **146**, e2e 21 → **28/28** một lần chạy) |
 | **13** | **M-1 → M-2 → M-4** — một nguồn sự thật cho kích thước, thế giới 36×36 vẽ tay, rồi sức chứa | Owner nhờ "thiết kế map", tức chính **P0.4** đang chặn P0.5 và `[141]`. M-1 đứng trước vì M-2 đổi extent — làm ngược lại là sửa 8 chỗ rồi sửa tiếp, và một trong 8 chỗ (`moveArmyCommandSchema .max(19)`) sẽ ship thành bug im lặng. M-4 đi sớm trong ba task sau M-2 vì nó là cái đang chặn roadmap | **Xong** — `143a0dc` + `f62d64a` + `fa6fd0d`; sức chứa **14 → 135**, P0.4 đóng |
-| **14** | **M-3 + M-5 + M-6** — protocol version, chiếm vùng bằng quân đóng, vùng hiện ra trên màn hình | Ba task còn lại của nhóm M, độc lập với nhau sau M-2. M-6 chờ M-5 vì không có gì để vẽ trước khi có chủ vùng; M-5 đổi **luật tính điểm** nên chờ owner xác nhận `fullScoreTiles` (OQ #15) | **Chưa làm** |
+| **14** | **M-3 + M-5 + M-6** — protocol version, chiếm vùng bằng quân đóng, vùng hiện ra trên màn hình | Ba task còn lại của nhóm M, độc lập với nhau sau M-2. M-6 chờ M-5 vì không có gì để vẽ trước khi có chủ vùng; M-5 đổi **luật tính điểm** nên chờ owner xác nhận `fullScoreTiles` (OQ #15) | **M-3 xong** — `9603f1b`, terrain rời dây, `PROTOCOL_VERSION = 2`; M-5 + M-6 chưa làm |
 
 Bảng trên không có hàng cho **C.1** (misinformation, `fb27af7`): nó chạy giữa Bước 12 và Bước 13 như một mục của nhóm C, không phải một bước của vòng nào.
 
@@ -861,7 +861,7 @@ owner (OQ #16), không phải một con số kỹ thuật.
 
 **Files:** `apps/server/src/store.ts` ⚠️, `packages/shared/src/index.ts` ⚠️, `apps/server/src/{loadtest-seed,logistics}.ts`, `apps/server/src/{logistics,app}.test.ts`, `docs/GAME-DESIGN.md` · **Deps:** M-2 · **Scope:** M
 
-### M-3 — Đặt đúng tên cho thứ đang đi trên dây, và khoá client cũ
+### M-3 — Đặt đúng tên cho thứ đang đi trên dây, và khoá client cũ ✅ `9603f1b`
 
 **Phạm vi đã teo lại một nửa vì M-1 và M-2 đi trước:** sàn zoom và trần texture xong ở M-1; **6 321
 byte** tiết kiệm được đã lấy ở M-2 (`terrainMap` thành overrides-only, 6 323 → 2 byte). Còn lại là
@@ -875,18 +875,25 @@ hai **sai im lặng** — đúng loại lỗi mà version gate (`protocol.ts`, �
 chặn. Đây cũng là nửa "protocol version" của mục [217]/E.6.
 
 **Acceptance criteria:**
-- [ ] Snapshot đổi `terrainMap` → **`terrainOverrides`** + thêm `worldMapDigest`; không khoá `terrainMap` nào còn trong payload
-- [ ] **`PROTOCOL_VERSION` 1 → 2**; client cũ bị khoá command kèm câu tiếng Việt "hãy tải lại trang", **không** vẽ sai im lặng
-- [ ] `terrainSig(digest, overrides)` thay `JSON.stringify` cả bản đồ — rẻ hơn và vẫn đúng tín hiệu rebuild texture
-- [ ] `LogisticsPanel.tsx:162,168` — câu "Lập tuyến đến **{hub[0]}**" **sai** khi có bốn thương cảng → nói theo hub đang chọn trong `<select>` đã có, hoặc "một thương cảng" khi chưa chọn
-- [ ] Client vẽ đúng thế giới authored, kể cả sau `/api/dev/reset`; không re-key `<MapSurface />`, không đổi API `WorldMap`
+- [X] Snapshot đổi `terrainMap` → **`terrainOverrides`** + thêm `worldMapDigest`; không khoá `terrainMap` nào còn trong payload
+- [X] **`PROTOCOL_VERSION` 1 → 2**; client cũ bị khoá command kèm câu tiếng Việt "hãy tải lại trang", **không** vẽ sai im lặng
+- [X] `terrainSig(digest, overrides)` thay `JSON.stringify` cả bản đồ — rẻ hơn và vẫn đúng tín hiệu rebuild texture
+- [X] `LogisticsPanel.tsx:162,168` — câu "Lập tuyến đến **{hub[0]}**" **sai** khi có bốn thương cảng → nói theo hub đang chọn trong `<select>` đã có, hoặc "một thương cảng" khi chưa chọn
+- [X] Client vẽ đúng thế giới authored, kể cả sau `/api/dev/reset`; không re-key `<MapSurface />`, không đổi API `WorldMap`
 
 **Verification:**
-- [ ] `protocol.test.ts` (đã có) xanh với version mới; thêm test snapshot **không** có khoá `terrainMap`
-- [ ] `map-geometry.test.ts`: `terrainSig` ổn định theo `(digest, overrides)`
-- [ ] Đo tận tay `curl -s /api/state | wc -c` trước/sau, ghi hai số vào commit message
-- [ ] e2e `map.spec.ts` + `map-command.spec.ts` + `situation-room.spec.ts` xanh **không sửa assertion**
-- [ ] `npm run build` + `check:bundle` ≤ 500 KiB/chunk
+- [X] `protocol.test.ts` xanh với version mới, **thêm** một test: v1 bị khoá **theo tên**, không chỉ theo số học `PROTOCOL_VERSION + 1`
+- [X] `app.test.ts` mới: snapshot **không** có khoá `terrainMap`, `worldMapDigest` đúng, override đi đúng **một** ô
+- [X] `map-geometry.test.ts`: `terrainSig` ổn định theo `(digest, overrides)`; digest đổi/thiếu là đổi signature
+- [X] Đo tận tay — **không có route `/api/state`** như plan viết, nên đo `snapshot` của `/api/bootstrap`: **11 789 byte**; cùng snapshot mà nhét lưới 36×36 vào như v1 là **32 806**; phần terrain đi từ **21 061 → 59 byte**
+- [X] e2e 9/9 xanh **không sửa assertion** (`map`, `map-command`, `economy`, ba `situation-room`, `hud-gates`) trên cổng 3100/5174
+- [X] `npm run build` + `check:bundle` 6/6 ≤ 500 KiB (pixi 465.0 KiB); `typecheck` sạch; shared 19/19, server 152 (137+15 skip), client 151/151
+
+**Hai thứ khác plan, và vì sao:** (1) `GameState.terrainMap` (state persist) **không** đổi tên — đường
+JSONB reload chỉ xác minh được dưới `test:postgres`, gate không chạy được ở máy này, nên đổi tên field
+persist là rủi ro không có cách kiểm; dây đã đúng tên, `combat.ts` đã ghi rõ nó chỉ giữ override.
+(2) Xoá `gameRules.market.name` — một chuỗi tiếng Việt trong object luật, người tiêu thụ duy nhất là
+câu prose vừa sửa; `gameRules` không được serve qua HTTP nên không breaking với ai.
 
 **Files:** `apps/server/src/app.ts` ⚠️, `packages/shared/src/index.ts` ⚠️, `apps/client/src/{map,map-geometry}.ts`, `apps/client/src/components/LogisticsPanel.tsx`, các test tương ứng · **Deps:** M-2 · **Scope:** M
 
@@ -938,24 +945,25 @@ nhóm UI**, không thêm panel nào.
 
 **Files:** `apps/server/src/app.ts` ⚠️, `packages/shared/src/index.ts` ⚠️, `apps/client/src/{map,activity,tray-groups}.ts`, `apps/client/src/ui/vocabulary.ts`, các test tương ứng · **Deps:** M-5 (và M-3 nếu muốn gộp một lần bump protocol) · **Scope:** M
 
-### Checkpoint A — sau M-1 + M-2: thế giới mới đã landing (xác minh còn hai việc)
+### Checkpoint A — sau M-1 + M-2 + M-3: thế giới mới đã landing ✅ (còn kiểm mắt 5 viewport)
 - [X] `mapExtent` là chỗ duy nhất khai kích thước; trần texture 4096 là test đỏ được (4036 ở extent 36)
 - [X] Bản đồ 36×36 vẽ tay chạy trên **cả** server và client; terrain trên dây còn **2 byte** (override), không phải 6 323
 - [X] `worldMapDigest()` là golden test → đổi thế giới là một diff phải cố ý
 - [X] `typecheck` + `npm test` xanh (shared 17, server 150, client 150 tại thời điểm M-2); `build` + `check:bundle` 6/6 ≤ 500 KiB
-- [ ] `PROTOCOL_VERSION = 2` — **chưa**, đó là M-3
-- [ ] Kiểm bằng mắt ở 5 viewport và e2e map/situation-room chạy lại — **chưa**
+- [X] `PROTOCOL_VERSION = 2` — xong ở M-3 (`9603f1b`), kèm test v1 bị khoá theo tên
+- [X] E2E chạy lại sau khi thế giới mới landing: **28/28** sau M-4, **9/9** lại sau M-3, không sửa assertion nào
+- [ ] Kiểm bằng mắt ở 5 viewport (1920/1440/1280/1024/900) — **chưa**, cần người xem `npm run dev:web`
 
-### Checkpoint B — sau M-4: P0.4 đóng ✅ (còn `test:postgres` và e2e, cả hai không phải tiêu chí của P0.4)
+### Checkpoint B — sau M-4: P0.4 đóng ✅ (còn `test:postgres`, không phải tiêu chí của P0.4)
 - [X] Sức chứa **đo tận tay 135 ô** (từ 14); `LOADTEST_USERS=120` seed hết, không `KINGDOM_FULL`; quá trần thì **báo lỗi ngay từ đầu**
 - [X] Phân bố theo tỉnh: 120 người không dồn một góc (ở 122 thành: max 8 / min 6)
 - [X] `docs/ROADMAP.md` P0.4 tick kèm số thật, P0.5 bớt blocker sức chứa (còn `k6`), `:145` còn **một** blocker, ma trận test `:207` đo lại
 - [X] `tasks/todo.md` P0.4 tick, OQ #2 đóng, OQ #14–#17 mở
+- [X] E2E **28/28** xanh trên thế giới mới (cổng 3100/5174, config tạm đã xoá) — gồm `economy`, `army`, `map-command`, `production-loop`
 - [ ] `test:postgres` / `verify:web-alpha` **skipped ở máy này** — và vòng này **có** đổi đường ghi `resource_nodes`/`market_hubs` (+ migration 015) nên rủi ro ở gate đó **không** bằng không
-- [ ] E2E chưa chạy lại sau M-2/M-4
 
 ### Checkpoint C — sau M-3 + M-5 + M-6 (lãnh thổ có nghĩa)
-- [ ] `PROTOCOL_VERSION = 2`, client cũ bị khoá kèm câu tiếng Việt
+- [X] `PROTOCOL_VERSION = 2`, client cũ bị khoá kèm câu tiếng Việt (`9603f1b`)
 - [ ] `tilesControlled` sống, thang điểm mới có test; `regions`/`region_id` hết là di tích
 - [ ] Giữ 4/16 tỉnh = 300 điểm; 2 assertion shared đã đổi fixture, ghi rõ vì sao
 - [ ] Vùng thấy được trên map + feed; không placeholder nào còn lại
