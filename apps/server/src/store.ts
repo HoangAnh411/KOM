@@ -1,5 +1,5 @@
 import { Pool, type PoolClient } from "pg";
-import { factions, gameRules, overallScore, militaryScore, diplomacyScore, type FactionId, type Scores } from "@kingdoms/shared";
+import { anchors as authoredAnchors, factions, gameRules, overallScore, militaryScore, diplomacyScore, regionAt, type FactionId, type Scores } from "@kingdoms/shared";
 import { createHash, randomUUID } from "node:crypto";
 import type { CityState, GameState, Player } from "./types.js";
 import { config } from "./config.js";
@@ -26,35 +26,98 @@ const buildingCosts: Record<string, { wood: number; stone: number; iron: number;
 function newSeason(): GameState["season"] { const now = Date.now(); return { id: randomUUID(), status: "ACTIVE", startsAt: new Date(now).toISOString(), endsAt: new Date(now + config.seasonDurationMs).toISOString() }; }
 function makeCity(playerId: string, name: string, x: number, y: number): CityState { return { id: randomUUID(), playerId, name, x, y, resources: { food: 0, wood: 500, stone: 500, iron: 500 }, buildings: { town_hall: 1 }, queues: [], starterGranted: true }; }
 
-// Deterministic placement inside [2..17]x[2..17]: first valid tile in row-major
-// order — free of entities, at least 3 Manhattan from other cities, and within
-// 2 Manhattan of the market hub or a resource node. Throws when the map is full.
-function cityPlacement(state: GameState, logistics: LogisticsRepository): { x: number; y: number } {
-  const { minX, maxX, minY, maxY, minDistanceBetweenCities, maxDistanceToHubOrNode } = gameRules.cityPlacement;
-  const entities = [
-    ...state.cities.map(city => ({ x: city.x, y: city.y })),
-    ...logistics.snapshot().resourceNodes.map(node => ({ x: node.x, y: node.y })),
-    ...logistics.snapshot().marketHubs.map(hub => ({ x: hub.x, y: hub.y })),
-  ];
-  const anchors = [
-    ...logistics.snapshot().marketHubs,
-    ...logistics.snapshot().resourceNodes,
-  ];
-  const manhattan = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
-  for (let y = minY; y <= maxY; y++) {
-    for (let x = minX; x <= maxX; x++) {
-      if (entities.some(entity => entity.x === x && entity.y === y)) continue;
-      if (state.cities.some(city => manhattan(city, { x, y }) < minDistanceBetweenCities)) continue;
-      const nearAnchor = anchors.some(anchor => manhattan(anchor, { x, y }) <= maxDistanceToHubOrNode);
-      if (!nearAnchor) continue;
-      return { x, y };
+/** Where the two seeded cities stand. Legacy coordinates: the logistics and espionage tests measure
+ *  distances between these and the inherited mines, so they are not free to move. */
+export const seedCityTiles = [{ x: 8, y: 8 }, { x: 13, y: 11 }] as const;
+type Tile = { x: number; y: number };
+/** A port or a mine as placement sees it: a tile, plus what it yields when it is a mine. */
+type PlacementAnchor = Tile & { resourceType?: "wood" | "stone" | "iron" };
+const harvestableTypes = ["wood", "stone", "iron"] as const;
+
+/** The placement window, split by province and row-major inside each one. Depends only on
+ *  `gameRules.cityPlacement` and the authored map, so it is built once. Provinces on the edge of
+ *  the world hold fewer tiles than the interior ones — the two-tile margin eats into them. */
+const provinceTiles = (() => {
+  let cached: Array<{ code: string; tiles: Array<{ x: number; y: number }> }> | undefined;
+  return () => {
+    if (cached) return cached;
+    const { minX, maxX, minY, maxY } = gameRules.cityPlacement;
+    const byCode = new Map<string, Array<{ x: number; y: number }>>();
+    for (let y = minY; y <= maxY; y += 1) {
+      for (let x = minX; x <= maxX; x += 1) {
+        const region = regionAt(x, y);
+        if (!region) continue;
+        const tiles = byCode.get(region.code) ?? [];
+        tiles.push({ x, y });
+        byCode.set(region.code, tiles);
+      }
+    }
+    cached = [...byCode.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([code, tiles]) => ({ code, tiles }));
+    return cached;
+  };
+})();
+
+// Deterministic placement inside the window `gameRules.cityPlacement` derives from the map size:
+// free of cities and anchors, at least `minDistanceBetweenCities` Manhattan from another city,
+// within `maxDistanceToHubOrNode` of a port or a mine, and with a mine of *every* resource type
+// inside `logistics.harvestRange`. That last rule is new with the 36-wide world: buildings cost
+// wood, stone and iron, and a province holds only two mines, so a site can now sit next to a quarry
+// and still have no iron it can reach — a city that runs out after the starter package and has no
+// local source at all. On the old 20-wide world all three mines were in reach of everywhere, so the
+// rule could stay unwritten.
+//
+// Provinces are visited emptiest-first, ties by code, and only then is each one scanned row-major.
+// So no province takes a second city while another still has none, and the sixteenth player is a
+// neighbour of nobody. Plain row-major over the whole window was harmless on a 20-wide world where
+// every legal tile was near one of four anchors anyway; on a 36-wide one it packs the first forty
+// players into the north-west corner, which makes a load test measure one crowded corner instead
+// of a world.
+function nextCitySite(cities: readonly Tile[], anchors: readonly PlacementAnchor[]): Tile | undefined {
+  const { minDistanceBetweenCities, maxDistanceToHubOrNode } = gameRules.cityPlacement;
+  const manhattan = (a: Tile, b: Tile) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+  const taken = new Set([...cities, ...anchors].map(tile => `${tile.x},${tile.y}`));
+  const minesByType = harvestableTypes.map(type => anchors.filter(anchor => anchor.resourceType === type));
+  const cityCounts = new Map<string, number>();
+  for (const city of cities) {
+    const code = regionAt(city.x, city.y)?.code;
+    if (code) cityCounts.set(code, (cityCounts.get(code) ?? 0) + 1);
+  }
+  const provinces = [...provinceTiles()].sort((a, b) => (cityCounts.get(a.code) ?? 0) - (cityCounts.get(b.code) ?? 0) || a.code.localeCompare(b.code));
+  for (const province of provinces) {
+    for (const tile of province.tiles) {
+      if (taken.has(`${tile.x},${tile.y}`)) continue;
+      if (cities.some(city => manhattan(city, tile) < minDistanceBetweenCities)) continue;
+      if (!anchors.some(anchor => manhattan(anchor, tile) <= maxDistanceToHubOrNode)) continue;
+      if (!minesByType.every(mines => mines.some(mine => manhattan(mine, tile) <= gameRules.logistics.harvestRange))) continue;
+      return tile;
     }
   }
-  throw new Error("KINGDOM_FULL");
+  return undefined;
+}
+
+function cityPlacement(state: GameState, logistics: LogisticsRepository): Tile {
+  const anchors = [...logistics.snapshot().marketHubs, ...logistics.snapshot().resourceNodes];
+  const site = nextCitySite(state.cities, anchors);
+  if (!site) throw new Error("KINGDOM_FULL");
+  return site;
+}
+
+/** How many cities this kingdom holds before `KINGDOM_FULL` — the two seed cities plus every tile
+ *  the greedy placement can still reach. Pure: it runs the same `nextCitySite` against the authored
+ *  anchors instead of a live store, so `loadtest-seed` can reject an impossible `LOADTEST_USERS`
+ *  before it writes its first row rather than dying half-seeded. */
+export function citySiteCapacity(): number {
+  const anchors: PlacementAnchor[] = authoredAnchors.map(anchor => ({ x: anchor.x, y: anchor.y, resourceType: anchor.kind === "node" ? anchor.resourceType : undefined }));
+  const cities: Tile[] = seedCityTiles.map(tile => ({ ...tile }));
+  for (;;) {
+    const site = nextCitySite(cities, anchors);
+    if (!site) return cities.length;
+    cities.push(site);
+  }
 }
 export function createSeedState(): GameState {
   const kingdomId = randomUUID(); const first: Player = { id: randomUUID(), displayName: "Lan", factionId: "meridian", kingdomId, crossSeasonReputation: 0 }; const second: Player = { id: randomUUID(), displayName: "Minh", factionId: "bastion", kingdomId, crossSeasonReputation: 0 };
-  const firstCity = makeCity(first.id, "Meridian Outpost", 8, 8); const secondCity = makeCity(second.id, "Bastion Gate", 13, 11);
+  const firstCity = makeCity(first.id, "Meridian Outpost", seedCityTiles[0].x, seedCityTiles[0].y); const secondCity = makeCity(second.id, "Bastion Gate", seedCityTiles[1].x, seedCityTiles[1].y);
   return { kingdom: { id: kingdomId, name: "Meridian Kingdom" }, season: newSeason(), players: [first, second], cities: [firstCity, secondCity], caravans: [], armies: [{ id: randomUUID(), ownerType: "player", ownerPlayerId: first.id, x: 9, y: 8, unitType: "infantry", strength: 100, morale: 100, formation: "line", supply: 100, lastSupplyAt: new Date().toISOString() }, { id: randomUUID(), ownerType: "player", ownerPlayerId: second.id, x: 14, y: 11, unitType: "archer", strength: 100, morale: 100, formation: "line", supply: 100, lastSupplyAt: new Date().toISOString() }], heroes: [], scores: {}, seasonHistory: [], legacyRecords: [], battleReports: [], terrainMap: {}, militaryThroughput: {}, alliances: [], allianceVotes: [], treaties: [], diplomacyThroughput: {}, spyMissions: [], worldEvents: [], counterIntelActive: {}, seasonMetrics: { resourcesProduced: {} }, raiderSpawnState: { sequence: 0 }, logisticsCounters: { exports: {}, harvests: {} } };
 }
 export class GameStore {

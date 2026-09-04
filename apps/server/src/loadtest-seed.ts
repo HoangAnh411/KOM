@@ -16,7 +16,13 @@ if (!Number.isInteger(count) || count < 100 || count > 500) throw new Error("LOA
 
 process.env.DATABASE_URL = databaseUrl;
 process.env.AUTH_MODE = "password";
-const [{ GameStore }, { AuthRepository, hashPassword }] = await Promise.all([import("./store.js"), import("./auth.js")]);
+const [{ GameStore, citySiteCapacity, seedCityTiles }, { AuthRepository, hashPassword }] = await Promise.all([import("./store.js"), import("./auth.js")]);
+// A kingdom holds as many cities as the authored map has room for, and `LOADTEST_USERS` accepts up
+// to 500. Asking for more than fits used to die of `KINGDOM_FULL` partway through, leaving a
+// half-seeded database and an error naming neither the real limit nor the number asked for.
+const capacity = citySiteCapacity();
+const needed = count + seedCityTiles.length;
+if (needed > capacity) throw new Error(`LOADTEST_USERS=${count} does not fit: the authored world holds ${capacity} cities and ${seedCityTiles.length} are already seeded, so ${capacity - seedCityTiles.length} users is the ceiling. Lower LOADTEST_USERS or author more anchors.`);
 const store = new GameStore();
 await store.load();
 if (!store.databasePool) throw new Error("loadtest database is unavailable");

@@ -169,14 +169,19 @@ test("authenticated read routes share one read bucket and stay open for a normal
 test("logistics REST flow supports retry-safe commands", async () => {
   const server = createServer();
   const login = await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Logistics Player", factionId: "meridian" } });
-  const session = login.json() as { token: string; player: { id: string }; snapshot: { cities: Array<{ id: string; playerId: string }>; logistics: { resourceNodes: Array<{ id: string; resourceType: string }> } } };
+  const session = login.json() as { token: string; player: { id: string }; snapshot: { cities: Array<{ id: string; playerId: string }>; logistics: { resourceNodes: Array<{ id: string; resourceType: string; x: number; y: number }> } } };
   const headers = { authorization: `Bearer ${session.token}` };
   const city = server.store.snapshot.cities.find(item => item.playerId === session.player.id)!;
   city.buildings.road_depot = 1;
   server.store.logistics.syncDepots(server.store.snapshot);
   const other = server.store.snapshot.cities.find(item => item.id !== city.id)!;
   other.playerId = session.player.id;
-  const node = session.snapshot.logistics.resourceNodes.find(item => item.resourceType === "wood")!;
+  // The nearest wood mine, not the first one in the map's authoring order. Placement guarantees a
+  // city can reach one of each resource, but on a 36-wide world that is not the mine that happens
+  // to be listed first — a player picks the one on their doorstep and so does this test.
+  const node = session.snapshot.logistics.resourceNodes
+    .filter(item => item.resourceType === "wood")
+    .sort((a, b) => (Math.abs(a.x - city.x) + Math.abs(a.y - city.y)) - (Math.abs(b.x - city.x) + Math.abs(b.y - city.y)))[0]!;
   const harvest = await server.app.inject({ method: "POST", url: "/api/commands/harvest", headers, payload: { commandId: "rest-harvest-1", nodeId: node.id, cityId: city.id, amount: 50 } });
   assert.equal(harvest.statusCode, 200);
   const retry = await server.app.inject({ method: "POST", url: "/api/commands/harvest", headers, payload: { commandId: "rest-harvest-1", nodeId: node.id, cityId: city.id, amount: 50 } });

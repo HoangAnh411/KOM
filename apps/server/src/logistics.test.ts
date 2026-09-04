@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { anchors, gameRules, regionAt } from "@kingdoms/shared";
-import { GameStore } from "./store.js";
+import { anchors, gameRules, regionAt, regions } from "@kingdoms/shared";
+import { GameStore, citySiteCapacity } from "./store.js";
 import { caravanTile } from "./logistics.js";
 
 test("logistics harvest, route and delivery are server-authoritative", () => {
@@ -211,15 +211,18 @@ test("city placement is deterministic, respects spacing and throws KINGDOM_FULL"
   // the test asserting the old numbers and still passing.
   const { minX, maxX, minY, maxY, minDistanceBetweenCities, maxDistanceToHubOrNode } = gameRules.cityPlacement;
   const store = new GameStore();
-  for (let index = 0; index < 200; index += 1) {
+  const seeded = store.snapshot.cities.length;
+  let placed = 0;
+  for (let index = 0; index < 400; index += 1) {
     const name = `Place ${index}`;
     let player;
     try {
       player = store.addDevPlayer(name, index % 2 ? "meridian" : "bastion");
     } catch (error) {
-      if (index > 10 && error instanceof Error && error.message === "KINGDOM_FULL") return; // expected when the region is exhausted
+      if (error instanceof Error && error.message === "KINGDOM_FULL") break;
       throw error;
     }
+    placed += 1;
     const city = store.snapshot.cities.find(item => item.playerId === player.id)!;
     assert.ok(city.x >= minX && city.x <= maxX && city.y >= minY && city.y <= maxY, `tile ${city.x},${city.y} out of bounds`);
     const others = store.snapshot.cities.filter(item => item.id !== city.id);
@@ -229,7 +232,38 @@ test("city placement is deterministic, respects spacing and throws KINGDOM_FULL"
     const anchors = [...store.logistics.snapshot().marketHubs, ...store.logistics.snapshot().resourceNodes];
     assert.ok(anchors.some(anchor => Math.abs(anchor.x - city.x) + Math.abs(anchor.y - city.y) <= maxDistanceToHubOrNode), `not near hub/node at ${city.x},${city.y}`);
   }
-  assert.fail("expected KINGDOM_FULL before filling 200 players");
+  // The number that closes P0.4. The world used to hold 14 cities against a load-test profile of
+  // 120, so the load test could not seed at all; the floor here is the profile plus headroom.
+  assert.ok(placed >= 130, `only ${placed} placeable sites, expected at least 130`);
+  assert.ok(placed < 400, "expected KINGDOM_FULL before filling 400 players");
+  // `citySiteCapacity()` is what `loadtest-seed` rejects an impossible `LOADTEST_USERS` against,
+  // and it runs the placement over the authored anchors instead of a live store. If the two ever
+  // disagree the guard is lying, so they are asserted equal rather than each measured separately.
+  assert.equal(citySiteCapacity(), seeded + placed);
+});
+
+test("cities spread across provinces instead of filling one corner", () => {
+  // Row-major placement over a 36-wide world puts the first forty players in the north-west corner,
+  // so a load test would measure one crowded corner rather than a world. Placement walks the
+  // emptiest province first instead, and the two bounds below are the two halves of that claim.
+  const store = new GameStore();
+  const provinceOf = (city: { x: number; y: number }) => regionAt(city.x, city.y)!.code;
+  const occupied = () => new Set(store.snapshot.cities.map(provinceOf));
+  // Fourteen players fill the fourteen provinces the two seeded cities are not standing in, so
+  // nobody has a neighbour until every province has an owner.
+  const unsettled = regions.length - occupied().size;
+  for (let index = 0; index < unsettled; index += 1) store.addDevPlayer(`Spread ${index}`, "meridian");
+  assert.equal(occupied().size, regions.length, `only ${occupied().size} of ${regions.length} provinces settled`);
+  assert.equal(store.snapshot.cities.length, regions.length);
+  while (store.snapshot.cities.length < 122) store.addDevPlayer(`Spread ${store.snapshot.cities.length}`, "bastion");
+  const counts = new Map<string, number>();
+  for (const city of store.snapshot.cities) counts.set(provinceOf(city), (counts.get(provinceOf(city)) ?? 0) + 1);
+  // The load-test profile is 120 players plus the 2 seeded cities. A province only passes its fair
+  // share when some other province has run out of legal tiles — the corner ones do, they hold fewer
+  // window tiles than the interior — so the surplus is bounded by one city per province.
+  const ceiling = Math.ceil(store.snapshot.cities.length / regions.length) + 1;
+  for (const [code, count] of counts) assert.ok(count <= ceiling, `province ${code} took ${count} cities, over the ${ceiling} share`);
+  assert.ok(Math.min(...counts.values()) >= 4, `province ${[...counts].sort((a, b) => a[1] - b[1])[0]![0]} carries only ${Math.min(...counts.values())} cities`);
 });
 
 test("supply zones: own city +10/min, depot wins with +15/min, min-time granularity", () => {

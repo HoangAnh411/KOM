@@ -462,11 +462,30 @@ export const gameRules = {
      *  `map-geometry.test.ts` asserts the ceiling so it stays a test, not luck. */
     textureResolution: 2,
   } as const,
+  logistics: {
+    /** How far a city may reach a mine. This was a bare `10` inside `logistics.ts`, which was half
+     *  the width of the 20-wide world it was written for — with three mines in the middle of that
+     *  world it never refused anything. Written as half the extent it goes on meaning the same
+     *  thing on a map three times the size; left at 10 it would strand a third of the city sites
+     *  with no iron within reach, and a player there runs out after the starter package with no
+     *  local source at all. Which resources a city can actually reach is now a placement rule, so
+     *  lowering this deliberately — to make trade the answer for what you cannot mine — shrinks
+     *  capacity rather than quietly producing dead-end cities: 12 gives 120 sites, 14 gives 130,
+     *  this gives 135. */
+    harvestRange: mapExtent / 2,
+  } as const,
   cityPlacement: {
     minX: placementMargin, maxX: mapExtent - 1 - placementMargin,
     minY: placementMargin, maxY: mapExtent - 1 - placementMargin,
+    /** Not loosened, and that is the point: cities stay three tiles apart, so the capacity of a
+     *  kingdom is a property of how many anchors the map authors, not of how tightly towns may be
+     *  packed. */
     minDistanceBetweenCities: 3,
-    maxDistanceToHubOrNode: 2,
+    /** Reach from a port or a mine. Two gave 111 sites on the authored world — under the 120 the
+     *  load-test profile seeds — and buying the difference with more anchors would mean 49 of them,
+     *  past what is worth drawing by hand. Three gives 135, and a city three tiles from its mine is
+     *  still a city that grew around it. */
+    maxDistanceToHubOrNode: 3,
   } as const,
 } as const;
 

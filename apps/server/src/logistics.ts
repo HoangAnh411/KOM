@@ -188,7 +188,7 @@ export class LogisticsRepository {
     if (!city || city.playerId !== playerId) throw new Error("CITY_ACCESS_DENIED");
     if (!node || node.remaining < amount) throw new Error("NODE_DEPLETED");
     if ((city.buildings.road_depot ?? 0) < 1) throw new Error("DEPOT_REQUIRED");
-    if (Math.abs(city.x - node.x) + Math.abs(city.y - node.y) > 10) throw new Error("HARVEST_OUT_OF_RANGE");
+    if (Math.abs(city.x - node.x) + Math.abs(city.y - node.y) > gameRules.logistics.harvestRange) throw new Error("HARVEST_OUT_OF_RANGE");
     if (!this.claim(commandId)) return "already_processed";
     city.resources[node.resourceType] += amount; node.remaining -= amount;
     const produced = state.seasonMetrics.resourcesProduced[playerId] ??= { wood: 0, stone: 0, iron: 0 }; produced[node.resourceType] += amount;

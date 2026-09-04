@@ -76,6 +76,28 @@ nhau ≥3 ô và vẫn phải nằm trong tầm với của một thương cản
 không được di chuyển** — thương cảng (10,10), mỏ (6,8), (15,10), (10,14), thành seed (8,8) và
 (13,11) — vì các test logistics và espionage hiện có mô tả khoảng cách giữa chúng.
 
+Đo được **135 ô đặt được thành phố** (2 thành seed + 133), so với **14** của thế giới 20×20 — profile
+load test là 120 người, nên trần này có dư. Ba luật quyết định con số đó, và không luật nào là "nới
+ra cho đủ":
+
+1. **Cách nhau ≥3 ô, ≤3 ô tới một thương cảng hoặc mỏ.** Tầm với là 3 chứ không phải 2 vì 2 chỉ cho
+   111 ô — dưới 120 — và mua phần thiếu bằng anchor thì cần 49 cái, quá mức vẽ tay hợp lý.
+2. **Trong tầm thu hoạch phải có mỏ của cả ba loại tài nguyên.** Công trình cần gỗ, đá **và** sắt,
+   mỗi tỉnh chỉ có hai mỏ, nên một ô có thể đứng cạnh mỏ đá mà không với tới sắt nào: hết starter
+   package là hết đường. Thế giới 20×20 không có vấn đề này vì cả ba mỏ đều trong tầm mọi nơi, nên
+   luật này chưa từng phải viết ra.
+3. **Đặt thành phố đi vòng theo tỉnh**, tỉnh nào ít thành nhất được chọn trước. Row-major trên bản
+   đồ rộng 36 dồn 40 người đầu vào góc tây-bắc — vừa hỏng trải nghiệm vừa làm load test đo một cụm
+   thay vì một thế giới. Mười bốn người đầu tiên vào đúng mười bốn tỉnh mà hai thành seed không
+   đứng; ở 122 thành, tỉnh đông nhất có 8 và tỉnh ít nhất có 6.
+
+**Tầm thu hoạch là nửa bề rộng bản đồ** (18 ô ở 36×36). Trước đó nó là số `10` viết thẳng trong
+`logistics.ts` — đúng nửa bề rộng của thế giới 20×20 mà nó được viết cho, và với ba mỏ ở giữa thế
+giới ấy thì nó chưa bao giờ từ chối điều gì. Giữ nguyên 10 trên bản đồ mới sẽ để một phần ba số ô
+không với tới sắt nào. Muốn thu hoạch **thành ra cục bộ** — để caravan là câu trả lời cho thứ mình
+không đào được — thì hạ hằng số này, và cái giá là sức chứa: 12 cho 120 ô, 14 cho 130, 18 cho 135.
+Đó là một **quyết định cân bằng**, không phải một con số kỹ thuật.
+
 Terrain hiện **chỉ** ảnh hưởng hệ số battle. Nó chưa ảnh hưởng di chuyển, thu hoạch hay tầm nhìn;
 đó là luật gameplay mới, không phải hệ quả của việc có một bản đồ thật.
 
@@ -125,6 +147,7 @@ Faction thay đổi decision space, không chỉ cộng vài phần trăm attack
 
 - Mỗi city mới nhận starter package một lần: 500 wood, 500 stone, 500 iron; không có passive income.
 - Resource node có capacity và recovery rate server-side; harvest làm giảm remaining, tick chỉ phục hồi tối đa đến capacity.
+- Harvest cần depot trong thành và mỏ nằm trong `gameRules.logistics.harvestRange` — nửa bề rộng bản đồ, xem "Bản đồ và lãnh thổ".
 - Logistics dùng bảng PostgreSQL quan hệ: resource_nodes, depots, trade_routes, caravans.
 - Caravan bị giới hạn bởi depot capacity và chỉ cộng throughput khi delivery hoàn tất.
 - Phase 2B ambush resolution phải ghi seed vào event record để audit/replay.
