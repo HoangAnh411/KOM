@@ -3,7 +3,8 @@ import type { WorldSnapshot } from "@kingdoms/shared";
 import type { InteractionMode } from "./state.js";
 import {
   armyGeometrySig, cityGeometrySig, eventSig, isoDepth, mapExtent, maxZoom, minZoom,
-  originAt, overlayGeometrySig, pickAt, terrainBounds, terrainSig, tileHeight, tileWidth, worldPoint,
+  originAt, overlayGeometrySig, pickAt, terrainBounds, terrainPad, terrainResolution, terrainSig,
+  tileHeight, tileWidth, worldPoint,
 } from "./map-geometry.js";
 import { createLabel, type MapLabel } from "./map-labels.js";
 
@@ -84,7 +85,8 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
   resizeObserver?.observe(container);
 
   // --- Camera input: unchanged pan/zoom/click behaviour ---------------------
-  // Pan with pointer drag; zoom with the wheel (0.6x–1.8x, anchored at the cursor).
+  // Pan with pointer drag; zoom with the wheel, clamped to the `minZoom`/`maxZoom`
+  // range the geometry module derives from the world's width, anchored at the cursor.
   let dragging = false;
   let clickStart: [number, number] | undefined;
   let lastPosition: [number, number] | undefined;
@@ -136,15 +138,14 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
   };
 
   // --- Terrain: baked once into a single RenderTexture ----------------------
-  // The field is 20x20 = 400 diamonds that only change when the server sends a
-  // different terrain map — previously 400 live Graphics objects re-tessellated
-  // on every rebuild. It is now rasterised into one texture and drawn as one
-  // Sprite. The texture covers the whole world (1120x560 world units) at 2x, so
-  // it stays crisp at the 1.8x zoom ceiling: 2244x1124 physical pixels, ~10 MB,
-  // comfortably inside the 4096 texture limit every WebGL target guarantees.
+  // The field is `mapExtent²` diamonds that only change when the server sends a
+  // different terrain map — previously that many live Graphics objects, re-tessellated
+  // on every rebuild. It is now rasterised into one texture and drawn as one Sprite.
+  // The texture covers the whole world at `terrainResolution`, so it stays crisp at
+  // the 1.8x zoom ceiling. `terrainTextureSize()` owns the pixel arithmetic and
+  // `map-geometry.test.ts` holds it under the 4096px every WebGL target guarantees —
+  // that ceiling, not the renderer, is what caps how large the world can grow.
   const bounds = terrainBounds();
-  const terrainPad = 1; // keeps the 1px stroke of the outermost tiles off the texture edge
-  const terrainResolution = 2;
   let terrainTexture: RenderTexture | undefined;
   let terrainSprite: Sprite | undefined;
   let bakedTerrain: string | undefined;

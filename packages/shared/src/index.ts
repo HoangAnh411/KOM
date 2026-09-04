@@ -10,6 +10,22 @@ export const factions: Record<FactionId, { name: string; description: string }> 
   veiled: { name: "Veiled Concord", description: "Tình báo và ngoại giao." }
 };
 
+// === MAP SIZE ===
+//
+// The world is a square grid of `mapExtent × mapExtent` tiles, coordinates
+// `[0..mapExtent-1]` on both axes. This is the only place that number is written
+// down: the server's terrain seed, its raider and world-event spawn scans, the
+// client's hit test and terrain texture, and the move-command validator all read
+// it back off `gameRules.map`, so resizing the world is an edit here and nowhere
+// else. That drift is not hypothetical — the same 20 used to be spelled out in
+// eight places, and `map-size.test.ts` now scans the repo to keep it at one.
+const mapExtent = 20;
+
+// Tiles kept clear of the world edge. A city needs room for its
+// `minDistanceBetweenCities` ring and a world event for its five-tile cross, so
+// both windows inset by this much instead of each carrying its own bounds.
+const placementMargin = 2;
+
 export const resourceSchema = z.object({ food: z.number().int().nonnegative(), wood: z.number().int().nonnegative(), stone: z.number().int().nonnegative(), iron: z.number().int().nonnegative() });
 export type Resources = z.infer<typeof resourceSchema>;
 
@@ -289,7 +305,7 @@ export const ambushCommandSchema = z.object({ commandId: z.string().min(8), cara
 // === PHASE 3: COMBAT COMMAND SCHEMAS ===
 export const attackCommandSchema = z.object({ commandId: z.string().min(8), armyId: z.string(), targetArmyId: z.string() });
 export type AttackCommand = z.infer<typeof attackCommandSchema>;
-export const moveArmyCommandSchema = z.object({ commandId: z.string().min(8), armyId: z.string(), targetX: z.number().int().min(0).max(19), targetY: z.number().int().min(0).max(19) });
+export const moveArmyCommandSchema = z.object({ commandId: z.string().min(8), armyId: z.string(), targetX: z.number().int().min(0).max(mapExtent - 1), targetY: z.number().int().min(0).max(mapExtent - 1) });
 export type MoveArmyCommand = z.infer<typeof moveArmyCommandSchema>;
 export const recruitCommandSchema = z.object({ commandId: z.string().min(8), cityId: z.string(), unitType: z.enum(unitTypes), amount: z.number().int().min(10).max(50) });
 export type RecruitCommand = z.infer<typeof recruitCommandSchema>;
@@ -421,8 +437,21 @@ export const gameRules = {
     attritionBelowSupply: 25, attritionStrengthPerMinute: 1, attritionMoralePerMinute: 2,
     min: 0, max: 100,
   } as const,
+  map: {
+    /** Grid is `extent × extent`; valid tiles are `[0..extent-1]` on both axes. */
+    extent: mapExtent,
+    placementMargin,
+    /** RenderTexture resolution the client bakes terrain at (`apps/client/src/map.ts`).
+     *  It belongs to the rules because it is half of the arithmetic that caps
+     *  `extent`: the bake is a single texture `(56 · extent + 2) · resolution` px
+     *  wide, and WebGL only guarantees 4096. At extent 36 that is 4036 px, with 60
+     *  to spare; extent 40 would need a chunked renderer.
+     *  `map-geometry.test.ts` asserts the ceiling so it stays a test, not luck. */
+    textureResolution: 2,
+  } as const,
   cityPlacement: {
-    minX: 2, maxX: 17, minY: 2, maxY: 17,
+    minX: placementMargin, maxX: mapExtent - 1 - placementMargin,
+    minY: placementMargin, maxY: mapExtent - 1 - placementMargin,
     minDistanceBetweenCities: 3,
     maxDistanceToHubOrNode: 2,
   } as const,

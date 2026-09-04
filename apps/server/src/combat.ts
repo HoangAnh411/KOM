@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import type { Army, AttackOrder, BattleReport, Formation, TerrainType, UnitType, FactionId } from "@kingdoms/shared";
-import { recruitmentCost } from "@kingdoms/shared";
+import { gameRules, recruitmentCost } from "@kingdoms/shared";
 import type { GameState } from "./types.js";
 import { CommandRegistry } from "./command-registry.js";
 import { resolveBattle } from "./battle-engine.js";
@@ -28,8 +28,8 @@ export class CombatRepository {
   seed(state: GameState): void {
     if (!state.terrainMap || Object.keys(state.terrainMap).length === 0) {
       state.terrainMap = {};
-      for (let y = 0; y < 20; y++) {
-        for (let x = 0; x < 20; x++) {
+      for (let y = 0; y < gameRules.map.extent; y++) {
+        for (let x = 0; x < gameRules.map.extent; x++) {
           let terrain: TerrainType = "plains";
           if ((x + y) % 7 === 0) terrain = "hills";
           else if ((x * y) % 11 === 0) terrain = "forest";

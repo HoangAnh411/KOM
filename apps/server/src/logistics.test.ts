@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { gameRules } from "@kingdoms/shared";
 import { GameStore } from "./store.js";
 import { caravanTile } from "./logistics.js";
 
@@ -172,6 +173,10 @@ test("caravan to the market hub is consumed as export exactly once", () => {
 });
 
 test("city placement is deterministic, respects spacing and throws KINGDOM_FULL", () => {
+  // Every bound below is read off the rule, not restated. A previous version of this
+  // test carried its own copy of the window and the spacing, so widening the rule left
+  // the test asserting the old numbers and still passing.
+  const { minX, maxX, minY, maxY, minDistanceBetweenCities, maxDistanceToHubOrNode } = gameRules.cityPlacement;
   const store = new GameStore();
   for (let index = 0; index < 200; index += 1) {
     const name = `Place ${index}`;
@@ -183,13 +188,13 @@ test("city placement is deterministic, respects spacing and throws KINGDOM_FULL"
       throw error;
     }
     const city = store.snapshot.cities.find(item => item.playerId === player.id)!;
-    assert.ok(city.x >= 2 && city.x <= 17 && city.y >= 2 && city.y <= 17, `tile ${city.x},${city.y} out of bounds`);
+    assert.ok(city.x >= minX && city.x <= maxX && city.y >= minY && city.y <= maxY, `tile ${city.x},${city.y} out of bounds`);
     const others = store.snapshot.cities.filter(item => item.id !== city.id);
     for (const other of others) {
-      assert.ok(Math.abs(other.x - city.x) + Math.abs(other.y - city.y) >= 3, `too close to ${other.id}`);
+      assert.ok(Math.abs(other.x - city.x) + Math.abs(other.y - city.y) >= minDistanceBetweenCities, `too close to ${other.id}`);
     }
     const anchors = [...store.logistics.snapshot().marketHubs, ...store.logistics.snapshot().resourceNodes];
-    assert.ok(anchors.some(anchor => Math.abs(anchor.x - city.x) + Math.abs(anchor.y - city.y) <= 2), `not near hub/node at ${city.x},${city.y}`);
+    assert.ok(anchors.some(anchor => Math.abs(anchor.x - city.x) + Math.abs(anchor.y - city.y) <= maxDistanceToHubOrNode), `not near hub/node at ${city.x},${city.y}`);
   }
   assert.fail("expected KINGDOM_FULL before filling 200 players");
 });

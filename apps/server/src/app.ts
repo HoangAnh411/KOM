@@ -31,6 +31,7 @@ import {
   respondTreatyCommandSchema,
   routeCommandSchema,
   setFormationCommandSchema,
+  gameRules,
   PROTOCOL_VERSION,
   type BattleHistoryResponse,
   type BattleReport,
@@ -169,7 +170,8 @@ export function createServer(): { app: FastifyInstance; store: GameStore; start:
     const event = store.worldEvents.spawn(store.snapshot, "mob_migration", 0x7cba771e, now);
     const target = store.snapshot.armies.find(army => army.sourceWorldEventId === event.id);
     if (!target) return reply.code(500).send({ code: "TARGET_SPAWN_FAILED" });
-    target.x = city.x <= 16 ? city.x + 3 : city.x - 3;
+    // Park the mob three tiles from the city, on whichever side is still on the board.
+    target.x = city.x + 3 <= gameRules.map.extent - 1 ? city.x + 3 : city.x - 3;
     target.y = city.y;
     target.strength = 5;
     target.nextActionAt = new Date(now + 60 * 60 * 1000).toISOString();

@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   armyGeometrySig, asciiPrintable, cityGeometrySig, eventSig, isoDepth, labelCharset, labelFitsAtlas,
-  mapExtent, originAt, overlayGeometrySig, pickAt, terrainBounds, terrainSig, tileHeight, tileWidth,
+  mapExtent, maxZoom, minZoom, narrowestViewport, originAt, overlayGeometrySig, pickAt, terrainBounds,
+  terrainPad, terrainResolution, terrainSig, terrainTextureSize, tileHeight, tileWidth,
   vietnameseLetters, worldPoint, type SigArmy,
 } from "./map-geometry.js";
 
@@ -13,7 +14,8 @@ const legacyPoint = (x: number, y: number, originX: number, originY: number): [n
 
 test("world projection plus origin reproduces the legacy screen projection", () => {
   const origin = originAt(1200);
-  for (const [x, y] of [[0, 0], [1, 0], [0, 1], [7, 13], [19, 19], [19, 0]]) {
+  const last = mapExtent - 1;
+  for (const [x, y] of [[0, 0], [1, 0], [0, 1], [7, 13], [last, last], [last, 0]]) {
     const [wx, wy] = worldPoint(x, y);
     assert.deepEqual([wx + origin.x, wy + origin.y], legacyPoint(x, y, origin.x, origin.y));
   }
@@ -27,14 +29,43 @@ test("origin clamps to 360 on narrow viewports and tracks half the width above i
 
 test("terrain bounds cover the whole field including the half-tile bleed", () => {
   const bounds = terrainBounds();
-  // 20x20 diamonds at 56x28 → 1120x560 world units. The RenderTexture is sized
-  // from this, so a change here is a change in texture memory.
-  assert.deepEqual(bounds, { x: -560, y: -14, width: 1120, height: 560 });
+  // Derived from the rule rather than restated: at extent 20 these are the historical
+  // 1120x560 world units. The RenderTexture is sized from this, so a change here is a
+  // change in texture memory — see the ceiling test below.
+  assert.deepEqual(bounds, {
+    x: -((mapExtent - 1) * tileWidth / 2) - tileWidth / 2,
+    y: -tileHeight / 2,
+    width: mapExtent * tileWidth,
+    height: mapExtent * tileHeight,
+  });
   for (let y = 0; y < mapExtent; y += 1) for (let x = 0; x < mapExtent; x += 1) {
     const [wx, wy] = worldPoint(x, y);
     assert.ok(wx - tileWidth / 2 >= bounds.x && wx + tileWidth / 2 <= bounds.x + bounds.width, `tile ${x},${y} x inside`);
     assert.ok(wy - tileHeight / 2 >= bounds.y && wy + tileHeight / 2 <= bounds.y + bounds.height, `tile ${x},${y} y inside`);
   }
+});
+
+// Terrain is baked into ONE RenderTexture, and WebGL only guarantees 4096px per axis.
+// So this ceiling — not the renderer's speed — is the hard cap on how wide the world
+// may get, and it is asserted rather than left in a comment: extent 20 needs 2244px,
+// extent 36 needs 4036 (60 to spare), extent 40 would want 4484 and would fail to
+// allocate on the guaranteed floor, silently leaving the map unpainted.
+test("the baked terrain texture stays inside the guaranteed 4096px WebGL limit", () => {
+  const { width, height } = terrainTextureSize();
+  assert.equal(width, (terrainBounds().width + terrainPad * 2) * terrainResolution);
+  assert.ok(width <= 4096, `terrain texture is ${width}px wide at extent ${mapExtent}: past 4096 the bake needs chunking`);
+  assert.ok(height <= 4096, `terrain texture is ${height}px tall at extent ${mapExtent}: past 4096 the bake needs chunking`);
+});
+
+// The smallest zoom has to show the whole world on the narrowest viewport the e2e
+// matrix covers, or a resize can strand the player looking at part of the world with
+// no way to pull back. The floor is derived from `mapExtent` for exactly that reason,
+// so this test states the property instead of the number: at extent 20 it holds with
+// room to spare (0.6 shows 672 of 1120 units), at extent 36 the floor moves itself.
+test("the zoom floor still fits the whole world width on the narrowest viewport", () => {
+  const worldWidth = mapExtent * tileWidth;
+  assert.ok(minZoom * worldWidth <= narrowestViewport, `minZoom ${minZoom} shows only ${Math.round(minZoom * worldWidth)}px of a ${worldWidth}-unit world on a ${narrowestViewport}px viewport`);
+  assert.ok(minZoom > 0 && maxZoom > minZoom, "the zoom range stays non-empty");
 });
 
 test("isometric depth follows screen y and breaks ties deterministically", () => {
@@ -73,7 +104,9 @@ test("picking ignores wiped armies and clicks outside the field", () => {
   const armies = [{ id: "dead", x: 5, y: 5, strength: 0 }];
   assert.deepEqual(pickAt(...screenAt(5, 5), origin, armies, [], ME), { kind: "tile", x: 5, y: 5 });
   assert.equal(pickAt(...screenAt(-3, 4), origin, [], [], ME), undefined);
-  assert.equal(pickAt(...screenAt(20, 20), origin, [], [], ME), undefined);
+  // One tile past the far corner: the bound comes off `mapExtent`, so this stays a
+  // click outside the field rather than a valid tile after the world is widened.
+  assert.equal(pickAt(...screenAt(mapExtent, mapExtent), origin, [], [], ME), undefined);
 });
 
 test("picking resolves every tile of the field back to itself", () => {

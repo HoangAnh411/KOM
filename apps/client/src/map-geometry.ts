@@ -8,11 +8,26 @@
 // origin is applied once, as a transform on the world container, which is what
 // keeps terrain and entities in sync across a resize.
 
+import { gameRules } from "@kingdoms/shared";
+
 export const tileWidth = 56;
 export const tileHeight = 28;
-export const minZoom = 0.6;
+/** Re-exported rather than redeclared: the grid size is server-authoritative
+ *  (`gameRules.map.extent`) because battles are resolved against it. Keeping the
+ *  old export name means every consumer here is untouched by a resize. */
+export const mapExtent = gameRules.map.extent;
+
+/** Narrowest viewport the e2e matrix covers (1920/1440/1280/1024/900). The zoom
+ *  floor is pinned to it so a resize can never strand the player looking at part of
+ *  the world with no way to pull back. */
+export const narrowestViewport = 900;
 export const maxZoom = 1.8;
-export const mapExtent = 20;
+/** Zoom-out floor. Derived, not chosen: it is whichever is smaller of the historical
+ *  0.6 and the zoom that fits the full world width on the narrowest viewport. At
+ *  extent 20 that is 0.6 unchanged (1120 units need only 0.8); at extent 36 the world
+ *  is 2016 units wide and the floor drops itself to ~0.446, so widening the map does
+ *  not quietly cut the far edge off. `map-geometry.test.ts` asserts the property. */
+export const minZoom = Math.min(0.6, narrowestViewport / (mapExtent * tileWidth));
 
 /** Isometric projection, world space. Affine in (x, y), so interpolating grid
  *  coordinates and projecting equals projecting and then interpolating — the
@@ -38,6 +53,27 @@ export function terrainBounds(): { x: number; y: number; width: number; height: 
   const [, minY] = worldPoint(0, 0);
   const [, maxY] = worldPoint(last, last);
   return { x: minX - halfW, y: minY - halfH, width: maxX - minX + tileWidth, height: maxY - minY + tileHeight };
+}
+
+/** Inset kept around the baked field so the 1px stroke of the outermost diamonds
+ *  is not clipped by the texture edge. */
+export const terrainPad = 1;
+
+/** Device-pixel ratio the terrain texture is baked at, re-exported from the rules
+ *  for the same reason as `mapExtent`: it is half of the arithmetic that caps the
+ *  world's size, so it is written down once. */
+export const terrainResolution = gameRules.map.textureResolution;
+
+/** Physical pixel size of the single RenderTexture `map.ts` bakes terrain into.
+ *
+ *  It lives here, next to the bounds it is derived from, because it is the hard cap
+ *  on how large the world may grow: WebGL only guarantees 4096px per axis, and the
+ *  bake is one texture, not a chunked atlas. Keeping it pure means the ceiling is a
+ *  test (`map-geometry.test.ts`) rather than a comment nobody re-derives after a
+ *  resize. Extent 36 needs 4036px, 60 to spare; extent 40 would want 4484. */
+export function terrainTextureSize(): { width: number; height: number } {
+  const bounds = terrainBounds();
+  return { width: (bounds.width + terrainPad * 2) * terrainResolution, height: (bounds.height + terrainPad * 2) * terrainResolution };
 }
 
 /** Painter's-order depth for entities inside a layer.

@@ -13,7 +13,7 @@ type LogisticsCapture = { data: LogisticsData };
 const resourceKeys = ["wood", "stone", "iron"] as const;
 const emptyThroughput = (): Throughput => ({ wood: 0, stone: 0, iron: 0 });
 const depotCapacity = (level: number) => level * 100;
-const mapExtent = 20;
+const mapExtent = gameRules.map.extent;
 // Manhattan reach an ambusher needs to the caravan's current tile. Owner-set: 3 tiles, so a
 // raid costs a real march and the escort system has something to defend against.
 const ambushRange = 3;
