@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { worldMapDigest } from "@kingdoms/shared";
 import {
   armyGeometrySig, asciiPrintable, cityGeometrySig, eventSig, isoDepth, labelCharset, labelFitsAtlas,
   mapExtent, maxZoom, minZoom, narrowestViewport, originAt, overlayGeometrySig, pickAt, terrainBounds,
@@ -221,9 +222,15 @@ test("overlay ring distinguishes npc from player armies", () => {
 });
 
 test("terrain and event signatures are stable for equal input and change on real edits", () => {
-  assert.equal(terrainSig({ "3,4": "forest" }), terrainSig({ "3,4": "forest" }));
-  assert.notEqual(terrainSig({ "3,4": "forest" }), terrainSig({ "3,4": "hill" }));
-  assert.equal(terrainSig(undefined), terrainSig({}));
+  const world = worldMapDigest();
+  assert.equal(terrainSig(world, { "3,4": "forest" }), terrainSig(world, { "3,4": "forest" }));
+  assert.notEqual(terrainSig(world, { "3,4": "forest" }), terrainSig(world, { "3,4": "hill" }));
+  assert.equal(terrainSig(world, undefined), terrainSig(world, {}));
+  // The grid no longer travels, so a different world reaches the client as a different
+  // digest and nothing else. If that did not rebuild the texture, the map would keep
+  // drawing the old world while the server adjudicated battles on the new one.
+  assert.notEqual(terrainSig(world, {}), terrainSig("0000000000000000", {}));
+  assert.notEqual(terrainSig(undefined, {}), terrainSig(world, {}));
 
   const events = [{ id: "e1", eventType: "mob_migration", severity: 2, affectedTiles: [{ x: 1, y: 2 }] }];
   assert.equal(eventSig(events), eventSig(events.map(event => ({ ...event }))));

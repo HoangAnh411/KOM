@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { BattleReport } from "@kingdoms/shared";
+import { PROTOCOL_VERSION, terrainAt, terrainTypes, worldMapDigest } from "@kingdoms/shared";
 import { createServer } from "./app.js";
 import { config } from "./config.js";
 
@@ -55,6 +56,38 @@ test("a snapshot hides other players' city interiors but keeps the map readable"
   assert.equal(foreign.id, truth.id); assert.equal(foreign.x, truth.x); assert.equal(foreign.y, truth.y);
   assert.equal(foreign.playerName, "Scout Victim"); assert.equal(foreign.frozen, truth.frozen);
   await server.app.close();
+});
+
+// The world grid used to travel: a tile-by-tile `terrainMap` in every snapshot to every
+// viewer on every tick — 6 323 bytes at 20×20, 21 061 at 36×36 — none of which ever
+// changed. Both sides now import the authored map, so the snapshot names which world it
+// is and carries only what the database says differs from it. This pins the shape rather
+// than the saving: a `terrainMap` key reappearing here means clients are being handed the
+// world twice, and a missing digest means they cannot tell which world they were handed.
+test("a snapshot names the world instead of shipping it, and carries only real overrides", async () => {
+  const server = createServer();
+  try {
+    const session = (await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Terrain Reader", factionId: "meridian" } })).json() as { token: string };
+    const headers = { authorization: `Bearer ${session.token}` };
+    const read = async () => {
+      const response = await server.app.inject({ method: "GET", url: "/api/bootstrap", headers });
+      assert.equal(response.statusCode, 200);
+      return (response.json() as { snapshot: Record<string, unknown> }).snapshot;
+    };
+
+    const clean = await read();
+    assert.equal(clean.protocolVersion, PROTOCOL_VERSION);
+    assert.ok(!("terrainMap" in clean), "the grid must not travel — a v1 field here means the world ships twice");
+    assert.equal(clean.worldMapDigest, worldMapDigest(), "the snapshot names the world its battles are resolved on");
+    assert.deepEqual(clean.terrainOverrides, {}, "nothing writes map_tiles today, so there is nothing to override");
+
+    // One tile edited away from the authored map is the entire terrain payload now.
+    const edited = terrainTypes.find(type => type !== terrainAt(4, 5))!;
+    server.store.snapshot.terrainMap["4,5"] = edited;
+    assert.deepEqual(await read().then(snapshot => snapshot.terrainOverrides), { "4,5": edited }, "an override travels as exactly one tile");
+  } finally {
+    await server.app.close();
+  }
 });
 
 test("command responses conform to the shared CommandResponse contract", async () => {

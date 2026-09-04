@@ -1,8 +1,5 @@
 import { z } from "zod";
-import { anchors, worldExtent, worldTerrainTypes } from "./world-map.js";
-
-/** The ports, in authored order. Only their names are needed here; their tiles belong to the map. */
-const marketAnchorNames = anchors.flatMap(anchor => (anchor.kind === "market" ? [anchor.name] : []));
+import { worldExtent, worldTerrainTypes } from "./world-map.js";
 
 export const factionIds = ["meridian", "bastion", "ravager", "veiled"] as const;
 export type FactionId = (typeof factionIds)[number];
@@ -279,11 +276,21 @@ export type OnboardingAckCommand = z.infer<typeof onboardingAckCommandSchema>;
 
 // Protocol version of the world snapshot contract. Clients lock game commands
 // and ask for a refresh when the server speaks a different version.
-export const PROTOCOL_VERSION = 1;
+//
+// Bumped to 2 when the terrain grid left the wire. The snapshot used to carry a
+// tile-by-tile `terrainMap`; the world is now authored in `world-map.ts`, which
+// both sides import, and the snapshot carries only `terrainOverrides` (tiles that
+// differ from it) plus `worldMapDigest` to name which world that is. Both fields
+// are optional, and a missing tile defaults to plains, so *without* this bump the
+// mismatch would be silent in both directions: a v1 client against a v2 server
+// paints the whole world plains, and a v2 client against a v1 server draws the
+// authored map while the server adjudicates battles on the old modulo terrain.
+// Silence is the failure mode the version gate exists to convert into a message.
+export const PROTOCOL_VERSION = 2;
 export const battleHistoryResponseSchema = z.object({ items: z.array(battleReportSchema), nextCursor: z.string().optional() });
 export type BattleHistoryResponse = z.infer<typeof battleHistoryResponseSchema>;
 
-export const snapshotSchema = z.object({ protocolVersion: z.number().int().default(PROTOCOL_VERSION), kingdom: z.object({ id: z.string(), name: z.string() }), season: z.object({ id: z.string(), status: z.enum(["SCHEDULED", "ACTIVE", "FINALIZING", "CLOSED"]), endsAt: z.string() }), cities: z.array(citySchema), caravans: z.array(caravanSchema), armies: z.array(armySchema), heroes: z.array(heroSchema), scores: z.record(scoreSchema), factionCatalog: z.record(z.object({ name: z.string(), description: z.string() })), logistics: logisticsSnapshotSchema, battleReports: z.array(battleReportSchema).optional(), terrainMap: z.record(z.enum(terrainTypes)).optional(), alliances: z.array(allianceSchema).optional(), allianceVotes: z.array(allianceVoteSchema).optional(), treaties: z.array(treatySchema).optional(), spyMissions: z.array(spyMissionSchema).optional(), worldEvents: z.array(worldEventSchema).optional(), onboarding: onboardingProgressSchema.optional() });
+export const snapshotSchema = z.object({ protocolVersion: z.number().int().default(PROTOCOL_VERSION), kingdom: z.object({ id: z.string(), name: z.string() }), season: z.object({ id: z.string(), status: z.enum(["SCHEDULED", "ACTIVE", "FINALIZING", "CLOSED"]), endsAt: z.string() }), cities: z.array(citySchema), caravans: z.array(caravanSchema), armies: z.array(armySchema), heroes: z.array(heroSchema), scores: z.record(scoreSchema), factionCatalog: z.record(z.object({ name: z.string(), description: z.string() })), logistics: logisticsSnapshotSchema, battleReports: z.array(battleReportSchema).optional(), worldMapDigest: z.string().optional(), terrainOverrides: z.record(z.enum(terrainTypes)).optional(), alliances: z.array(allianceSchema).optional(), allianceVotes: z.array(allianceVoteSchema).optional(), treaties: z.array(treatySchema).optional(), spyMissions: z.array(spyMissionSchema).optional(), worldEvents: z.array(worldEventSchema).optional(), onboarding: onboardingProgressSchema.optional() });
 export type WorldSnapshot = z.infer<typeof snapshotSchema>;
 
 // === PHASE 7B: COMMAND RESPONSE CONTRACT ===
@@ -436,10 +443,10 @@ export const gameRules = {
     minTilesFromCity: 4,
   } as const,
   market: {
-    /** The name prose falls back to when it has to say "a port" before the player has picked one.
-     *  Where the ports *are* is authored in `world-map.ts` — four of them now — so this no longer
-     *  carries an anchor tile of its own that could drift away from the map. */
-    name: marketAnchorNames[0]!,
+    /** How far a city must sit from a port. The ports themselves — where they are and what they
+     *  are called — are authored in `world-map.ts`, four of them now, so this rule carries no
+     *  name or tile of its own that could drift away from the map. Prose that has to say "a port"
+     *  before the player picks one says it in the player's language, in the panel that asks. */
     minTilesFromCity: 3,
   } as const,
   supply: {

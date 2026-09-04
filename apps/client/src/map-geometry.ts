@@ -171,8 +171,13 @@ export function overlayGeometrySig(army: SigArmy, selected: boolean): string {
   return `${ring}|none`;
 }
 
-export function terrainSig(terrainMap: Record<string, string> | undefined): string {
-  return JSON.stringify(terrainMap ?? {});
+/** What decides whether the terrain texture has to be baked again. The grid itself is
+ *  authored in `@kingdoms/shared`, so a digest of *which world this is* plus the tiles
+ *  the server says differ from it is the whole input — this used to stringify a 1 296-key
+ *  map on every snapshot to discover nothing had changed. A different world must rebuild,
+ *  which is why the digest is part of the signature and not an assertion elsewhere. */
+export function terrainSig(worldMapDigest: string | undefined, overrides: Record<string, string> | undefined): string {
+  return `${worldMapDigest ?? ""}|${JSON.stringify(overrides ?? {})}`;
 }
 
 export function eventSig(events: readonly { id: string; eventType: string; severity: unknown; affectedTiles: unknown }[]): string {

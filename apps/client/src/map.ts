@@ -155,13 +155,13 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
   let bakedTerrain: string | undefined;
 
   const bakeTerrain = (state: WorldSnapshot) => {
-    const sig = terrainSig(state.terrainMap);
+    const sig = terrainSig(state.worldMapDigest, state.terrainOverrides);
     if (sig === bakedTerrain && terrainSprite) return;
     bakedTerrain = sig;
     const field = new Graphics();
     for (let y = 0; y < mapExtent; y += 1) for (let x = 0; x < mapExtent; x += 1) {
       const [wx, wy] = worldPoint(x, y);
-      const terrain = state.terrainMap?.[`${x},${y}`] ?? terrainAt(x, y);
+      const terrain = state.terrainOverrides?.[`${x},${y}`] ?? terrainAt(x, y);
       let color = 0x21423f;
       if (terrain === "forest") color = 0x1a3f20;
       else if (terrain === "hills") color = 0x4a3f2a;
