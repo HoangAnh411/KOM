@@ -1,10 +1,10 @@
 # TODO — mục chưa tick trong `docs/ROADMAP.md` + việc phát sinh từ trạng thái repo
 
-Chi tiết acceptance criteria / verification / files: [`tasks/plan.md`](./plan.md). Thứ tự thực thi đã chốt ở mục "Thứ tự thực thi" của plan: **Bước 0 = Z.1 (xong) → Bước 1 = Z.2–Z.4 (xong) → Bước 2 = P0.1 (tiếp theo)**.
+Chi tiết acceptance criteria / verification / files: [`tasks/plan.md`](./plan.md). Thứ tự thực thi đã chốt ở mục "Thứ tự thực thi" của plan: **Bước 0 = Z.1 (xong) → Bước 1 = Z.2–Z.4 (xong) → Bước 2 = P0.1 (xong)**. Sau khi owner mở rộng phạm vi ("làm hết tất cả"), N.1 / N.2 / A.1-tự-động / E.3-pre / ba việc dọn nhỏ cũng đã chạy — xem nhánh `feat/rate-limit-buckets`.
 
-Bối cảnh: tôi là **contributor**. Owner **đã push Phase 7D** (`f6085a4`, 2026-09-02) — xem mục "Phase 7D đã landing" bên dưới. Task chạm `apps/server/src/store.ts`, `apps/server/src/app.ts`, `packages/shared/src/index.ts` vẫn nên hỏi owner trước (đánh dấu ⚠️ hot file).
+Bối cảnh: tôi là **contributor**. Owner **đã push Phase 7D** (`f6085a4`, 2026-09-02) — xem mục "Phase 7D đã landing" bên dưới. Task chạm `apps/server/src/store.ts`, `apps/server/src/app.ts`, `packages/shared/src/index.ts` vẫn đánh dấu ⚠️ hot file; owner đã cho phép mở phạm vi nên P0.1 chạm `app.ts` và mục dọn nhỏ chạm `store.ts`, nhưng đều ở nhánh riêng, **không push, không chạm `main`**.
 
-Gate mỗi PR: `npm run verify:web-alpha` + tick checkbox tương ứng trong `docs/ROADMAP.md`. 7D thêm gate mạnh hơn `npm run verify:web-beta` (có `npm audit --audit-level=high` + `test:prod-smoke`) nhưng **chưa vào CI**. Ở máy này `test:postgres` chỉ skip (không Docker, không `DATABASE_URL`) → báo từng gate riêng, **không** viết "`verify:web-alpha` xanh".
+Gate mỗi PR: `npm run verify:web-alpha` + tick checkbox tương ứng trong `docs/ROADMAP.md`. 7D thêm gate mạnh hơn `npm run verify:web-beta` (có `npm audit --audit-level=high` + `test:prod-smoke`); N.2 đã nối nó vào CI thành hai job Docker, nhưng **chưa từng quan sát xanh** vì máy này không có Docker. Ở máy này `test:postgres` chỉ skip (không Docker, không `DATABASE_URL`) → báo từng gate riêng, **không** viết "`verify:web-alpha` xanh".
 
 Các nhãn `[NNN]` là **ID task ổn định** theo số dòng ROADMAP *trước* truth-pass 2026-09-02; sau Z.3 các dòng đó dịch ~+2.
 
@@ -20,7 +20,15 @@ Các nhãn `[NNN]` là **ID task ổn định** theo số dòng ROADMAP *trướ
 - [X] Hai nhánh tồn tại, tip xanh (typecheck + unit + 18 e2e + bundle)
 - [X] `[144]` tick được và có số RPO/RTO trong runbook
 - [X] `ROADMAP.md` / `API.md` không còn dòng khẳng định sai
-- [ ] **Owner xem lại `feat/situation-room` + `docs/truth-pass`, quyết N.1 / N.2 / OQ #2**
+- [ ] **Owner xem lại ba nhánh (`feat/situation-room`, `docs/truth-pass`, `feat/rate-limit-buckets`), quyết OQ #2 và xác nhận phạm vi N.1 / gating CI của N.2**
+
+### Checkpoint Z+ — sau khi mở phạm vi (2026-09-02, nhánh `feat/rate-limit-buckets`)
+
+- [X] `npm run typecheck` sạch
+- [X] `npm test`: shared 3/3, server **121 test → 106 pass / 0 fail / 15 skip** (postgres-gated), client 78/78
+- [X] `npm audit --audit-level=high` exit 0
+- [X] E2E full suite trên port 3100/5174 (không chạm stack dev của owner): **19/19 pass**, 2,1 phút
+- [ ] `test:postgres` / `verify:web-beta` / `drill:web-beta`: **không chạy được ở máy này** (không Docker) — chỉ owner hoặc CI runner xác nhận được
 
 ## Phase 7D đã landing (`f6085a4`) — cập nhật 2026-09-02
 
@@ -34,15 +42,15 @@ Các nhãn `[NNN]` là **ID task ổn định** theo số dòng ROADMAP *trướ
 
 **`docs/ROADMAP.md` không được 7D sửa dòng nào** → roadmap hiện lệch với code. Ba việc phát sinh:
 
-- [ ] **N.1** Roadmap **không có mục Phase 7D nào** (không goal, không checklist, không tiêu chí đóng) dù `verify:web-beta` đã là gate thật → Z.3 đã ghi rõ khoảng trống này và nêu tên hai việc owner quyết, nhưng **không tự viết section** · XS · **owner quyết**
-- [ ] **N.2** `verify:web-beta` (`npm audit`, `test:prod-smoke`) và `drill:web-beta` **chưa vào `.github/workflows/ci.yml`** — CI vẫn đúng 9 gate cũ, kết ở `git diff --check` · S
+- [X] **N.1** Section `## Phase 7D — Production/Beta hardening` đã viết vào `docs/ROADMAP.md` (`acf454a`): goal, 8 mục đã tick (mỗi mục đối chiếu code: Caddyfile:28-33 headers, `KingdomsAuthFailures` trong `infra/alerts.yml`, `requestBroadcast()`, Pino `redact`, cookie `Path=/api/auth`, chặn request thiếu Origin), 2 mục chưa tick (B.2b `backup.sh`/`restore.sh` chưa chạy lần nào; bucket rate-limit dùng chung — đã sửa ở P0.1), tiêu chí đóng · **owner vẫn có quyền sửa lại phạm vi mục này**
+- [X] **N.2** `verify:web-beta` + `drill:web-beta` đã vào `.github/workflows/ci.yml` (`acf454a`): thêm gate 10 `npm audit --audit-level=high` vào job `verify`, hai job Docker mới `prod-smoke` (main / dispatch / cron) và `recovery-drill` (dispatch / cron ngày 2 hằng tháng, upload `drill-report.md` làm artifact). ⚠️ **Chưa từng quan sát xanh** — máy này không có Docker; hai job đó chỉ chạy trên runner
 - [X] **N.3** `docs/API.md` drift → **đã sửa ở Z.4** (`b273629`): bỏ "WebSocket command 30/phút" và "read REST 60/phút" (cả hai không tồn tại), login 5/15 phút theo IP+username, thêm 503 `DEPENDENCY_UNAVAILABLE`
 
 ## Phase P0 — Prerequisite (chặn mục 141, không có trong roadmap)
 
-- [ ] **P0.1** ← **BƯỚC 2, LÀM TIẾP THEO.** Tách rate-limit bucket theo nhóm command (`write:` / `combat:` / `spy:`), đưa `attack` về bucket combat, cập nhật `docs/API.md` cho khớp trạng thái mới — ⚠️ hot file, **ping owner trước** · S · **7D sửa `rate-limit.ts` nhưng KHÔNG sửa key**: `app.ts:98` vẫn dùng chung `write:${playerId}` cho mọi command. Giờ limiter fail-closed nên 429 sai càng dễ nổ. Giữ nguyên 429/`RATE_LIMITED` để contract test không đổi
-- [ ] **P0.2** Bỏ full-table reload `event_ledger` khỏi command path; `hasCommand()` dùng point query trên `event_ledger_command_idx` — ⚠️ hot file · M · 7D không chạm
-- [ ] **P0.3** Chặn `processedCommands` phình vô hạn; gộp mọi dedupe về một đường duy nhất — ⚠️ hot file · M · deps P0.2 · 7D không chạm
+- [X] **P0.1** Tách rate-limit bucket (`d1212b4`): bảng `rateBuckets` (write 20 / combat 10 / spy 5 / read 60) + `commandBuckets` khai báo tập trung trong `app.ts`, key thành `${bucket}:${playerId}`, `attack` về bucket combat cùng `set-formation`. Bỏ hẳn tham số `rlLimit` ở 9 call site nên **một limit không thể lệch khỏi counter nó tiêu**. Hai phát sinh sửa kèm: (a) ba GET có auth giờ dùng bucket `read` chung 60/phút — trả lời OQ #7; (b) `rateLimited()` phân biệt `RATE_LIMITED` với `DEPENDENCY_UNAVAILABLE` nên Redis chết ở production trả **503 như `API.md` hứa**, trước đó throw ra ngoài `try` của `command()` và không có `setErrorHandler` → HTTP 500. Test: bucket độc lập trong `rate-limit.test.ts`, hai contract test trong `app.test.ts` (spy cạn không chặn build; read thứ 61 là 429)
+- [ ] **P0.2** Bỏ full-table reload `event_ledger` khỏi command path; `hasCommand()` dùng point query trên `event_ledger_command_idx` — ⚠️ hot file · M · 7D không chạm · **cũng là finding S-4 (Medium, availability)** của security review
+- [ ] **P0.3** Chặn `processedCommands` phình vô hạn; gộp mọi dedupe về một đường duy nhất — ⚠️ hot file · M · deps P0.2 · 7D không chạm · **cũng là finding S-3 (Medium)**: một người chơi hợp lệ thêm ~28 800 phần tử/ngày ở bucket write, mỗi command chạy `includes()` tuyến tính và cả array bị `structuredClone` mỗi transaction
 - [ ] **P0.4** Nâng sức chứa thành phố (map size thành hằng số chia sẻ, scale anchor) — ⚠️ hot file · **chờ owner quyết (OQ #2)** · M–L · 7D chỉ thêm guard `pool.ended` vào `store.ts`, trần ~16 city còn nguyên
 - [ ] **P0.5** Sửa harness k6: phân bố tải đều trên user, xử lý 429 đúng nghĩa · S · deps P0.4 · 7D **không sửa file nào trong `e2e/loadtest/`**
 
@@ -55,18 +63,18 @@ Các nhãn `[NNN]` là **ID task ổn định** theo số dòng ROADMAP *trướ
 
 ## Phase A — Đóng Phase 7C
 
-- [ ] **A.1** [204] `docs/ACCEPTANCE-7C.md` + test chặn `prompt(`/`confirm(` tái phát + chạy phiên 30–60 phút · S · **xác nhận owner tự chạy? (OQ #1)**
+- [ ] **A.1** [204] Nửa máy đo được **đã xong** (`10c153d`): `apps/client/src/no-native-dialogs.test.ts` quét toàn bộ `apps/client/src` (bỏ comment trước khi quét, có test tự kiểm regex để guard không im lặng chết) + `docs/ACCEPTANCE-7C.md` — kịch bản 6 phần A–F, cố ý **loại** những gì test tự động đã phủ. Còn lại đúng một việc **người phải chạy**: phiên 30–60 phút rồi điền mục "Kết quả phiên", sau đó mới tick `[204]` · **owner tự chạy (OQ #1)**
 
 ## Phase B — Pre-beta Phase 7A
 
-- [ ] **B.1** [145] `docs/SECURITY-REVIEW.md` phủ auth / permissions / input / secrets; finding cao có test hồi quy · M · deps P0.1 · **re-baseline theo code sau 7D**: 7D đã tự sửa log redaction, cookie `Path=/api/auth`, origin thiếu-Origin, rate limiter fail-open, che `/metrics` `/health/ready` `/api/dev/*` ở Caddy, security headers → review giờ chỉ còn phần chưa được xử lý (bucket rate-limit dùng chung, **không GET route nào bị rate-limit**, permission matrix, `/api/battles` scope)
+- [X] **B.1** [145] `docs/SECURITY-REVIEW.md` phủ auth / permissions / input / secrets — 10 finding có `file:line`, permission matrix 22 dòng, mục "kiểm soát đã xác nhận" và mục "rủi ro chấp nhận (dev mode)". Hai High **đã sửa kèm test hồi quy**: S-1 `TRUST_PROXY` boolean → `request.ip` lấy từ phần client tự khai của `X-Forwarded-For`, vô hiệu login 5/15m + register 3/h + refresh + admin (sửa thành số hop, test ở `security.test.ts` + `config.test.ts`); S-2 snapshot phát `resources`/`buildings`/`queues` của **mọi** city, làm mission `scout` vô nghĩa (che nội thất city người khác, test ở `app.test.ts`). Một Low hardening: redact `password`/`passwordHash`/`req.body.password`. `docs/API.md` có mục `## World snapshot` ghi hợp đồng mới; `[145]` đã tick · **ba việc treo owner**: S-5 tiền đề `ambush`, S-9 bắt buộc `TRUST_PROXY` ở production, S-1 xác nhận trên stack thật có Docker
 - [X] **B.2** [144] → **đóng ở Z.2 + Z.3**: drill đã chạy 2026-09-02 (3/3 pass, RPO 0 ms, RTO 5795 ms), kết quả + cadence + caveat đã vào `docs/OPERATIONS.md`, `[144]` đã tick
 - [ ] **B.2b** Drill của 7D dùng `docker compose exec postgres pg_dump` (`scripts/drill-web-beta.mjs:120`), **không chạy `infra/backup/backup.sh` / `restore.sh`** đã commit → hai script đó (custom format, retention 7 daily + 4 weekly, checksum vào `backup.log`, guard `BACKUP_ALLOW_LOCAL`) vẫn chưa được kiểm chứng lần nào. Drill kỳ sau 2026-10-02 nên đi qua đúng hai script · S · cần Docker (OQ #4)
 - [ ] **B.3** [141] Chạy load test 15 phút, lưu report, link từ `OPERATIONS.md` · S · deps P0.2–P0.5 · 7D thêm script `npm run test:load:full` nhưng **chưa có report** và blocker seed còn nguyên
 
 ### Checkpoint 2 — sau A.1 + B.1 + B.3
 
-- [ ] `[204]`, `[141]`, `[145]` tick được, hoặc blocker ghi rõ (`[144]` đã tick ở Z.2/Z.3)
+- [ ] `[204]`, `[141]` tick được, hoặc blocker ghi rõ (`[144]` đã tick ở Z.2/Z.3, `[145]` đã tick ở B.1)
 - [ ] Report load test lưu và link từ `OPERATIONS.md`
 - [ ] Phase 7C đóng; Phase 7A hết mục "trước beta"
 
@@ -101,7 +109,7 @@ Các nhãn `[NNN]` là **ID task ổn định** theo số dòng ROADMAP *trướ
 - [ ] Nhóm D xong, **hoặc** owner chấp nhận ship đa nền tảng trước khi scale server (OQ #3)
 - [ ] **E.1** [216] Texture/asset optimization + bundle splitting, giữ mọi chunk ≤ 500 KiB · M
 - [ ] **E.2** [212] PWA service worker + offline shell, **không cache snapshot gameplay** · M · deps E.1
-- [ ] **E.3-pre** Kiểm band `compact` (<1024px) trong browser: Situation Room **đã có** band này (`layout.ts` biến hai column thành flyout loại trừ nhau, rào "viewport desktop chưa được hỗ trợ" đã bị xoá khỏi code) nhưng `e2e/situation-room.spec.ts` chỉ đi 1920/1440/1280/1024 → chưa chạy lần nào. **Không copy-paste assertion**: ở compact `map.x === kingdom.w` sai vì column phủ lên map chứ không phải một track · S · deps Z.1 · phần rẻ nhất của E.3
+- [X] **E.3-pre** Band `compact` (<1024px) **đã được lái trong browser thật** (`afa072b`): thêm size thứ năm 900x800 vào vòng lặp có sẵn + một test riêng cho hành vi flyout. Không copy-paste assertion của band có track (`map.x === kingdom.w` ở compact pass vì cả hai bằng 0, tức pass vì lý do sai): band này khẳng định map chiếm cả hàng khi đóng, flyout neo **lên trên** map khi mở, hai flyout loại trừ nhau, không sinh scroll ngang, Pixi không remount. `login()` nhận thêm `contextVisible` vì mốc "shell đã dựng" ở compact phải là nút toggle trong header
 - [ ] **E.3** [215] Touch/safe-area/viewport nhỏ — còn lại: touch pan/zoom trên map Pixi, safe-area inset, e2e mobile project (phần layout responsive đã được Situation Room làm gần hết) · L · deps E.3-pre
 - [ ] **E.4** [213] Capacitor iOS/Android shell · L · deps E.2, E.3 + **owner cấp bundle ID / signing**
 - [ ] **E.5** [214] Tauri desktop shell · M · deps E.2
@@ -124,10 +132,16 @@ Các nhãn `[NNN]` là **ID task ổn định** theo số dòng ROADMAP *trướ
 
 ## Việc dọn nhỏ (kèm vào PR liên quan, không phải mục roadmap)
 
-- [ ] `militaryScore()` bỏ im lặng `strengthDestroyed` / `strengthLost` / `defeats` — hoặc dùng, hoặc bỏ khỏi call site
-- [ ] `buildingCosts` trong `store.ts` trùng `gameRules.buildings` ở `packages/shared` (nguy cơ drift)
-- [ ] `infra/migrations/README.md` dừng ở `011`, thiếu `012`–`014`
+Ba mục đầu **đã xong** trong `4817d1a`.
+
+- [X] `militaryScore()` bỏ im lặng `strengthDestroyed` / `strengthLost` / `defeats` → **không phải code chết**: `combat.ts` ghi và persist, `buildSeasonAnalytics` phát đi; chúng chỉ nằm ngoài công thức điểm. Đổi công thức là quyết định thiết kế (`docs/GAME-DESIGN.md`) nên chỉ thu hẹp fallback ở call site cho đúng 4 field công thức đọc, kèm comment nói rõ vì sao — không tự đổi luật tính điểm
+- [X] `buildingCosts` trong `store.ts` trùng `gameRules.buildings` → giờ derive từ shared; test mới trong `store.test.ts` đi qua từng building, khẳng định tài nguyên bị trừ và thời gian queue đúng bằng `cost`/`durationSeconds`
+- [X] `infra/migrations/README.md` dừng ở `011` → viết lại: chỉ sang `npm run db:migrate` (hướng dẫn cũ `psql -f` **bỏ qua runner**, để `schema_migrations` rỗng và khiến `db:migrate:check` báo toàn bộ pending), giữ danh sách `001`–`014` làm manifest để review
 - [ ] Playwright chạy in-memory (`AUTH_MODE=dev`, không `DATABASE_URL`) → **7D đã bù một phần**: `e2e/password-auth.spec.ts` chạy thật với password auth + PostgreSQL qua prod compose, nhưng chỉ bật khi `E2E_PROD_SMOKE=1` và không nằm trong CI. Suite Chromium mặc định vẫn in-memory
+- [ ] **Mới:** flake mới trong full-suite run — `situation-room.spec.ts` "collapsing a column" đỏ ở `login()` vì `.map canvas` chưa xuất hiện trong 5 s (chunk pixi import động + WebGL context, ở cuối một lần chạy 19 test). `afa072b` nới riêng wait đó lên 15 s vì test không hề khẳng định canvas tới nhanh; run lại **19/19 pass**. Nếu tái diễn thì nghi vấn tiếp theo là số WebGL context sống đồng thời của Chromium, không phải layout
+- [ ] **Mới (S-7):** `/api/admin/player/{ban,unban}` là hai route duy nhất không đi qua Zod — `playerId` chỉ được `as string` cast, `reason` chỉ có sàn `length >= 3` mà không có trần, nên một `reason` 64 KB (đúng `bodyLimit`) vào audit trail mỗi lần ban. Không có injection (SQL tham số hoá, `findPlayer` là scan in-memory). Sửa: schema Zod trong `packages/shared`, `reason` ≤ 500 ký tự, `playerId` là UUID → **gộp vào PR admin kế tiếp** (C.2c moderation là chỗ tự nhiên)
+- [ ] **Mới (S-8):** không có trần số WebSocket connection theo IP hay tổng; mỗi socket chưa auth giữ một timer 5 s + interval ping 30 s. `maxPayload: 8192` và "bỏ mọi frame sau AUTH" đã chặn đường bơm việc, nên phần còn lại chỉ là cạn socket. Sửa: trần `clients.size` + giới hạn connection/IP — **con số cần owner chốt** theo mục tiêu 100 người chơi đồng thời
+- [ ] **Mới (S-10):** `ADMIN_DISABLED` trả 404 ở `moderate()` nhưng 503 ở `/api/admin/season/close` cho cùng điều kiện thiếu token. Không phải lỗ hổng; nếu thống nhất thì về 404 (không tiết lộ route tồn tại) — gộp vào PR admin kế tiếp
 
 ## Open questions cần owner trả lời trước khi bắt đầu
 
@@ -137,5 +151,8 @@ Các nhãn `[NNN]` là **ID task ổn định** theo số dòng ROADMAP *trướ
 4. Contributor có quyền chạy prod compose / backup / k6? (7D chứng minh drill chạy được trên máy owner — cần biết máy tôi có Docker đủ để chạy `verify:web-beta` không)
 5. Misinformation baseline do owner chốt hay contributor đề xuất trong PR?
 6. `verify:web-beta` có nên vào CI không (N.2), hay owner cố ý giữ nó là gate chạy tay vì cần Docker-in-Docker?
-7. **Mới:** có thêm rate-limit cho GET route không? Hiện `/api/bootstrap`, `/api/season-history`, `/api/battles` **không có hạn mức nào** — 7 call site `rateLimited(` trong `app.ts` đều là POST. Z.4 chỉ ghi đúng hiện trạng vào `API.md`; việc thêm limit là quyết định của owner, sẽ đưa vào B.1 như một finding.
-8. **Mới:** nhánh `feat/situation-room` (redesign, 4 commit) và `docs/truth-pass` (3 commit doc) đang chờ review — merge theo thứ tự nào, và có muốn tôi mở PR hay owner tự lấy?
+7. ~~Có thêm rate-limit cho GET route không?~~ → **đã quyết trong P0.1** (owner mở phạm vi "làm hết tất cả"): ba GET có auth dùng chung bucket `read` 60/phút/player. Chọn 60 vì một vòng reconnect chỉ tốn 3 call, nên client bình thường không tới gần trần; test khẳng định 60 read pass và cái thứ 61 là 429. Owner muốn hạ/nâng thì chỉ sửa một số trong `rateBuckets`
+8. **Mới:** ba nhánh đang chờ review — `feat/situation-room` (4 commit redesign), `docs/truth-pass` (3 commit doc), `feat/rate-limit-buckets` (7 commit: P0.1 + N.1/N.2 + A.1 + E.3-pre + dọn nhỏ + B.1 security review). Merge theo thứ tự nào, và có muốn tôi mở PR hay owner tự lấy?
+9. **Mới:** hai job CI Docker (`prod-smoke`, `recovery-drill`) chỉ chạy được trên runner — owner xem lại `if:` gating và cron ngày 2 hằng tháng có đúng ý không, vì tôi không quan sát được chúng xanh
+10. **Mới (S-5, security review):** `ambush` không có tiền đề không gian nào — không đòi có quân, không đòi ở gần caravan, không tốn tài nguyên, không cooldown, và chạy ở bucket `write` 20/phút. Một người chơi xoá được 60% hàng của **mọi** caravan đang chạy trên map, từ bất kỳ đâu, miễn phí, và hệ thống hộ tống thành vô nghĩa. `attack` thì đòi sở hữu army và chỉ resolve khi cùng ô. Tiền đề đúng là luật chơi (`docs/GAME-DESIGN.md`) nên tôi **không tự đặt**: owner chốt bán kính bao nhiêu ô / tốn gì / cooldown bao lâu / có sang bucket `combat` 10/phút không?
+11. **Mới (S-9, security review):** có thêm guard "production phải khai `TRUST_PROXY`" vào `config.ts` không? Để `false` sau Caddy thì mọi người chơi mang IP của Caddy, nên `register:<ip>` 3/giờ thành hạn mức **toàn cầu** — ba lần đăng ký đóng cửa đăng ký cả thế giới trong một giờ. Tôi không tự thêm vì guard đó sẽ chặn boot của một deployment phơi server trực tiếp mà tôi không kiểm chứng được. Kèm theo: S-1 cần owner xác nhận một lần trên stack thật (Caddy → Fastify) sau khi merge, vì máy tôi không có Docker nên chỉ chứng minh được nửa Fastify bằng `app.inject`

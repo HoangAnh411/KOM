@@ -14,7 +14,14 @@ const envSchema = z.object({
   ALLIANCE_LEADER_TERM_MS: z.coerce.number().int().min(60_000).default(7 * 24 * 60 * 60 * 1000),
   WORLD_EVENT_SPAWN_CHANCE: z.coerce.number().min(0).max(1).default(1 / 600),
   WORLD_EVENT_TYPE: z.string().default(""),
-  TRUST_PROXY: z.enum(["true", "false"]).default("false"),
+  // Number of proxy hops, not a boolean. Fastify passes this to proxy-addr, and `true`
+  // there means "trust the whole X-Forwarded-For chain", which makes `request.ip` the
+  // left-most entry — a value the client writes. Every IP-keyed rate limit (login 5/15m,
+  // register 3/h, refresh, admin) is then bypassed by rotating one header. Caddy appends
+  // the peer address to whatever the client sent, so behind one proxy the trustworthy
+  // entry is the right-most: a count is what has to be configured. "true" is kept as an
+  // alias for one hop so existing deployments keep booting; a longer chain says "2".
+  TRUST_PROXY: z.union([z.literal("true"), z.literal("false"), z.string().regex(/^[1-9]\d?$/, "must be \"true\", \"false\", or a proxy hop count")]).default("false"),
 });
 
 const parsed = envSchema.safeParse(process.env);
@@ -53,6 +60,10 @@ function isValidOrigin(value: string): boolean {
 }
 if (!env.CLIENT_ORIGIN || !isValidOrigin(env.CLIENT_ORIGIN)) throw new Error(`invalid CLIENT_ORIGIN: ${env.CLIENT_ORIGIN || "(empty)"}`);
 
+// `false | number`, never `boolean`: callers narrow on `=== false` and then need the rest
+// to be a hop count, which a widened `boolean` would not give them.
+const trustProxy: false | number = env.TRUST_PROXY === "false" ? false : env.TRUST_PROXY === "true" ? 1 : Number(env.TRUST_PROXY);
+
 export const config = {
   nodeEnv: env.NODE_ENV,
   host: env.HOST,
@@ -69,6 +80,6 @@ export const config = {
   allianceLeaderTermMs: env.ALLIANCE_LEADER_TERM_MS,
   worldEventSpawnChance: env.WORLD_EVENT_SPAWN_CHANCE,
   worldEventType: env.WORLD_EVENT_TYPE,
-  trustProxy: env.TRUST_PROXY === "true"
+  trustProxy
 };
 export type AppConfig = typeof config;

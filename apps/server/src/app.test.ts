@@ -29,6 +29,34 @@ test("accepted commands are recorded in the event ledger", async () => {
   await server.app.close();
 });
 
+// A `scout` mission costs iron, sits behind a cooldown, and returns resources plus
+// buildings blurred by accuracy. All of that was theatre while the snapshot shipped every
+// city's real stock to every client, so this pins the boundary: your own interior is
+// yours, everyone else's is what the map legitimately shows.
+test("a snapshot hides other players' city interiors but keeps the map readable", async () => {
+  type Session = { token: string; player: { id: string } };
+  type City = { id: string; playerId: string; playerName: string; x: number; y: number; frozen?: boolean; resources: Record<string, number>; buildings: Record<string, number>; queues: unknown[] };
+  const server = createServer();
+  const victim = (await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Scout Victim", factionId: "meridian" } })).json() as Session;
+  const viewer = (await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Scout Buyer", factionId: "veiled" } })).json() as Session;
+  const bootstrap = await server.app.inject({ method: "GET", url: "/api/bootstrap", headers: { authorization: `Bearer ${viewer.token}` } });
+  assert.equal(bootstrap.statusCode, 200);
+  const cities = (bootstrap.json() as { snapshot: { cities: City[] } }).snapshot.cities;
+  const own = cities.find(city => city.playerId === viewer.player.id)!;
+  const foreign = cities.find(city => city.playerId === victim.player.id)!;
+  const truth = server.store.snapshot.cities.find(city => city.playerId === victim.player.id)!;
+  assert.deepEqual(own.resources, server.store.snapshot.cities.find(city => city.playerId === viewer.player.id)!.resources, "a viewer still sees their own stock");
+  assert.ok(truth.resources.wood > 0, "the server still holds the real stock — this is a projection, not a wipe");
+  assert.deepEqual(foreign.resources, { food: 0, wood: 0, stone: 0, iron: 0 }, "another player's stock is what espionage sells");
+  assert.deepEqual(foreign.buildings, {}, "another player's build levels are what espionage sells");
+  assert.deepEqual(foreign.queues, [], "a build queue says what its owner is about to field");
+  // The map draws foreign cities from these fields and the target lists filter on
+  // `frozen`, so redacting the interior must not blank the city itself.
+  assert.equal(foreign.id, truth.id); assert.equal(foreign.x, truth.x); assert.equal(foreign.y, truth.y);
+  assert.equal(foreign.playerName, "Scout Victim"); assert.equal(foreign.frozen, truth.frozen);
+  await server.app.close();
+});
+
 test("command responses conform to the shared CommandResponse contract", async () => {
   const server = createServer();
   const login = await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Contract Player", factionId: "meridian" } });
@@ -82,6 +110,55 @@ test("early-rejected commands (unauthenticated, banned, rate-limited) conform to
   const limited = await server.app.inject({ method: "POST", url: "/api/commands/spy/launch", headers: rlHeaders, payload: { commandId: "reject-rl-6" } });
   assert.equal(limited.statusCode, 429);
   assert.deepEqual(limited.json(), { commandId: "reject-rl-6", result: "rejected", code: "RATE_LIMITED" });
+  await server.app.close();
+});
+
+test("command rate-limit buckets are independent per command group", async () => {
+  const server = createServer();
+  const login = await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Bucket Player", factionId: "meridian" } });
+  const session = login.json() as { token: string; player: { id: string }; snapshot: { cities: Array<{ id: string; playerId: string }> } };
+  const cityId = session.snapshot.cities.find(city => city.playerId === session.player.id)!.id;
+  const headers = { authorization: `Bearer ${session.token}` };
+  const post = (url: string, payload: object) => server.app.inject({ method: "POST", url, headers, payload });
+  // Payloads below are deliberately incomplete: the limiter runs before schema parsing, so a 400
+  // still consumes the bucket. Only the 429/non-429 boundary is under test here.
+  for (let index = 1; index <= 5; index++) {
+    assert.notEqual((await post("/api/commands/spy/launch", { commandId: `bucket-spy-${index}` })).statusCode, 429, `spy ${index} stays inside the spy bucket`);
+  }
+  assert.equal((await post("/api/commands/spy/launch", { commandId: "bucket-spy-6" })).statusCode, 429);
+  // The spy bucket is spent; a build is a different bucket and must still be accepted.
+  const build = await post("/api/commands/build", { commandId: "bucket-build-1", cityId, buildingId: "warehouse", queueType: "build" });
+  assert.equal(build.statusCode, 200, "an exhausted spy bucket must not reject a build command");
+  // attack and formation share the combat bucket (10/min), so the eleventh combat command is the
+  // first to be rejected — and it must not touch what is left of the write bucket.
+  for (let index = 1; index <= 10; index++) {
+    const url = index % 2 === 0 ? "/api/commands/attack" : "/api/commands/formation";
+    assert.notEqual((await post(url, { commandId: `bucket-combat-${index}` })).statusCode, 429, `combat ${index} stays inside the combat bucket`);
+  }
+  assert.equal((await post("/api/commands/attack", { commandId: "bucket-combat-11" })).statusCode, 429);
+  assert.notEqual((await post("/api/commands/harvest", { commandId: "bucket-write-2" })).statusCode, 429, "an exhausted combat bucket must not reject a logistics command");
+  await server.app.close();
+});
+
+test("authenticated read routes share one read bucket and stay open for a normal client", async () => {
+  const server = createServer();
+  const login = await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Read Bucket Player", factionId: "bastion" } });
+  const session = login.json() as { token: string };
+  const headers = { authorization: `Bearer ${session.token}` };
+  const get = (url: string) => server.app.inject({ method: "GET", url, headers });
+  // 60/min across the three reads: a bootstrap + battle-history + archive round trip on every
+  // reconnect stays far inside it, so only a scripted flood is refused.
+  for (let index = 1; index <= 20; index++) {
+    assert.equal((await get("/api/bootstrap")).statusCode, 200, `bootstrap ${index} stays inside the read bucket`);
+    assert.equal((await get("/api/battles")).statusCode, 200, `battles ${index} stays inside the read bucket`);
+    assert.equal((await get("/api/season-history")).statusCode, 200, `archive ${index} stays inside the read bucket`);
+  }
+  const limited = await get("/api/bootstrap");
+  assert.equal(limited.statusCode, 429);
+  assert.deepEqual(limited.json(), { code: "RATE_LIMITED" });
+  // The read bucket is separate from the write bucket, so reads never lock a player out of play.
+  const other = await server.app.inject({ method: "GET", url: "/api/bootstrap" });
+  assert.equal(other.statusCode, 401, "an unauthenticated read is still rejected before the limiter");
   await server.app.close();
 });
 

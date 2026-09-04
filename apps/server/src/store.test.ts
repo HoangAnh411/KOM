@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { GameStore } from "./store.js";
+import { gameRules } from "@kingdoms/shared";
 
 test("build commands enforce ownership, costs, and the two-queue limit", () => {
   const store = new GameStore();
@@ -11,6 +12,23 @@ test("build commands enforce ownership, costs, and the two-queue limit", () => {
   assert.throws(() => store.startBuild(player.id, "command-003", city.id, "warehouse", "build"), /QUEUE_LIMIT_REACHED/);
   assert.throws(() => store.startBuild(store.snapshot.players[1].id, "command-004", city.id, "warehouse", "build"), /CITY_ACCESS_DENIED/);
   assert.equal(store.startBuild(player.id, "command-001", city.id, "warehouse", "build"), "already_processed");
+});
+
+test("the server charges exactly the price the client shows", () => {
+  // `buildingCosts` is derived from `gameRules.buildings` rather than restated, and
+  // this is the assertion that keeps it derived: if someone reintroduces a local
+  // table, the first price they get wrong fails here instead of in a player's city.
+  for (const building of Object.values(gameRules.buildings)) {
+    const store = new GameStore();
+    const player = store.snapshot.players[0]!;
+    const city = store.snapshot.cities.find(item => item.playerId === player.id)!;
+    const before = { ...city.resources };
+    assert.equal(store.startBuild(player.id, `cost-${building.id}`, city.id, building.id, "build"), "accepted");
+    for (const key of ["food", "wood", "stone", "iron"] as const)
+      assert.equal(city.resources[key], before[key] - building.cost[key], `${building.id} charged the wrong ${key}`);
+    const queue = city.queues.at(-1)!;
+    assert.equal(Date.parse(queue.completesAt) - Date.parse(queue.startedAt), building.durationSeconds * 1000, `${building.id} build time`);
+  }
 });
 
 test("command transaction restores domain state and ledger when the action fails", async () => {

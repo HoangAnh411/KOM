@@ -116,7 +116,7 @@ docker compose --env-file .env.prod -f infra/docker-compose.prod.yml -f infra/do
 ### Kết quả drill
 
 - **2026-09-02** — `npm run drill:web-beta`; báo cáo đầy đủ: [`infra/backup/drill-report.md`](../infra/backup/drill-report.md). 3/3 pass: Redis kill, game kill (outbox chạy độc lập), backup → drop → restore. RPO 0 ms — sentinel row ghi vào `event_ledger` *trước* khi dump vẫn còn sau restore; RTO 5795 ms so với ngưỡng 30 phút.
-- Kỳ hạn kế tiếp: **2026-10-02** (cadence hằng tháng ở trên).
+- Kỳ hạn kế tiếp: **2026-10-02** (cadence hằng tháng ở trên). Job `recovery-drill` trong `.github/workflows/ci.yml` chạy `drill:web-beta` theo cron hằng tháng (ngày 2, 03:07 UTC) và upload `drill-report.md` làm artifact; vẫn phải copy số RPO/RTO vào mục này bằng tay vì job không commit vào repo. Job đó **chưa từng chạy** — nối dây xong nhưng chưa quan sát được kết quả trên runner.
 - Giới hạn của lần drill này: `scripts/drill-web-beta.mjs:120` gọi `docker compose exec postgres pg_dump -f /tmp/dump.sql`, **không** chạy `infra/backup/backup.sh` / `restore.sh`. Vậy nên hai script ở trên — custom format, retention 7 daily + 4 weekly, checksum/size vào `backup.log`, guard `BACKUP_ALLOW_LOCAL` — vẫn chưa được kiểm chứng lần nào; drill tháng sau nên đi qua đúng hai script đó để tick được cả đường cron thật.
 
 ## Load test (Phase 7A)

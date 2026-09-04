@@ -59,5 +59,20 @@ test("production accepts complete valid configuration", () => {
   }, "production");
   assert.ok(result.ok, result.output);
   assert.ok(result.output.includes('"clientOrigin":"https://play.example.com"'));
-  assert.ok(result.output.includes('"trustProxy":true'));
+  // `TRUST_PROXY=true` resolves to a hop count of 1, never to proxy-addr's `true`, which
+  // would read `request.ip` from the client-supplied left of X-Forwarded-For.
+  assert.ok(result.output.includes('"trustProxy":1'), result.output);
+});
+
+test("TRUST_PROXY takes an explicit hop count and refuses anything else", () => {
+  const base = { AUTH_MODE: "dev", DATABASE_URL: "", ADMIN_TOKEN: "", METRICS_TOKEN: "" };
+  const twoHops = loadConfig({ ...base, TRUST_PROXY: "2" });
+  assert.ok(twoHops.ok, twoHops.output);
+  assert.ok(twoHops.output.includes('"trustProxy":2'), twoHops.output);
+  const off = loadConfig({ ...base, TRUST_PROXY: "false" });
+  assert.ok(off.output.includes('"trustProxy":false'), off.output);
+  // Zero hops behind a proxy would key every limit on the proxy's own address, and a
+  // stray word must not silently fall back to a permissive value either.
+  assert.equal(loadConfig({ ...base, TRUST_PROXY: "0" }).ok, false);
+  assert.equal(loadConfig({ ...base, TRUST_PROXY: "yes" }).ok, false);
 });

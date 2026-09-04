@@ -28,13 +28,17 @@ Ngoài roadmap, bản audit trước tìm được **5 blocker trong code** khi�
 
 ## Thứ tự thực thi (chốt 2026-09-02)
 
-Ba bước. Không mở nhóm C/D/E/F/G lúc này.
+Năm bước, ba bước đầu là kế hoạch gốc và hai bước sau là phần owner mở phạm vi. Không mở nhóm C/D/E/F/G lúc này.
 
 | Bước | Nội dung | Vì sao đứng ở đây | Trạng thái |
 |---|---|---|---|
 | **0** | **Z.1** — đưa 43 file redesign Situation Room vào git | Đó là công việc đã hoàn thành nhưng chỉ tồn tại trong working tree, không xuất hiện ở roadmap hay plan cũ. Rủi ro lớn hơn mọi mục roadmap còn lại | **Xong** — nhánh `feat/situation-room`, 4 commit |
 | **1** | **Z.2 → Z.4** — làm tài liệu khớp code | Doc-only, không chạm file nóng, nên không cần chờ owner; và đóng được một checkbox roadmap thật (`[144]` — drill đã chạy, chỉ thiếu ghi vào runbook) | **Xong** — nhánh `docs/truth-pass`, 3 commit |
-| **2** | **P0.1** — tách rate-limit bucket | Task server duy nhất nên làm ngay: 7D vừa chạm `rate-limit.ts` nên khả năng xung đột thấp nhất, và limiter fail-closed làm 429-sai-bucket dễ nổ hơn trước. Mở đường cho B.1 `[145]` | **Chưa bắt đầu** — ⚠️ chạm `app.ts`, ping owner trước |
+| **2** | **P0.1** — tách rate-limit bucket | Task server duy nhất nên làm ngay: 7D vừa chạm `rate-limit.ts` nên khả năng xung đột thấp nhất, và limiter fail-closed làm 429-sai-bucket dễ nổ hơn trước. Mở đường cho B.1 `[145]` | **Xong** — nhánh `feat/rate-limit-buckets`, `d1212b4` |
+| **3** | Mở rộng theo yêu cầu owner ("làm hết tất cả"): **N.1**, **N.2**, nửa tự động của **A.1**, **E.3-pre**, ba việc dọn nhỏ | Đều là việc đã có đủ dữ kiện để làm đúng, không cần quyết định thiết kế mới. Những mục còn lại bị chặn bởi Docker/`k6`/quyết định gameplay thì **không** làm dở dang | **Xong** — cùng nhánh, `acf454a` `10c153d` `afa072b` `4817d1a` |
+| **4** | **B.1** `[145]` — security review auth / permissions / input / secrets | Dependency duy nhất của nó (P0.1) vừa xong ở Bước 2, và P0.1 đã dời hai finding cũ (bucket dùng chung, GET không hạn mức) ra khỏi phạm vi review nên review có baseline đúng. Đọc code phát hiện thêm **hai lỗ High chưa từng được ghi ở đâu** | **Xong** — cùng nhánh, `docs/SECURITY-REVIEW.md` + hai bản sửa High kèm test |
+
+Còn chặn thật, đã báo thay vì làm dở: **P0.4** (sức chứa thế giới — quyết định gameplay, OQ #2), **P0.5 + B.3** `[141]` (không `k6`), **B.2b** + hai job CI mới (không Docker), **A.1** phần phiên tay 30–60 phút (người phải chạy), nhóm **D** (owner chốt hướng persistence), phần lớn **Phase 8** và **G.2–G.5** (bundle ID, signing, license).
 
 Lý do **không** đảo Bước 1 lên trước Bước 0: mọi verification của Bước 1 (số test, band layout) đọc từ code trong working tree; nếu tree mất thì tài liệu vừa viết cũng sai theo.
 
@@ -149,25 +153,25 @@ F.4 [230] audit process (độc lập)
 
 ## Nhóm P0 — Prerequisite (không có trong roadmap, chặn mục 141)
 
-### P0.1 — Tách rate-limit bucket theo nhóm command — **Bước 2, làm tiếp theo**
+### P0.1 — Tách rate-limit bucket theo nhóm command ✅ `d1212b4`
 
 `app.ts:98` dùng chung key `write:${playerId}` cho mọi command nhưng caller truyền limit khác nhau: spy 5, combat 10, default 20. Counter dùng chung nên sau 6 lệnh build, lệnh spy kế tiếp bị 429 vì 7 > 5. `attack` không truyền limit → chạy ở 20/phút trong khi `set-formation` ở 10, ngược logic. 7D sửa *hành vi* `rate-limit.ts` (fail-closed) nhưng **không** sửa key, nên 429 sai bucket giờ càng dễ nổ ra ngoài. `docs/API.md` sau Z.4 đã ghi đúng hiện trạng "dùng chung counter" và trỏ tới task này là bản sửa.
 
-**Thiết kế tối thiểu:** thêm tham số bucket cho helper `command()` (`"write" | "combat" | "spy"`, default `"write"`), key thành `${bucket}:${playerId}`; đưa `attack` sang bucket combat. Giữ nguyên HTTP 429 + code `RATE_LIMITED` để contract test trong `app.test.ts` không đổi.
+**Đã làm khác thiết kế ban đầu, và vì sao:** thay vì thêm tham số bucket cho `command()` — tức vẫn để call site khai báo hạn mức, đúng cái đã sinh ra bug — bảng `rateBuckets` (write 20 / combat 10 / spy 5 / read 60) và `commandBuckets` khai báo **tập trung** trong `app.ts`, còn tham số `rlLimit` bị bỏ hẳn ở 9 call site. Một limit không còn cách nào lệch khỏi counter nó tiêu. Hai việc phát sinh sửa kèm vì cùng vùng code: ba GET có auth vào bucket `read` (trả lời OQ #7), và `rateLimited()` phân biệt `RATE_LIMITED` với `DEPENDENCY_UNAVAILABLE` — trước đó Redis chết ở production làm `command()` throw **ngoài** `try` của nó, không có `setErrorHandler`, nên trả HTTP 500 trong khi `API.md` hứa 503.
 
 **Acceptance criteria:**
-- [ ] Bucket riêng cho từng nhóm: `write:`, `combat:`, `spy:` + `${playerId}`
-- [ ] `attack` nằm ở bucket combat, cùng `set-formation`
-- [ ] Tiêu hết hạn mức spy không ảnh hưởng hạn mức build và ngược lại
-- [ ] Mã lỗi và HTTP status không đổi (429 / `RATE_LIMITED`)
-- [ ] `docs/API.md` mục hạn mức cập nhật lại cho khớp code sau khi đổi (Z.4 đã ghi hiện trạng; PR này ghi trạng thái mới)
+- [X] Bucket riêng cho từng nhóm: `write:`, `combat:`, `spy:` (+ `read:`) + `${playerId}`
+- [X] `attack` nằm ở bucket combat, cùng `set-formation`
+- [X] Tiêu hết hạn mức spy không ảnh hưởng hạn mức build và ngược lại
+- [X] Mã lỗi và HTTP status không đổi cho trường hợp quá hạn mức (429 / `RATE_LIMITED`); 503 chỉ xuất hiện khi dependency chết
+- [X] `docs/API.md` mục hạn mức ghi trạng thái mới, có nguyên tắc "một bucket = một hạn mức"
 
 **Verification:**
-- [ ] `npm test -w @kingdoms/server` — test mới trong `rate-limit.test.ts` xen kẽ spy/build khẳng định bucket không tràn sang nhau; contract 429 sẵn có trong `app.test.ts` vẫn xanh; 102 pass giữ nguyên
-- [ ] `npm run typecheck`; các gate còn lại báo riêng (`test:postgres` không chạy được ở máy này)
+- [X] `npm test -w @kingdoms/server` — 121 test: 106 pass, 0 fail, 15 skip (postgres-gated). Test mới: bucket độc lập trong `rate-limit.test.ts`; trong `app.test.ts` spy cạn không chặn build, read thứ 61 trả 429, read không auth vẫn 401
+- [X] `npm run typecheck` sạch; `test:postgres` không chạy được ở máy này (báo riêng, không gộp vào `verify:web-alpha`)
 
-**Dependencies:** None (nhưng ⚠️ chạm `app.ts` → ping owner trước) · **Scope:** S
-**Files:** `apps/server/src/app.ts`, `apps/server/src/rate-limit.test.ts`, `docs/API.md`
+**Dependencies:** None (⚠️ chạm `app.ts`; owner đã cho phép mở phạm vi) · **Scope:** S
+**Files:** `apps/server/src/app.ts`, `apps/server/src/rate-limit.test.ts`, `apps/server/src/app.test.ts`, `docs/API.md`
 
 ### P0.2 — Bỏ full-table reload của event ledger khỏi command path
 
@@ -251,35 +255,46 @@ Scenario `commands` trong `e2e/loadtest/loadtest.js` chạy `constant-arrival-ra
 Owner đang ở 7D nên **rất có thể mục này thuộc phần owner tự chạy** — xác nhận trước (Open Question #1). Phần contributor làm được: biến dòng 204 thành checklist chạy được, và tự động hoá phần kiểm tra được.
 
 **Acceptance criteria:**
-- [ ] `docs/ACCEPTANCE-7C.md`: walkthrough 8 bước onboarding (lấy từ `onboardingSteps` trong `packages/shared`), kịch bản phiên 30–60 phút, bảng tick cho 3 tiêu chí ở dòng 204 — không lộ raw ID, không dùng native `prompt()`/`confirm()`, không jank
-- [ ] Phần tự động: assert không còn `prompt(` / `confirm(` trong `apps/client/src` (7C đã thay bằng form + modal, cần test chốt lại để không tái phát)
-- [ ] Kết quả phiên ghi lại: ngày, người chạy, blocker. Sạch thì tick dòng 204
+- [X] `docs/ACCEPTANCE-7C.md`: walkthrough 8 bước onboarding (lấy từ `onboardingSteps` trong `packages/shared`), kịch bản phiên 30–60 phút, bảng tick cho 3 tiêu chí ở dòng 204 — không lộ raw ID, không dùng native `prompt()`/`confirm()`, không jank. Cố ý **loại** những gì test tự động đã phủ, để phiên tay chỉ đi phần máy không đo được
+- [X] Phần tự động: `apps/client/src/no-native-dialogs.test.ts` quét toàn bộ `apps/client/src`, bỏ comment trước khi quét (comment giải thích vì sao `confirm()` không còn không được làm đỏ test) và có test tự kiểm regex để guard không im lặng chết
+- [ ] Kết quả phiên ghi lại: ngày, người chạy, blocker. Sạch thì tick dòng 204 — **người phải chạy**, không tự tick
 
 **Verification:**
-- [ ] `npm run verify:web-alpha` xanh trước phiên
-- [ ] `npm run dev:web` rồi chạy hết checklist
+- [X] `npm test -w @kingdoms/client` — 78/78, gồm 2 test mới của guard
+- [ ] `npm run dev:web` rồi chạy hết checklist (owner)
 
 **Dependencies:** None · **Scope:** S
-**Files:** `docs/ACCEPTANCE-7C.md` (mới), `apps/client/src/*.test.ts`, `docs/ROADMAP.md`
+**Files:** `docs/ACCEPTANCE-7C.md` (mới ✅), `apps/client/src/no-native-dialogs.test.ts` (mới ✅), `docs/ROADMAP.md`
 
 ## Nhóm B — Pre-beta Phase 7A
 
-### B.1 — [145] Security review auth / permissions / input / secrets
+### B.1 — [145] Security review auth / permissions / input / secrets ✅ **xong**
+
+`docs/SECURITY-REVIEW.md` đã viết; `[145]` đã tick. Kết quả: 10 finding, hai High **đã sửa kèm test hồi quy**, một Low hardening đã sửa, hai Medium trỏ về P0.2/P0.3 đã có task, một Medium + hai Low để owner quyết.
 
 **Acceptance criteria:**
-- [ ] `docs/SECURITY-REVIEW.md` phủ 4 trục: **auth** (session rotation, refresh cookie `sameSite: strict`, close 4401, `timingSafeEqual` cho admin token), **permissions** (ownership guard, frozen/banned, permission matrix alliance/treaty, `/api/battles` chỉ thấy trận mình tham gia), **input** (Zod ở mọi command, `bodyLimit: 64*1024`, `requestTimeout: 15_000`), **secrets** (Zod production gate, `METRICS_TOKEN`, không log credential)
-- [ ] Mỗi phát hiện có severity + `file:line` + đề xuất sửa
-- [ ] Finding mức cao có test hồi quy trong `security.test.ts`
-- [ ] Hạn mức thật đã đối chiếu với `docs/API.md` (kết quả Z.4 + P0.1)
-- [ ] Xử lý hai finding đã có sẵn từ Z.4: (a) **không GET route nào bị rate-limit** — `/api/bootstrap`, `/api/season-history`, `/api/battles` không có hạn mức nào (7 call site `rateLimited(` đều là POST); (b) bucket write dùng chung cho mọi command (P0.1). Việc **có** thêm read limit hay không là quyết định của owner, không tự thêm trong PR review
-- [ ] Re-baseline theo code sau 7D: 7D đã tự xử log redaction, cookie `Path=/api/auth`, chặn request thiếu Origin, limiter fail-closed, che `/metrics` `/health/ready` `/api/dev/*` ở Caddy, security headers → review chỉ còn phần chưa được xử lý
+- [X] `docs/SECURITY-REVIEW.md` phủ 4 trục: **auth** (scrypt `N=131072`, sha256 digest, `timingSafeEqual`, `dummyPasswordHash`, refresh rotation thu hồi cả `family_id`, `FOR UPDATE`), **permissions** (matrix 22 hành động, mỗi dòng có `file:line`; guard nằm ở tầng domain nên không route nào bỏ sót được), **input** (26 command POST đều Zod, `bodyLimit` 64 KB, `requestTimeout` 15 s, SQL tham số hoá), **secrets** (production gate, `METRICS_TOKEN`, Pino redact)
+- [X] Mỗi phát hiện có severity + `file:line` + đề xuất sửa
+- [X] Finding mức cao có test hồi quy: **S-1** ở `security.test.ts` (`x-forwarded-for: "1.2.3.4, 203.0.113.9"` từ peer `172.18.0.5` → `request.ip === "203.0.113.9"`) + `config.test.ts` (`"trustProxy":1` cho `TRUST_PROXY=true`, từ chối `"0"`/`"yes"`); **S-2** ở `app.test.ts` (viewer thấy kho của mình, thấy 0/`{}`/`[]` ở city người khác, `store.snapshot` vẫn giữ số thật, `id`/`x`/`y`/`playerName`/`frozen` không bị blank)
+- [X] Hạn mức thật đã đối chiếu `docs/API.md` — mục "Rate limit" của review dẫn `app.ts:102-105` và mọi key IP-based có `file:line`
+- [X] Hai finding từ Z.4 đã xử: (a) GET không có hạn mức → P0.1 cho ba GET bucket `read` 60/phút; (b) bucket write dùng chung → P0.1 tách `write`/`combat`/`spy`
+- [X] Re-baseline theo code sau 7D: review chỉ ghi phần **chưa** được xử lý, và có riêng mục "kiểm soát đã xác nhận" để những gì 7D làm đúng không bị báo lại thành finding
 
-**Verification:**
-- [ ] `npm test -w @kingdoms/server`
+**Hai finding cao đã sửa:**
+- **S-1 (High)** `TRUST_PROXY` là boolean nên tới `proxy-addr` thành "tin cả chuỗi `X-Forwarded-For`", và `proxy-addr` khi đó trả entry **ngoài cùng bên trái** — thứ client tự ghi, vì Caddy *append* peer address chứ không thay thế. Mọi hạn mức theo IP (`login` 5/15m, `register` 3/h, `refresh` 30/m, `admin` 10/m + 5/m) bị vô hiệu bằng cách đổi một header, tức lockout credential stuffing tắt hẳn. Sửa: `TRUST_PROXY` thành **số hop** (`config.trustProxy: false | number`), `app.ts` biến số hop thành đúng predicate `proxy-addr` compile ra (`hop < trustedHops`) vì kiểu của Fastify nhận predicate mà không nhận `number`.
+- **S-2 (High)** `getSnapshot()` phát `resources`/`buildings`/`queues` thật của **mọi** city qua `/api/bootstrap`, mọi response command và mọi broadcast — trong khi mission `scout` tốn iron, có cooldown, bị counter-intel chặn và làm mờ theo `accuracy` để bán đúng ba field đó. Là **thiếu sót chứ không phải thiết kế**: `battleReports` và `spyMissions` ngay cạnh đã lọc theo viewer, `cities` là collection duy nhất bị bỏ sót. Sửa: city người khác giữ phần map hợp pháp hiển thị, nội thất về 0/`{}`/`[]`. Zero thay vì bỏ field nên `WorldSnapshot` giữ một shape, không sửa `packages/shared`, không sửa client — đã kiểm cả 8 panel đều resolve city của chính mình qua `playerId`.
+
+**Verification (đã chạy):**
+- [X] `npm test -w @kingdoms/server` → **124 test, 109 pass, 0 fail, 15 skip** (postgres-gated), tăng từ 121/106/15
+- [X] `npm run typecheck` sạch cả ba workspace
+- [X] E2E 19/19 pass trên port 3100/5174 (không chạm stack dev của owner)
+- [ ] `test:postgres` **không chạy được ở máy này** (không Docker, không `DATABASE_URL`) → báo cáo là skipped, **không** viết `verify:web-alpha` xanh
 - [ ] Owner review lại tài liệu
 
-**Dependencies:** P0.1 · **Scope:** M
-**Files:** `docs/SECURITY-REVIEW.md` (mới), `apps/server/src/security.test.ts`, `docs/ROADMAP.md`
+**Dependencies:** P0.1 (xong) · **Scope:** M
+**Files:** `docs/SECURITY-REVIEW.md` (mới), `docs/API.md` (mục `## World snapshot`), `docs/ROADMAP.md` (tick `[145]`, ghi chú `TRUST_PROXY` ở dòng security baseline), `apps/server/src/{app,config}.ts`, `apps/server/src/{app,config,security}.test.ts`, `.env.example`
+
+**Việc còn treo cho owner** (đã vào Open questions #10, #11): tiền đề không gian của `ambush` (S-5, là luật chơi), có bắt buộc `TRUST_PROXY` ở production không (S-9, guard đó có thể chặn boot một deployment tôi không kiểm chứng được), xác nhận S-1 trên stack thật có Docker. Ba Low còn lại (S-7 admin route không Zod, S-8 trần WS connection, S-10 status `ADMIN_DISABLED` lệch) đã vào mục "việc dọn nhỏ".
 
 ### B.2 — [144] Restore drill + log vào runbook ✅ → **đóng ở Z.2**
 
@@ -304,7 +319,7 @@ Drill đã chạy thật ngày 2026-09-02 qua `npm run drill:web-beta` (3/3 pass
 **Files:** `docs/OPERATIONS.md`, `docs/ROADMAP.md`, artifact report
 
 ### Checkpoint 2 — sau A.1 + B.1 + B.3
-- [ ] `[204]`, `[141]`, `[145]` tick được, hoặc blocker ghi rõ (`[144]` đã tick ở Z.2/Z.3)
+- [ ] `[204]`, `[141]` tick được, hoặc blocker ghi rõ (`[144]` đã tick ở Z.2/Z.3, `[145]` đã tick ở B.1)
 - [ ] Report load test lưu và link từ `OPERATIONS.md`
 - [ ] Phase 7C đóng; Phase 7A hết mục "trước beta"
 
@@ -436,13 +451,14 @@ Làm trước trong Phase 8 vì gate `check:bundle` (500 KiB/chunk, manifest-bas
 
 **Verify:** build + devtools Application panel; test SW registration · **Deps:** E.1 · **Scope:** M
 
-### E.3-pre — Kiểm band `compact` trong browser (phần rẻ nhất của E.3, làm được ngay)
+### E.3-pre — Kiểm band `compact` trong browser (phần rẻ nhất của E.3) ✅ `afa072b`
 Situation Room (Z.1) **đã có** band `compact` <1024px: `layout.ts` biến hai column thành flyout và `toggleSurface` cho chúng loại trừ nhau, thay vì chặn viewport như rào 7C. Rào "viewport desktop chưa được hỗ trợ" **không còn trong `apps/client/src`**. Nhưng `e2e/situation-room.spec.ts` chỉ đi qua 1920/1440/1280/1024, nên band `compact` **chưa từng được chạy trong browser lần nào**.
-- [ ] Thêm một size thứ năm (<1024px) vào vòng lặp viewport đã có
-- [ ] **Không** copy-paste assertion: ở `compact`, `map.x === kingdom.w` sai vì column là flyout phủ lên map chứ không phải một track của grid → cần nhánh assertion riêng cho band này
-- [ ] Khẳng định hai column loại trừ nhau: mở `activity` thì `kingdom` đóng
+- [X] Thêm một size thứ năm (<1024px) vào vòng lặp viewport đã có — 900x800
+- [X] **Không** copy-paste assertion: ở `compact`, `map.x === kingdom.w` pass vì cả hai bằng 0, tức pass vì lý do sai → band này khẳng định `map.x === 0` và `map.w === viewport` khi đóng, còn flyout thì neo lên trên map (`kingdom.x === map.x`, `activity` neo phải) mà không cắt bớt box của map
+- [X] Khẳng định hai column loại trừ nhau: mở `activity` thì `kingdom` đóng
+- [X] Phát sinh: `login()` nhận `contextVisible` vì mốc "shell đã dựng" ở compact không thể là column kingdom (nó đóng sẵn) mà phải là nút toggle trong header
 
-**Verify:** `npx playwright test e2e/situation-room.spec.ts` (port 3100/5174 nếu stack dev của owner đang chạy) · **Deps:** Z.1 · **Scope:** S
+**Verify:** ✅ `afa072b` — full suite trên port 3100/5174: **19/19 pass**. Wait cho `.map canvas` nới lên 15 s sau khi thấy nó timeout 5 s một lần ở cuối run (import động chunk pixi + WebGL context); test không hề khẳng định canvas tới nhanh · **Deps:** Z.1 · **Scope:** S
 
 ### E.3 — [215] Touch controls, safe area và viewport nhỏ
 Tách 3 PR: (a) touch pan/zoom trên map Pixi, (b) layout responsive, (c) e2e mobile project. Phần (b) đã được Situation Room làm gần hết — xem E.3-pre.
@@ -534,10 +550,13 @@ Thứ tự bắt buộc: style guide → chọn pack → credits. Chọn pack tr
 
 ## Việc dọn nhỏ (kèm vào PR liên quan, không phải mục roadmap)
 
-- [ ] `militaryScore()` bỏ im lặng `strengthDestroyed` / `strengthLost` / `defeats` — hoặc dùng, hoặc bỏ khỏi call site
-- [ ] `buildingCosts` trong `store.ts` trùng `gameRules.buildings` ở `packages/shared` (nguy cơ drift)
-- [ ] `infra/migrations/README.md` dừng ở `011`, thiếu `012`–`014`
+Ba mục đầu xong trong `4817d1a`; kết luận của mục 1 khác đề bài ban đầu nên ghi lại đây.
+
+- [X] `militaryScore()` bỏ im lặng `strengthDestroyed` / `strengthLost` / `defeats` → **không phải code chết**: `combat.ts:296-310` cộng, `combat.ts:98-99` persist, `combat.ts:66-67` đọc lại, `analytics.ts:16` phát đi, `types.ts:12` khai báo. Chúng chỉ nằm ngoài công thức điểm — nghĩa là hôm nay thua trận không mất điểm. Đó là luật chơi (`docs/GAME-DESIGN.md`), owner quyết, **không** phải bug để tự sửa; nên chỉ thu hẹp fallback ở call site về đúng 4 field công thức đọc và ghi comment nói rõ vì sao
+- [X] `buildingCosts` trong `store.ts` trùng `gameRules.buildings` → derive từ shared, thêm test đi qua từng building đối chiếu `cost` và `durationSeconds`
+- [X] `infra/migrations/README.md` dừng ở `011` → phát hiện thêm: hướng dẫn `psql -f` từng file **bỏ qua runner của 7A**, để `schema_migrations` rỗng và khiến `db:migrate:check` báo toàn bộ pending. README giờ chỉ sang `npm run db:migrate`, giữ manifest `001`–`014`
 - [ ] Suite Chromium mặc định vẫn chạy in-memory (`AUTH_MODE=dev`); `e2e/password-auth.spec.ts` của 7D chạy thật với PostgreSQL nhưng chỉ khi `E2E_PROD_SMOKE=1` và không nằm trong CI
+- [ ] **Mới:** `.map canvas` timeout 5 s một lần ở cuối full-suite run (19 test) → đã nới riêng wait đó lên 15 s. Nếu tái diễn thì nghi vấn tiếp theo là số WebGL context sống đồng thời của Chromium, không phải layout
 
 ## Risks and Mitigations
 
@@ -546,7 +565,8 @@ Thứ tự bắt buộc: style guide → chọn pack → credits. Chọn pack tr
 | 43 file redesign mất do lệnh git sai | ~~High~~ | **Đã xử:** Z.1 commit theo lớp lên nhánh riêng trước mọi việc khác; không `reset --hard`, không `clean -f`, không `stash drop` |
 | Nhánh `feat/situation-room` chưa được owner review, càng để lâu càng lệch `main` | Medium | Báo owner sớm; nhánh đứng độc lập, không chạm `store.ts`/`app.ts`/`shared` nên rebase rẻ |
 | Sửa dòng đã tick trong roadmap bị hiểu là viết lại lịch sử | Medium | Giữ tick, chỉ thêm "superseded" + sự thật hiện tại; không bỏ tick mục nào |
-| P0.1 xung đột với việc owner đang làm trên `app.ts` | Medium | Ping owner trước; PR nhỏ, chỉ thêm tham số bucket + đổi key, giữ nguyên 429/`RATE_LIMITED` |
+| P0.1 xung đột với việc owner đang làm trên `app.ts` | Medium | Nhánh riêng `feat/rate-limit-buckets`, không push; diff gọn (một bảng bucket + đổi key + bỏ tham số `rlLimit`), giữ nguyên 429/`RATE_LIMITED` cho trường hợp quá hạn mức |
+| Hai job CI mới (`prod-smoke`, `recovery-drill`) chưa từng chạy | Medium | Ghi rõ "wired, chưa quan sát xanh" ở cả `todo.md` và mục N.2; gating `if:` giới hạn ở main/dispatch/cron nên PR thường không bị chặn bởi job chưa kiểm chứng |
 | Nhóm D bắt đầu như một PR duy nhất | High | Checkpoint 4 chặn: phải decompose theo domain và có số đo baseline trước |
 | Báo cáo gate mạnh hơn thực tế (`test:postgres` chỉ skip) | Medium | Luôn báo từng gate riêng; không dùng chữ "`verify:web-alpha` xanh" ở máy này |
 | Chạy e2e trúng port stack dev của owner | Low | Xác định chủ port bằng `netstat -ano` trước; nếu đang chạy thì dùng config tạm 3100/5174 |
@@ -560,4 +580,6 @@ Thứ tự bắt buộc: style guide → chọn pack → credits. Chọn pack tr
 4. Contributor có quyền chạy prod compose / backup / k6 không? Máy này chưa có Docker và chưa có `k6`.
 5. Misinformation baseline do owner chốt hay contributor đề xuất trong PR (C.1)?
 6. `verify:web-beta` có vào CI không (N.2), hay cố ý giữ là gate chạy tay vì cần Docker-in-Docker?
-7. **Mới:** có thêm rate-limit cho GET route (`/api/bootstrap`, `/api/season-history`, `/api/battles`) không? Hiện **không có** hạn mức nào. Là finding của B.1, không tự sửa.
+7. ~~Có thêm rate-limit cho GET route không?~~ → **đóng trong P0.1**: ba GET có auth dùng chung bucket `read` 60/phút/player. Một vòng reconnect chỉ tốn 3 call nên client bình thường không tới gần trần; đổi số chỉ là sửa một dòng trong `rateBuckets`.
+8. **Mới (S-5):** tiền đề không gian của `ambush` — bán kính bao nhiêu ô? tốn gì? cooldown bao lâu? có sang bucket `combat` 10/phút không? Hiện `ambush` chỉ đòi "không phải caravan của mình", nên một người chơi xoá được 60% hàng của mọi caravan trên map, từ bất kỳ đâu, miễn phí, 20 lần/phút — và hệ thống hộ tống thành vô nghĩa. Đây là luật chơi (`docs/GAME-DESIGN.md`) nên review **không tự đặt**.
+9. **Mới (S-9):** có thêm guard "production phải khai `TRUST_PROXY`" không? Để `false` sau Caddy thì `register:<ip>` 3/giờ thành hạn mức toàn cầu. Không tự thêm vì guard sẽ chặn boot của deployment phơi server trực tiếp mà tôi không kiểm chứng được. Kèm: S-1 cần owner xác nhận một lần trên stack thật Caddy → Fastify (máy này không có Docker nên chỉ chứng minh được nửa Fastify bằng `app.inject`).

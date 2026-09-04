@@ -3,6 +3,10 @@ name: CI
 on:
   push:
   pull_request:
+  workflow_dispatch:
+  schedule:
+    # Monthly recovery drill, matching the cadence the operations runbook asks for.
+    - cron: "7 3 2 * *"
 
 jobs:
   verify:
@@ -66,3 +70,55 @@ jobs:
 
       - name: gate 9 - git diff --check
         run: git diff --check
+
+      # Last on purpose: an advisory published after the commit must not hide a code failure.
+      - name: gate 10 - npm audit --audit-level=high
+        run: npm audit --audit-level=high
+
+  # Everything below needs Docker, so it is kept out of the per-commit gate. `verify:web-beta`
+  # = the ten gates above + this job.
+  prod-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule' || github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npx playwright install --with-deps chromium
+
+      # Real prod compose (Caddy TLS + PG + Redis + game + outbox): register -> build -> reload
+      # keeps the session, and /health/ready, /metrics, /api/dev/* must answer 404 from outside.
+      - name: prod smoke (password auth over prod compose)
+        run: npm run test:prod-smoke
+
+  recovery-drill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    if: github.event_name == 'workflow_dispatch' || github.event_name == 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      # Redis kill, game kill with the outbox surviving alone, backup -> drop -> restore with a
+      # sentinel row. Writes infra/backup/drill-report.md, so this job never runs git diff --check.
+      - name: recovery drill
+        run: npm run drill:web-beta
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: drill-report
+          path: infra/backup/drill-report.md
