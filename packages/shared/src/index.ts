@@ -286,11 +286,24 @@ export type OnboardingAckCommand = z.infer<typeof onboardingAckCommandSchema>;
 // paints the whole world plains, and a v2 client against a v1 server draws the
 // authored map while the server adjudicates battles on the old modulo terrain.
 // Silence is the failure mode the version gate exists to convert into a message.
+//
+// `regionControl` joined the same bump rather than earning a third version: v2 has not
+// shipped yet, and a client that cannot read territory would draw an unheld world — quiet
+// in exactly the way this comment is about.
 export const PROTOCOL_VERSION = 2;
 export const battleHistoryResponseSchema = z.object({ items: z.array(battleReportSchema), nextCursor: z.string().optional() });
 export type BattleHistoryResponse = z.infer<typeof battleHistoryResponseSchema>;
 
-export const snapshotSchema = z.object({ protocolVersion: z.number().int().default(PROTOCOL_VERSION), kingdom: z.object({ id: z.string(), name: z.string() }), season: z.object({ id: z.string(), status: z.enum(["SCHEDULED", "ACTIVE", "FINALIZING", "CLOSED"]), endsAt: z.string() }), cities: z.array(citySchema), caravans: z.array(caravanSchema), armies: z.array(armySchema), heroes: z.array(heroSchema), scores: z.record(scoreSchema), factionCatalog: z.record(z.object({ name: z.string(), description: z.string() })), logistics: logisticsSnapshotSchema, battleReports: z.array(battleReportSchema).optional(), worldMapDigest: z.string().optional(), terrainOverrides: z.record(z.enum(terrainTypes)).optional(), alliances: z.array(allianceSchema).optional(), allianceVotes: z.array(allianceVoteSchema).optional(), treaties: z.array(treatySchema).optional(), spyMissions: z.array(spyMissionSchema).optional(), worldEvents: z.array(worldEventSchema).optional(), onboarding: onboardingProgressSchema.optional() });
+// Who holds the sixteen provinces: province code → controller player id, held ones only.
+// Deliberately *only* the controller. A province's name, seat and tile count are authored in
+// `world-map.ts`, which the client imports, so putting them on the wire every tick would be
+// the same mistake `terrainMap` was — sixteen rows of never-changing text at 1000ms. An
+// absent code reads as unheld, which is also the state at season start, so `{}` is honest
+// rather than a gap. Optional for the same reason every field added since v1 is: a snapshot
+// replayed from an older ledger row has no opinion about territory.
+export const regionControlSchema = z.record(z.string());
+
+export const snapshotSchema = z.object({ protocolVersion: z.number().int().default(PROTOCOL_VERSION), kingdom: z.object({ id: z.string(), name: z.string() }), season: z.object({ id: z.string(), status: z.enum(["SCHEDULED", "ACTIVE", "FINALIZING", "CLOSED"]), endsAt: z.string() }), cities: z.array(citySchema), caravans: z.array(caravanSchema), armies: z.array(armySchema), heroes: z.array(heroSchema), scores: z.record(scoreSchema), factionCatalog: z.record(z.object({ name: z.string(), description: z.string() })), logistics: logisticsSnapshotSchema, battleReports: z.array(battleReportSchema).optional(), worldMapDigest: z.string().optional(), terrainOverrides: z.record(z.enum(terrainTypes)).optional(), regionControl: regionControlSchema.optional(), alliances: z.array(allianceSchema).optional(), allianceVotes: z.array(allianceVoteSchema).optional(), treaties: z.array(treatySchema).optional(), spyMissions: z.array(spyMissionSchema).optional(), worldEvents: z.array(worldEventSchema).optional(), onboarding: onboardingProgressSchema.optional() });
 export type WorldSnapshot = z.infer<typeof snapshotSchema>;
 
 // === PHASE 7B: COMMAND RESPONSE CONTRACT ===

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { gameRules } from "@kingdoms/shared";
+import { gameRules, regions, regionTileCounts } from "@kingdoms/shared";
 import type { Alliance, AllianceVote, Army, BattleReport, Caravan, City, SpyMission, Treaty, WorldEvent, WorldSnapshot } from "@kingdoms/shared";
 import {
   activityAnchors, activityIcons, activityKindLabels, activityLimit, activityStates, attentionItems, attentionLimit,
@@ -117,7 +117,7 @@ test("every kind of row has exactly one wording, one glyph and one chip", () => 
   // renders identically — two kinds sharing a chip wording, or a label that is still
   // the kind's own key.
   const sorted = kinds.slice().sort();
-  assert.ok(kinds.length >= 17, `expected the whole feed's vocabulary, found ${kinds.length}`);
+  assert.ok(kinds.length >= 19, `expected the whole feed's vocabulary, found ${kinds.length}`);
   assert.deepEqual(Object.keys(activityIcons).sort(), sorted, "the glyph map covers a different set of kinds");
   assert.deepEqual(Object.keys(activityStates).sort(), sorted, "the chip map covers a different set of kinds");
   const labels = kinds.map(kind => activityKindLabels[kind]);
@@ -348,6 +348,35 @@ test("a world event is reported once, in the same words and colours the drawer u
   const rush = diff(world(), world({ worldEvents: [worldEvent({ id: "event-2", eventType: "gold_rush" })] }))[0]!;
   assert.equal(rush.state, worldEventStates.gold_rush);
   assert.notEqual(rush.state, rows[0]!.state);
+});
+
+// Territory is public — the map paints every province's holder — but a feed row is a thing
+// that happened to *us*, and in a full kingdom sixteen provinces trading hands between
+// strangers would bury the rows a player can act on.
+test("a province changing hands is reported from our own side, once", () => {
+  const A = regions[0]!;
+  const B = regions[1]!;
+  const gained = diff(world({ regionControl: {} }), world({ regionControl: { [A.code]: ME } }));
+  assert.deepEqual(gained.map(row => row.kind), ["region-captured"]);
+  assert.equal(gained[0]!.message, `Đã kiểm soát ${A.name} — ${regionTileCounts()[A.code]} ô.`);
+  assert.deepEqual(diff(world({ regionControl: { [A.code]: ME } }), world({ regionControl: { [A.code]: ME } })), [],
+    "a repeated snapshot is not a second capture");
+
+  // Two ways to lose ground, and they are not the same sentence: somebody took the
+  // seat, or nobody holds it any more — we marched off, or a rival drew level and the
+  // rule leaves a contested seat unheld.
+  const taken = diff(world({ regionControl: { [A.code]: ME } }), world({ regionControl: { [A.code]: FOE } }));
+  assert.deepEqual(taken.map(row => row.kind), ["region-lost"]);
+  assert.equal(taken[0]!.message, `Mất ${A.name} vào tay Rival.`);
+  const abandoned = diff(world({ regionControl: { [A.code]: ME } }), world({ regionControl: {} }));
+  assert.equal(abandoned[0]!.message, `Mất ${A.name} — không còn ai giữ ô lỵ sở.`);
+
+  // A province two strangers are fighting over says nothing, and neither does a
+  // snapshot from a server that has not sent the field at all.
+  assert.deepEqual(diff(world({ regionControl: { [B.code]: FOE } }), world({ regionControl: { [B.code]: "player-third" } })), []);
+  assert.deepEqual(diff(world(), world()), []);
+  // The province is named, never coded: `A` on screen would be the raw key leaking.
+  assert.equal(gained[0]!.message.includes(`${A.code} `), false);
 });
 
 test("a fight is told once, by the report and not also by the army diff", () => {

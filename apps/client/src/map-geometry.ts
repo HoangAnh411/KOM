@@ -184,6 +184,22 @@ export function eventSig(events: readonly { id: string; eventType: string; sever
   return JSON.stringify(events.map(event => `${event.id}:${event.eventType}:${event.severity}:${JSON.stringify(event.affectedTiles)}`));
 }
 
+/** A province seat's marker geometry: whose banner flies over it, in the three states the
+ *  marker is drawn in. Not the holder's id — two rivals taking turns holding a seat is the
+ *  same amber marker, and rebuilding it on every handover would be redraw for nothing. */
+export function seatSig(controllerPlayerId: string | undefined, ownPlayerId: string): string {
+  if (!controllerPlayerId) return "unheld";
+  return controllerPlayerId === ownPlayerId ? "own" : "other";
+}
+
+/** Province names appear only from this zoom up. At the floor (0.4, the whole 36×36 world in a
+ *  900px viewport) sixteen names sit about twenty pixels apart and overlap the armies and cities
+ *  they are supposed to be behind; the seat markers stay visible at every zoom, so nothing
+ *  disappears — only the text does, and it comes back on the way in. A rule rather than a
+ *  literal in the wheel handler so `map-geometry.test.ts` can hold it against `minZoom`. */
+export const regionLabelZoom = 1;
+export const regionLabelsVisible = (zoom: number): boolean => zoom >= regionLabelZoom;
+
 // === LABEL CHARSET ===
 //
 // Map labels are drawn from one runtime-generated bitmap font atlas instead of a

@@ -34,6 +34,12 @@ export type GameState = {
   treaties: Treaty[];
   diplomacyThroughput: Record<string, DiplomacyStats>;
   militaryThroughput: Record<string, MilitaryStats>;
+  /** Who holds each province, keyed by province code — recomputed every tick by
+   *  `recalculateScores`, not accumulated. Cached here rather than derived in `getSnapshot`
+   *  because that runs once per connected viewer: one pass over the armies per tick instead
+   *  of one per spectator. Persisted with the rest of the state only incidentally; a load
+   *  that predates the field starts empty and the next tick fills it in. */
+  regionControl: Record<string, string>;
   spyMissions: SpyMission[];
   worldEvents: WorldEvent[];
   counterIntelActive: Record<string, string>;

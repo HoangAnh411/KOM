@@ -80,3 +80,15 @@ export function controlledTiles(armies: readonly Army[], isBanned?: (playerId: s
   }
   return tiles;
 }
+
+/** The same answer keyed the other way — province code → controller player id — which is what
+ *  goes on the wire. Unheld provinces are absent rather than mapped to `null`: the client reads
+ *  the sixteen provinces from `world-map.ts` and looks each one up here, so absence is already
+ *  the word for "nobody", and a season starts as `{}` instead of sixteen nulls. */
+export function regionControl(armies: readonly Army[], isBanned?: (playerId: string) => boolean): Record<string, string> {
+  const held: Record<string, string> = {};
+  for (const province of provinceControl(armies, isBanned)) {
+    if (province.controllerPlayerId !== null) held[province.code] = province.controllerPlayerId;
+  }
+  return held;
+}

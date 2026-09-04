@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { gameRules, regionTileCounts, regions } from "@kingdoms/shared";
-import { controlledTiles, provinceControl } from "./territory.js";
+import { controlledTiles, provinceControl, regionControl } from "./territory.js";
 import type { Army } from "@kingdoms/shared";
 
 const seat = regions[0]!; // Bắc Lâm, seat (3,3)
@@ -73,4 +73,18 @@ test("provinces add up for the player holding both", () => {
   // What those tiles are worth is `militaryScore`'s business and is asserted in
   // `packages/shared/src/index.test.ts`, against the same `regionTileCounts()` — the scale is a
   // shared rule, this file is only about who is standing where.
+});
+
+// The wire format. Unheld provinces are absent rather than null, because the client reads the
+// sixteen names and seats from `world-map.ts` and only asks this map who holds each one.
+test("regionControl keys the same answer by province, and says nothing about the unheld", () => {
+  const armies = [
+    army({ x: seat.seatX, y: seat.seatY, ownerPlayerId: "player-one" }),
+    army({ x: otherSeat.seatX, y: otherSeat.seatY, ownerPlayerId: "player-two" }),
+  ];
+  assert.deepEqual(regionControl(armies), { [seat.code]: "player-one", [otherSeat.code]: "player-two" });
+  assert.deepEqual(regionControl([]), {}, "an empty world is an empty map, not sixteen nulls");
+  const contested = [army({ x: seat.seatX - 1, y: seat.seatY, ownerPlayerId: "player-one" }), army({ x: seat.seatX, y: seat.seatY + 1, ownerPlayerId: "player-two" })];
+  assert.deepEqual(regionControl(contested), {}, "a contested seat is absent, exactly like an empty one");
+  assert.deepEqual(regionControl(armies, () => true), {}, "and a banned holder holds nothing here either");
 });

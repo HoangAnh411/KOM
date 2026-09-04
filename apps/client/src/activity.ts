@@ -14,7 +14,7 @@
 // parts that are actually easy to get wrong — ordering, the ring's cap, the
 // dedupe of a repeated snapshot, and one row per fact per kind of change.
 
-import { gameRules } from "@kingdoms/shared";
+import { gameRules, regions, regionTileCounts } from "@kingdoms/shared";
 import type { BattleReport, WorldSnapshot } from "@kingdoms/shared";
 import type { PendingCommand } from "./commands.js";
 import type { PanelAnchorId } from "./panel-anchors.js";
@@ -28,6 +28,7 @@ export type ActivityKind =
   | "battle" | "build-finished" | "caravan-delivered" | "caravan-ambushed"
   | "spy-success" | "spy-failed" | "spy-intercepted"
   | "treaty-proposed" | "treaty-active" | "treaty-ended" | "treaty-violated"
+  | "region-captured" | "region-lost"
   | "world-event" | "order-canceled" | "connection";
 
 export type ActivityEvent = {
@@ -61,6 +62,8 @@ export const activityKindLabels: Record<ActivityKind, string> = {
   "treaty-active": "Hiệp ước hiệu lực",
   "treaty-ended": "Hiệp ước kết thúc",
   "treaty-violated": "Hiệp ước bị phá",
+  "region-captured": "Chiếm được vùng",
+  "region-lost": "Mất vùng",
   "world-event": "Sự kiện thế giới",
   "order-canceled": "Lệnh bị hủy",
   connection: "Kết nối",
@@ -86,6 +89,8 @@ export const activityIcons: Record<ActivityKind, IconName> = {
   "treaty-active": "treaty",
   "treaty-ended": "treaty",
   "treaty-violated": "treaty",
+  "region-captured": "banner",
+  "region-lost": "banner",
   "world-event": "alert",
   "order-canceled": "ban",
   connection: "link-off",
@@ -106,6 +111,8 @@ export const activityStates: Record<ActivityKind, UiState> = {
   "treaty-active": "success",
   "treaty-ended": "warning",
   "treaty-violated": "hostile",
+  "region-captured": "success",
+  "region-lost": "hostile",
   "world-event": "warning",
   "order-canceled": "warning",
   connection: "warning",
@@ -126,6 +133,8 @@ export const activityAnchors: Partial<Record<ActivityKind, PanelAnchorId>> = {
   "treaty-active": "diplomacy",
   "treaty-ended": "diplomacy",
   "treaty-violated": "diplomacy",
+  "region-captured": "army",
+  "region-lost": "army",
   "order-canceled": "army",
 };
 
@@ -189,6 +198,14 @@ const buildingName = (buildingId: string): string =>
   (gameRules.buildings as Record<string, { name: string } | undefined>)[buildingId]?.name ?? "công trình";
 
 const unitName = (unitType: keyof typeof gameRules.recruitment): string => gameRules.recruitment[unitType].name;
+
+/** Province names and sizes, read from the authored world rather than the wire — the snapshot
+ *  carries only who holds what. A code the map does not know falls back to a noun instead of
+ *  throwing: a client drawing a different world than the server is a case `worldMapDigest`
+ *  already reports, and it should not also crash a feed row. */
+const provinceNames = new Map(regions.map(region => [region.code, region.name]));
+const provinceTiles = regionTileCounts();
+const provinceName = (code: string): string => provinceNames.get(code) ?? "một vùng";
 
 /** The single entry point. Give it the ring and one thing that happened; it
  *  gives back the ring. */
@@ -324,6 +341,38 @@ function snapshotDrafts(previous: WorldSnapshot | undefined, next: WorldSnapshot
     } else {
       const ending = treaty.status === "rejected" ? "bị từ chối" : "đã hết hạn";
       rows.push({ id: `treaty-${treaty.status}:${treaty.id}`, kind: "treaty-ended", message: `Hiệp ước ${label} với ${partner} ${ending}.` });
+    }
+  }
+
+  // Provinces, ours only. Territory is public — the map paints every province's
+  // holder — but a row is a thing that happened *to us*, and in a full kingdom
+  // sixteen provinces trading hands between strangers would bury the four rows a
+  // player can act on. The id carries both the province and the new holder, so a
+  // seat that changes hands twice reports twice while a repeated snapshot reports
+  // nothing.
+  const heldBefore = previous.regionControl ?? {};
+  const heldNow = next.regionControl ?? {};
+  for (const code of new Set([...Object.keys(heldBefore), ...Object.keys(heldNow)])) {
+    const before = heldBefore[code];
+    const after = heldNow[code];
+    if (before === after) continue;
+    if (after === playerId) {
+      rows.push({
+        id: `region-captured:${code}:${playerId}`,
+        kind: "region-captured",
+        message: `Đã kiểm soát ${provinceName(code)} — ${provinceTiles[code] ?? 0} ô.`,
+      });
+    } else if (before === playerId) {
+      // Two ways to lose ground and they read differently: somebody took the seat,
+      // or nobody holds it any more — we marched away, or a rival drew level and
+      // the rule leaves a contested seat unheld.
+      rows.push({
+        id: `region-lost:${code}:${after ?? "none"}`,
+        kind: "region-lost",
+        message: after
+          ? `Mất ${provinceName(code)} vào tay ${nameOf(next, after)}.`
+          : `Mất ${provinceName(code)} — không còn ai giữ ô lỵ sở.`,
+      });
     }
   }
 

@@ -1,11 +1,11 @@
 import { Application, Container, Graphics, RenderTexture, Sprite } from "pixi.js";
 import type { WorldSnapshot } from "@kingdoms/shared";
-import { terrainAt } from "@kingdoms/shared";
+import { regions, terrainAt } from "@kingdoms/shared";
 import type { InteractionMode } from "./state.js";
 import {
   armyGeometrySig, cityGeometrySig, eventSig, isoDepth, mapExtent, maxZoom, minZoom,
-  originAt, overlayGeometrySig, pickAt, terrainBounds, terrainPad, terrainResolution, terrainSig,
-  tileHeight, tileWidth, worldPoint,
+  originAt, overlayGeometrySig, pickAt, regionLabelsVisible, seatSig, terrainBounds, terrainPad,
+  terrainResolution, terrainSig, tileHeight, tileWidth, worldPoint,
 } from "./map-geometry.js";
 import { createLabel, type MapLabel } from "./map-labels.js";
 
@@ -41,6 +41,7 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
   app.stage.addChild(camera);
   camera.addChild(world);
   const eventLayer = new Container();
+  const regionLayer = new Container();
   const resourceLayer = new Container();
   const hubLayer = new Container();
   const cityLayer = new Container();
@@ -50,7 +51,7 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
   // Layer order is unchanged from before the refactor; `sortableChildren` adds
   // isometric depth *within* a layer, so a southern army no longer draws behind
   // a northern one, but armies still never sink below cities.
-  for (const layer of [eventLayer, resourceLayer, hubLayer, cityLayer, caravanLayer, armyLayer, overlayLayer]) world.addChild(layer);
+  for (const layer of [eventLayer, regionLayer, resourceLayer, hubLayer, cityLayer, caravanLayer, armyLayer, overlayLayer]) world.addChild(layer);
   for (const layer of [resourceLayer, hubLayer, cityLayer, caravanLayer, armyLayer]) layer.sortableChildren = true;
 
   let latestState = snapshot;
@@ -116,6 +117,7 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
     const worldY = (event.clientY - camera.position.y) / current;
     camera.scale.set(next);
     camera.position.set(event.clientX - worldX * next, event.clientY - worldY * next);
+    applySeatLabelZoom(next);
   }, { passive: false });
 
   function handleClick(clientX: number, clientY: number): void {
@@ -270,6 +272,59 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
       view.root.zIndex = isoDepth(hub.x, hub.y);
     }
     for (const [id, view] of hubs) if (!seen.has(id)) { view.root.destroy({ children: true }); hubs.delete(id); }
+  };
+
+  // --- Province seats -------------------------------------------------------
+  // Sixteen markers, one per province, on the tile that decides who holds it.
+  // Everything static about them — code, name, seat tile, size — is authored in
+  // `world-map.ts` and read straight from the import; the snapshot supplies only
+  // `regionControl`, so this is the smallest thing the wire can say and still let
+  // the map paint territory.
+  //
+  // Drawn under the hubs on purpose. Every seat *is* an anchor, so a port's seat
+  // has a hub marker on the same tile, and the province ring belongs behind it
+  // rather than over the top of it.
+  const seatColors = { own: 0x63c5da, other: 0xe8ad67, unheld: 0x54657d } as const;
+  const seats = new Map<string, { root: Container; ring: Graphics; label: MapLabel; sig: string }>();
+  const syncSeats = (state: WorldSnapshot) => {
+    const control = state.regionControl ?? {};
+    for (const region of regions) {
+      let view = seats.get(region.code);
+      if (!view) {
+        const root = new Container();
+        root.cullable = true;
+        const ring = new Graphics();
+        root.addChild(ring);
+        const [wx, wy] = worldPoint(region.seatX, region.seatY);
+        root.position.set(wx, wy);
+        // Below the label the hubs use (y 21) so a port's two labels do not collide.
+        view = { root, ring, label: addLabel(root, region.name, 10, 0xc8d6e8, 0, 34), sig: "" };
+        view.label.view.visible = regionLabelsVisible(camera.scale.x);
+        seats.set(region.code, view);
+        regionLayer.addChild(root);
+      }
+      const sig = seatSig(control[region.code], ownPlayerId);
+      if (view.sig === sig) continue;
+      view.sig = sig;
+      const color = seatColors[sig as keyof typeof seatColors];
+      view.ring.clear();
+      // A ring on the seat tile rather than a filled diamond: the terrain under a
+      // seat is information too (a seat is a port or a mine), and territory should
+      // not paint over it.
+      view.ring.lineStyle(2, color, sig === "unheld" ? 0.45 : 0.9);
+      diamond(view.ring, 0, 0);
+      view.ring.closePath();
+      view.label.view.alpha = sig === "unheld" ? 0.55 : 0.95;
+    }
+  };
+  /** The zoom gate. Names are the only thing that hides — the markers stay, so a
+   *  zoomed-out player still sees who holds what, just not what it is called. */
+  let seatLabelsShown = regionLabelsVisible(1);
+  const applySeatLabelZoom = (zoom: number) => {
+    const shown = regionLabelsVisible(zoom);
+    if (shown === seatLabelsShown) return;
+    seatLabelsShown = shown;
+    for (const view of seats.values()) view.label.view.visible = shown;
   };
 
   // --- Cities ---------------------------------------------------------------
@@ -459,6 +514,7 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
     latestState = next;
     bakeTerrain(next);
     syncEvents(next);
+    syncSeats(next);
     syncResources(next);
     syncHubs(next);
     syncCities(next);

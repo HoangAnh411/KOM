@@ -24,6 +24,9 @@ export function hardReset(state: GameState, nextSeason: GameState["season"]): vo
   for (const alliance of state.alliances) for (const member of alliance.members) member.contribution = 0;
   state.season = nextSeason; state.armies = []; state.heroes = []; state.caravans = []; state.scores = Object.fromEntries(state.players.map(player => [player.id, zeroScores()]));
   state.battleReports = []; state.militaryThroughput = {}; state.treaties = []; state.diplomacyThroughput = {};
+  // Armies were just cleared, so nobody holds anything; leaving the old map here would paint
+  // last season's owners until the next tick recomputed it.
+  state.regionControl = {};
   state.spyMissions = []; state.worldEvents = []; state.counterIntelActive = {}; state.allianceVotes = []; state.seasonMetrics = { resourcesProduced: {} };
 }
 

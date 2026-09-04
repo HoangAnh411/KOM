@@ -3,7 +3,8 @@ import test from "node:test";
 import { worldMapDigest } from "@kingdoms/shared";
 import {
   armyGeometrySig, asciiPrintable, cityGeometrySig, eventSig, isoDepth, labelCharset, labelFitsAtlas,
-  mapExtent, maxZoom, minZoom, narrowestViewport, originAt, overlayGeometrySig, pickAt, terrainBounds,
+  mapExtent, maxZoom, minZoom, narrowestViewport, originAt, overlayGeometrySig, pickAt,
+  regionLabelZoom, regionLabelsVisible, seatSig, terrainBounds,
   terrainPad, terrainResolution, terrainSig, terrainTextureSize, tileHeight, tileWidth,
   vietnameseLetters, worldPoint, type SigArmy,
 } from "./map-geometry.js";
@@ -236,6 +237,30 @@ test("terrain and event signatures are stable for equal input and change on real
   assert.equal(eventSig(events), eventSig(events.map(event => ({ ...event }))));
   assert.notEqual(eventSig(events), eventSig([{ ...events[0]!, affectedTiles: [{ x: 1, y: 3 }] }]));
   assert.notEqual(eventSig(events), eventSig([]));
+});
+
+test("a seat marker is drawn from whose banner flies, not from whose id it is", () => {
+  assert.equal(seatSig(undefined, "me"), "unheld");
+  assert.equal(seatSig("me", "me"), "own");
+  assert.equal(seatSig("rival", "me"), "other");
+  // Two rivals trading a seat back and forth is the same amber marker both times, so the
+  // signature has to collapse them — otherwise every handover in the world would
+  // re-tessellate a diamond to draw the identical thing.
+  assert.equal(seatSig("rival", "me"), seatSig("another-rival", "me"), "any foreign holder is one marker");
+  assert.notEqual(seatSig("me", "me"), seatSig("rival", "me"));
+  assert.notEqual(seatSig("rival", "me"), seatSig(undefined, "me"));
+});
+
+test("province names appear on the way in, and are gone at the zoom floor", () => {
+  // The floor exists so the whole world fits a 900px viewport; sixteen names at that scale
+  // sit about twenty pixels apart. The markers stay at every zoom, so the gate hides text
+  // and never the province itself.
+  assert.ok(regionLabelZoom > minZoom, "a gate at or below the floor would never hide anything");
+  assert.ok(regionLabelZoom <= maxZoom, "a gate above the ceiling would hide the names forever");
+  assert.equal(regionLabelsVisible(minZoom), false);
+  assert.equal(regionLabelsVisible(regionLabelZoom), true, "the gate is inclusive: reaching it shows the names");
+  assert.equal(regionLabelsVisible(regionLabelZoom - 0.01), false);
+  assert.equal(regionLabelsVisible(maxZoom), true);
 });
 
 // === LABEL CHARSET ===
