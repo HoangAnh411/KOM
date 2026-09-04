@@ -10,7 +10,7 @@ Kingdoms of Meridian — Tiến trình và Roadmap
 
 Roadmap này có section Phase 7D bên dưới (viết sau khi đọc lại code, vì `f6085a4` không sửa roadmap). `verify:web-beta` (`npm audit --audit-level=high` + `test:prod-smoke`) và `drill:web-beta` đã được nối vào `.github/workflows/ci.yml`: `npm audit` thành gate 10 của job `verify`, còn hai việc cần Docker tách ra hai job riêng (`prod-smoke`, `recovery-drill`). Hai job đó **đã xanh lần đầu ngày 2026-09-03** trên run `33707793916` (`workflow_dispatch`, ref `perf/command-path`) — máy contributor không có Docker nên CI là chỗ duy nhất quan sát được.
 
-**Toàn bộ công việc sau `f6085a4` đang nằm ở năm PR chưa merge** (2026-09-03): #1 `feat/situation-room` (shell Situation Room, base `main`) → #2 `docs/truth-pass` → #3 `feat/rate-limit-buckets` (P0.1 + security review) → #5 `perf/command-path` (S-5 + P0.2 + P0.3, xếp tầng lên #3), cộng #4 `fix/postgres-test-isolation` (base `main`) sửa race làm gate 5 đỏ ngẫu nhiên. `main` vẫn đứng ở `f6085a4`. PR #5 là PR đầu tiên có **cả 10 gate xanh** (run `33707700712`), gồm gate 5 `test:postgres` và gate 7 Playwright — nhưng cả hai đỏ *ngẫu nhiên*, nên một lần xanh không phải bằng chứng race đã hết; PR #4 vẫn là bản sửa thật của gate 5. Hai gate của CI hiện đỏ **không theo quy luật** và đỏ cả trên `main` — gate 5 (`test:postgres`, race giữa các file integration dùng chung database → PR #4) và gate 7 (Playwright, `map-command.spec.ts` chọn phải NPC `mob_migration` cùng ô, chưa có PR).
+**Toàn bộ công việc sau `f6085a4` đang nằm ở bảy PR chưa merge** (2026-09-03): #1 `feat/situation-room` (shell Situation Room, base `main`) → #2 `docs/truth-pass` → #3 `feat/rate-limit-buckets` (P0.1 + security review) → #5 `perf/command-path` (S-5 + P0.2 + P0.3) → #6 `feat/hud-overhaul` (cải tổ HUD vòng 2, 8 commit) → #7 `feat/espionage-misinformation` (C.1), cộng #4 `fix/postgres-test-isolation` (base `main`) sửa race làm gate 5 đỏ ngẫu nhiên. `main` vẫn đứng ở `f6085a4`. PR #5 là PR đầu tiên có **cả 10 gate xanh** (run `33707700712`), PR #6 cũng 10/10 (run `33759437598`) — nhưng gate 5 và 7 đỏ *ngẫu nhiên*, nên một lần xanh không phải bằng chứng race đã hết; PR #4 vẫn là bản sửa thật của gate 5. Gate 7 (Playwright, `map-command.spec.ts` chọn phải NPC `mob_migration` cùng ô) **đã có bản sửa** ở `1d9acc1` trong PR #6: nguyên nhân là `pickAt()` để thứ tự `snapshot.armies` phân xử thế hoà khoảng cách, nên khi mob đứng cùng ô thì quân của chính người chơi không chọn được — spec không đổi một dòng.
 
 ### Đã hoàn thành
 
@@ -100,8 +100,8 @@ Sau mỗi milestone phải chạy verification và cập nhật docs/GAME-DESIGN
 **Mục tiêu:** thêm lớp thông tin, rủi ro và biến động bản đồ.
 
 - [X] Spy missions với cost, duration, accuracy và cooldown ở server domain.
-- [X] Sabotage, steal và counter-intelligence; misinformation còn thiếu.
-- [X] Report access control theo actor và audit command; audit persistence đầy đủ còn thiếu.
+- [X] Sabotage, steal, counter-intelligence và misinformation (cắm lên một đối thủ, bóp méo scout report của họ về ta trong 20 phút).
+- [X] Report access control theo actor và audit command; mission resolve ghi `spy.<missionType>.<status>` và `spy.misinformation.consumed` vào event ledger.
 - [X] Resource depletion theo node/vùng.
 - [X] Thiên tai, dịch bệnh và di cư mob deterministic; NPC combat dùng shared resolver và audit seed/input/result.
 - [X] Theo dõi faction win rate, spy success rate và ignored objectives theo season.
@@ -204,7 +204,7 @@ Sau mỗi milestone phải chạy verification và cập nhật docs/GAME-DESIGN
 - [X] `GET /api/battles` keyset pagination (limit mặc định 20, clamp 1–50, cursor base64url `{createdAt,id}` với ISO timestamp + UUID strict, chỉ thấy trận mình tham gia); migration 014 partial index cho attacker/defender.
 - [X] Phá hiệp ước bằng modal React có focus trap + Escape + mô tả “−150 danh tiếng”, thay cho `confirm()` native.
 - [X] Drawer nâng cao (alliance/espionage/events/archive/diplomacy) lazy-load khi mở lần đầu.
-- [X] Test matrix: client unit 146, server unit 141 (126 pass + 15 skip vì gate PostgreSQL), PostgreSQL (014 fresh/rerun/checksum + `/api/battles` dùng index + phân trang + cursor invalid + sống sót restart; chỉ bật integration bằng `RUN_POSTGRES_INTEGRATION` trong runner để gate chạy lặp an toàn), Playwright 28 test / 14 file = 10 gốc + 1 `[reset-world]` setup + 5 regression 7C + 3 layout Situation Room + **9 của vòng cải tổ HUD** (2 activity feed, 2 command tray, 2 HUD gate, 3 chrome/a11y); `password-auth` là project riêng, chỉ chạy khi `E2E_PROD_SMOKE=1` (nên **không** nằm trong 28 ở trên). Năm regression 7C (double-submit dedupe không gửi HTTP thứ hai và nhận cùng kết quả thật, send fail → uncertain + “Thử lại” tái dùng cùng commandId/chặn double-retry, reload khôi phục pending uncertain, battle report chỉ tới participant, treaty modal focus trap/Escape/−150) + reset ở setup project và trước mỗi Chromium scenario (world riêng để khỏi chạm trần ~16 ô đặt thành phố trong một run, battle E2E dùng target dev có xác thực và vị trí deterministic để không phụ thuộc mob tự di chuyển/hết hạn, config env-driven `PLAYWRIGHT_API`/`PLAYWRIGHT_WEB`, webServer bật máy chủ riêng trên port do `PLAYWRIGHT_API` chỉ định), `check:bundle` ≤ 500 KiB, CI gate 8 chuyên cho bundle.
+- [X] Test matrix: client unit 148, server unit 149 (134 pass + 15 skip vì gate PostgreSQL; +8 của C.1 misinformation, +2 của `1d9acc1` là client), PostgreSQL (014 fresh/rerun/checksum + `/api/battles` dùng index + phân trang + cursor invalid + sống sót restart; chỉ bật integration bằng `RUN_POSTGRES_INTEGRATION` trong runner để gate chạy lặp an toàn), Playwright 28 test / 14 file = 10 gốc + 1 `[reset-world]` setup + 5 regression 7C + 3 layout Situation Room + **9 của vòng cải tổ HUD** (2 activity feed, 2 command tray, 2 HUD gate, 3 chrome/a11y); `password-auth` là project riêng, chỉ chạy khi `E2E_PROD_SMOKE=1` (nên **không** nằm trong 28 ở trên). Năm regression 7C (double-submit dedupe không gửi HTTP thứ hai và nhận cùng kết quả thật, send fail → uncertain + “Thử lại” tái dùng cùng commandId/chặn double-retry, reload khôi phục pending uncertain, battle report chỉ tới participant, treaty modal focus trap/Escape/−150) + reset ở setup project và trước mỗi Chromium scenario (world riêng để khỏi chạm trần ~16 ô đặt thành phố trong một run, battle E2E dùng target dev có xác thực và vị trí deterministic để không phụ thuộc mob tự di chuyển/hết hạn, config env-driven `PLAYWRIGHT_API`/`PLAYWRIGHT_WEB`, webServer bật máy chủ riêng trên port do `PLAYWRIGHT_API` chỉ định), `check:bundle` ≤ 500 KiB, CI gate 8 chuyên cho bundle.
 - [ ] Manual acceptance: onboarding walkthrough, phiên 30–60 phút, không raw ID / native prompt/confirm, không jank. — kịch bản phiên ở [`docs/ACCEPTANCE-7C.md`](./ACCEPTANCE-7C.md); phần "không còn `prompt(`/`confirm(`/`alert(` trong source" đã được `apps/client/src/no-native-dialogs.test.ts` chặn tự động. Còn lại là phiên do người chạy, nên mục này chưa tick.
 
 **Tiêu chí hoàn thành:** toàn bộ automated gate xanh (`verify:web-alpha` = typecheck/build/test/test:postgres/test:e2e/check:bundle/diff-check) và phiên manual không có blocker.
@@ -300,11 +300,10 @@ Vòng 1 (Phase 7C, Situation Room) tự để lại ba mốc trong code nói rõ
 
 ## Bước tiếp theo
 
-1. Hoàn thiện misinformation của espionage.
-2. Phase 7C: phiên manual acceptance (30–60 phút) rồi đóng phase.
-3. Phase 7: chat/mail moderation, battle worker và Redis outbox publisher.
-4. Bổ sung load test WebSocket/tick/queue/caravan và backup/restore runbook.
-5. Giữ các gate regression: `npm run typecheck`, `npm run build`, `npm test`, Playwright Chromium desktop và PostgreSQL migrations.
+1. Phase 7C: phiên manual acceptance (30–60 phút) rồi đóng phase.
+2. Phase 7: chat/mail moderation, battle worker và Redis outbox publisher.
+3. Bổ sung load test WebSocket/tick/queue/caravan và backup/restore runbook.
+4. Giữ các gate regression: `npm run typecheck`, `npm run build`, `npm test`, Playwright Chromium desktop và PostgreSQL migrations.
 
 ## Quy tắc cập nhật
 
