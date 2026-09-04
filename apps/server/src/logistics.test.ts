@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { gameRules } from "@kingdoms/shared";
+import { anchors, gameRules, regionAt } from "@kingdoms/shared";
 import { GameStore } from "./store.js";
 import { caravanTile } from "./logistics.js";
 
@@ -138,17 +138,50 @@ test("throughput is persisted by the relational repository contract", async () =
   assert.deepEqual(store.logistics.snapshot().throughput[player.id], { wood: 40, stone: 20, iron: 3 });
 });
 
-test("market hub is seeded exactly once and survives re-seeding", () => {
+test("the four authored ports are seeded once, one per quadrant, and survive re-seeding", () => {
+  // There used to be one hub, placed from a pair of coordinates in `gameRules.market`. The world
+  // authors four — one per quadrant, so no corner of the map is a better place to start — and the
+  // rule that matters is no longer "exactly one" but "exactly the authored set, once".
   const store = new GameStore();
   const hubs = store.logistics.snapshot().marketHubs;
-  assert.equal(hubs.length, 1);
-  assert.equal(hubs[0].name, "Thương cảng Meridian");
-  const before = hubs[0].id;
+  const authored = anchors.filter(anchor => anchor.kind === "market");
+  assert.equal(hubs.length, authored.length);
+  assert.deepEqual(hubs.map(hub => hub.name).sort(), authored.map(anchor => anchor.kind === "market" && anchor.name).sort());
+  assert.deepEqual(hubs.map(hub => `${hub.x},${hub.y}`).sort(), authored.map(anchor => `${anchor.x},${anchor.y}`).sort());
+  const half = gameRules.map.extent / 2;
+  assert.equal(new Set(hubs.map(hub => `${Math.floor(hub.x / half)}${Math.floor(hub.y / half)}`)).size, 4, "two ports in one quadrant");
+  // Ids are derived from `(kingdom, tile)`, so re-seeding cannot mint a second set: this is the
+  // property that makes the upsert in `persist()` converge instead of piling up a copy per boot.
+  const before = hubs.map(hub => hub.id);
   store.logistics.seed(store.snapshot);
   store.logistics.seed(store.snapshot);
-  const hubs2 = store.logistics.snapshot().marketHubs;
-  assert.equal(hubs2.length, 1);
-  assert.equal(hubs2[0].id, before);
+  assert.deepEqual(store.logistics.snapshot().marketHubs.map(hub => hub.id), before);
+  assert.equal(new Set(before).size, before.length, "two ports share an id");
+});
+
+test("mines are the authored ones, keyed by tile, and pay into a real province", () => {
+  const store = new GameStore();
+  const nodes = store.logistics.snapshot().resourceNodes;
+  const authored = anchors.filter(anchor => anchor.kind === "node");
+  assert.equal(nodes.length, authored.length);
+  assert.deepEqual(nodes.map(node => `${node.x},${node.y}:${node.resourceType}`).sort(),
+    authored.map(anchor => `${anchor.x},${anchor.y}:${anchor.kind === "node" && anchor.resourceType}`).sort());
+  // The three inherited mines the logistics and espionage tests measure distances against.
+  for (const [x, y, type] of [[6, 8, "wood"], [15, 10, "stone"], [10, 14, "iron"]] as const) {
+    assert.ok(nodes.some(node => node.x === x && node.y === y && node.resourceType === type), `no ${type} mine at ${x},${y}`);
+  }
+  // `regionId` used to be a fresh `randomUUID()` per mine — sixteen provinces existed in the
+  // schema and nothing pointed at them. One id per province now, and mines in the same province
+  // share it, which is what makes `map_tiles.region_id` mean something.
+  assert.equal(new Set(nodes.map(node => node.regionId)).size, 16);
+  for (const node of nodes) {
+    const region = regionAt(node.x, node.y)!;
+    const sameRegion = nodes.filter(other => regionAt(other.x, other.y)!.code === region.code);
+    assert.equal(new Set(sameRegion.map(other => other.regionId)).size, 1, `province ${region.code} has two ids`);
+  }
+  // Iron recovers slowest: the map authors eight of them against twelve each of wood and stone,
+  // and the rate is the other half of that scarcity.
+  for (const node of nodes) assert.equal(node.recoveryRate, node.resourceType === "iron" ? 3 : 5);
 });
 
 test("caravan to the market hub is consumed as export exactly once", () => {

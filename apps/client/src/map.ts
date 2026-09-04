@@ -1,5 +1,6 @@
 import { Application, Container, Graphics, RenderTexture, Sprite } from "pixi.js";
 import type { WorldSnapshot } from "@kingdoms/shared";
+import { terrainAt } from "@kingdoms/shared";
 import type { InteractionMode } from "./state.js";
 import {
   armyGeometrySig, cityGeometrySig, eventSig, isoDepth, mapExtent, maxZoom, minZoom,
@@ -138,9 +139,12 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
   };
 
   // --- Terrain: baked once into a single RenderTexture ----------------------
-  // The field is `mapExtent²` diamonds that only change when the server sends a
-  // different terrain map — previously that many live Graphics objects, re-tessellated
-  // on every rebuild. It is now rasterised into one texture and drawn as one Sprite.
+  // The field is `mapExtent²` diamonds, read from the world authored in
+  // `@kingdoms/shared` — the same rows the server resolves battles against, so the
+  // ground a player sees and the ground a battle is fought on cannot drift. The
+  // snapshot carries only overrides on top of it, which is why this used to be that
+  // many live Graphics objects re-tessellated on every rebuild and is now rasterised
+  // into one texture drawn as one Sprite.
   // The texture covers the whole world at `terrainResolution`, so it stays crisp at
   // the 1.8x zoom ceiling. `terrainTextureSize()` owns the pixel arithmetic and
   // `map-geometry.test.ts` holds it under the 4096px every WebGL target guarantees —
@@ -157,7 +161,7 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
     const field = new Graphics();
     for (let y = 0; y < mapExtent; y += 1) for (let x = 0; x < mapExtent; x += 1) {
       const [wx, wy] = worldPoint(x, y);
-      const terrain = state.terrainMap?.[`${x},${y}`] ?? "plains";
+      const terrain = state.terrainMap?.[`${x},${y}`] ?? terrainAt(x, y);
       let color = 0x21423f;
       if (terrain === "forest") color = 0x1a3f20;
       else if (terrain === "hills") color = 0x4a3f2a;

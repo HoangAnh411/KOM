@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { join, relative, sep } from "node:path";
 import test from "node:test";
 import { gameRules } from "./index.js";
+import { terrainRows, worldExtent } from "./world-map.js";
 
 /** The width of the world used to be spelled out in eight places: the server's terrain
  * seed, its raider and world-event spawn windows, a dev mob-spawn endpoint, the logistics
@@ -64,7 +65,11 @@ test("the map size is declared in exactly one place", () => {
 test("the guard is aimed at something that still exists, and it catches a new copy", () => {
   // Belt to the braces above: without this, renaming the constant would leave the scan
   // passing while it searched for a shape that no longer appears anywhere.
-  assert.match(readFileSync(join(repoRoot, home), "utf8"), /\bconst mapExtent = [0-9]+;/, "the sanctioned declaration moved or was renamed");
+  assert.match(readFileSync(join(repoRoot, home), "utf8"), /\bconst mapExtent = worldExtent;/, "the sanctioned declaration moved or was renamed");
+  // The number itself is not written there either: it is how many rows the authored map has,
+  // so a map and a size that disagree is no longer a state the repo can be in.
+  assert.equal(gameRules.map.extent, worldExtent);
+  assert.equal(worldExtent, terrainRows.length);
   // And the placement window really is derived from it, not a second copy that agrees today.
   assert.equal(gameRules.cityPlacement.maxX, gameRules.map.extent - 1 - gameRules.map.placementMargin);
   assert.equal(gameRules.cityPlacement.minX, gameRules.map.placementMargin);

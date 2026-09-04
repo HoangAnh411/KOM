@@ -33,6 +33,57 @@ SCHEDULED → ACTIVE → FINALIZING → CLOSED → season mới
 - Army xa tuyến tiếp tế mất supply, morale và strength theo thời gian/khoảng cách.
 - Mục tiêu tấn công gồm city, depot, caravan và trade route.
 
+## Bản đồ và lãnh thổ
+
+Thế giới là **36×36 ô**, **vẽ tay**, sống ở `packages/shared/src/world-map.ts` dưới dạng hai lưới
+ký tự — một cho terrain, một cho vùng. Trước đó nó là ba phép modulo trong `combat.ts`
+(`(x+y)%7`, `(x*y)%11`, `(x+y)%13`), tức là những dải chéo: không vùng, không chỗ nghẽn, không gì
+để người chơi nhớ. Bản đồ nằm trong `shared` vì **client và server đọc cùng một dữ liệu**, nên
+mặt đất người chơi thấy và mặt đất trận đánh được phân xử trên không thể lệch nhau, và lưới
+không phải đi trong mỗi snapshot.
+
+Vì sao đúng 36: terrain được bake vào **một** `RenderTexture` ở `resolution: 2`, nên kích thước
+texture là `(56·N + 2)·2` — 36 cho 4036px, còn 60px dưới trần 4096 mà mọi target WebGL bảo đảm;
+40 thì vượt. `map-geometry.test.ts` giữ trần đó bằng một assertion, không phải bằng may mắn.
+
+**Địa hình là cố ý, không phải trang trí.** Rừng bao quanh mỏ gỗ, đồi bao quanh mỏ đá và mỏ sắt —
+mặt đất nói cho người chơi biết chỗ nào có gì trước khi họ click. Biên vùng chạy bắc-nam là
+**sống đồi**, biên chạy đông-tây là **đầm**: `terrainModifiers` đã ưu bên phòng thủ trên đồi và
+phạt bên tấn công trong đầm, nên một đường biên là nơi đáng đứng. **Toàn bộ 59 ô đầm đều nằm trên
+một đường biên vùng** — đầm có nghĩa vì bạn đang lội qua ranh giới của người khác. Mỗi ô thứ sáu
+của biên được để trống làm **đèo** (37 đèo bắc-nam, 35 chỗ cạn đông-tây), nên không vùng nào có
+thể bị bịt kín. Bốn thương cảng và hai thành seed đứng trên đất trống.
+
+Tỷ lệ terrain: **plains 61.7% / forest 18.8% / hills 14.9% / swamp 4.6%** — cố ý sát thế giới
+modulo cũ (64/16/14/5) để thay bản đồ không âm thầm dịch cân bằng battle. `world-map.test.ts`
+giữ các dải này; ra khỏi dải là một **đổi cân bằng** và phải là một quyết định.
+
+**Mười sáu tỉnh** trên lưới 4×4, mã `A`–`P`, mỗi tỉnh 79–83 ô (trung bình 81). Biên tỉnh lệch đi
+một ô để đọc như sống đồi chứ không phải đường kẻ địa chính, nhưng được **ghim về danh nghĩa tại
+các điểm giao bốn chiều** — không ghim thì hai đường lệch trượt qua nhau và sinh ra đảo một ô, mà
+một tỉnh không liền khối thì không thể giữ bằng cách đóng quân trong đó. Mỗi tỉnh có một **ô lỵ sở
+(seat)**: thương cảng của nó nếu có, còn không thì mỏ gần tâm tỉnh nhất — nên giữ một tỉnh nghĩa
+là giữ một chỗ vốn đã đáng giữ, và luật có **một ô** để trỏ vào thay vì một vùng để lấy trung bình.
+
+**Ba mươi sáu anchor**: 4 thương cảng (một mỗi góc thế giới, trên quỹ đạo xoay 90° của hub cũ ở
+(10,10)) + 32 mỏ, **đúng hai mỏ mỗi tỉnh**. Mười hai gỗ, mười hai đá, **tám sắt** — đối xứng xoay
+ngặt buộc phải là bội của bốn, và sắt vẫn là thứ khan hiếm, đúng điều mà tốc độ hồi phục chậm hơn
+của nó (3/tick so với 5) đã nói. Một phần tư mỗi loại tài nguyên nằm trong mỗi góc tư, nên không
+góc nào là chỗ khởi đầu tốt hơn góc nào; trung tâm — nơi bốn tỉnh gặp nhau — là chỗ tranh chấp.
+
+Sức chứa thành phố là **hệ quả của số anchor**, không phải của việc nới luật: thành phố vẫn cách
+nhau ≥3 ô và vẫn phải nằm trong tầm với của một thương cảng hoặc mỏ. Sáu toạ độ là **di sản và
+không được di chuyển** — thương cảng (10,10), mỏ (6,8), (15,10), (10,14), thành seed (8,8) và
+(13,11) — vì các test logistics và espionage hiện có mô tả khoảng cách giữa chúng.
+
+Terrain hiện **chỉ** ảnh hưởng hệ số battle. Nó chưa ảnh hưởng di chuyển, thu hoạch hay tầm nhìn;
+đó là luật gameplay mới, không phải hệ quả của việc có một bản đồ thật.
+
+Sửa bản đồ là sửa hai string literal. `world-map.test.ts` giữ các bất biến làm việc đó an toàn —
+hai lưới vuông, chỉ ký tự hợp lệ, mười sáu tỉnh liền khối có seat bên trong chính nó, hai mỏ mỗi
+tỉnh, và một **digest vàng** (`worldMapDigest()`) nên một thay đổi với thế giới là một dòng diff
+phải cố ý.
+
 ## Faction identity
 
 - Meridian League: thương mại, capacity và throughput.

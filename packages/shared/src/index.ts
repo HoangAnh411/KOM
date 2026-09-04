@@ -1,4 +1,8 @@
 import { z } from "zod";
+import { anchors, worldExtent, worldTerrainTypes } from "./world-map.js";
+
+/** The ports, in authored order. Only their names are needed here; their tiles belong to the map. */
+const marketAnchorNames = anchors.flatMap(anchor => (anchor.kind === "market" ? [anchor.name] : []));
 
 export const factionIds = ["meridian", "bastion", "ravager", "veiled"] as const;
 export type FactionId = (typeof factionIds)[number];
@@ -19,7 +23,11 @@ export const factions: Record<FactionId, { name: string; description: string }> 
 // it back off `gameRules.map`, so resizing the world is an edit here and nowhere
 // else. That drift is not hypothetical — the same 20 used to be spelled out in
 // eight places, and `map-size.test.ts` now scans the repo to keep it at one.
-const mapExtent = 20;
+//
+// And the number is not even written here: it is how many rows the authored map in
+// `world-map.ts` has. Resizing the world means authoring a different world, which
+// removes the last way for the size and the map to disagree.
+const mapExtent = worldExtent;
 
 // Tiles kept clear of the world edge. A city needs room for its
 // `minDistanceBetweenCities` ring and a world event for its five-tile cross, so
@@ -61,7 +69,10 @@ export const counterMatrix: Record<UnitType, Record<UnitType, number>> = {
   archer:   { infantry: 0.7, cavalry: 1.5, archer: 1.0 },
 };
 
-export const terrainTypes = ["plains", "forest", "hills", "swamp"] as const;
+/** Re-exported, not restated: the authored map spells its tiles with these four names, and
+ *  a fifth terrain in the grid that the schema rejected would be a map the client draws and
+ *  the server refuses to send. One list, in the file that owns the map. */
+export const terrainTypes = worldTerrainTypes;
 export type TerrainType = (typeof terrainTypes)[number];
 
 export const terrainModifiers: Record<TerrainType, Record<UnitType, number>> = {
@@ -425,8 +436,10 @@ export const gameRules = {
     minTilesFromCity: 4,
   } as const,
   market: {
-    name: "Thương cảng Meridian",
-    anchorX: 10, anchorY: 10,
+    /** The name prose falls back to when it has to say "a port" before the player has picked one.
+     *  Where the ports *are* is authored in `world-map.ts` — four of them now — so this no longer
+     *  carries an anchor tile of its own that could drift away from the map. */
+    name: marketAnchorNames[0]!,
     minTilesFromCity: 3,
   } as const,
   supply: {
@@ -466,4 +479,10 @@ export function recruitmentCost(unitType: RecruitUnitId, amount: number): { wood
   const multiplier = amount / gameRules.army.recruitAmountStep;
   return { wood: cost.wood * multiplier, stone: cost.stone * multiplier, iron: cost.iron * multiplier };
 }
+
+/** The authored world, re-exported through the barrel because the package has no subpath
+ *  exports: `@kingdoms/shared` is the one door, and both the server's terrain seed and the
+ *  client's terrain bake come through it — which is the mechanism that stops them drifting
+ *  apart. Kept at the bottom so `world-map.ts`'s own imports of nothing stay obvious. */
+export * from "./world-map.js";
 

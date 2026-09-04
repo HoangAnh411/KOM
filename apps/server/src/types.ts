@@ -25,6 +25,9 @@ export type GameState = {
   seasonHistory: Array<{ seasonId: string; rankings: Array<{ playerId: string; rank: number; overall: number; scores: Scores }>; closedAt: string }>;
   legacyRecords: LegacyRecord[];
   battleReports: BattleReport[];
+  /** Tiles that differ from the authored world in `@kingdoms/shared`, keyed `"x,y"` — not the
+   *  world itself. Read it through `terrainOf()`, which falls through to `terrainAt()`. Only
+   *  `map_tiles` rows put anything here, so today it is empty. */
   terrainMap: Record<string, TerrainType>;
   alliances: Alliance[];
   allianceVotes: AllianceVote[];
