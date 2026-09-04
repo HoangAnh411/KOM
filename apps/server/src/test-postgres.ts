@@ -36,5 +36,8 @@ run(["up"]);
 run(["check"]);
 console.log(`migration ${url.pathname} OK (applied twice, checksum verified)`);
 
-const tests = spawnSync(process.execPath, ["--test", "*.integration.test.js"], { stdio: "inherit", env: process.env, cwd: distDir });
+// One file at a time: every integration file drives the same database, so the default
+// per-file parallelism lets one file's rows (and one file's TRUNCATE) land inside another
+// file's assertions. See outbox.integration.test.ts for the assertions this protects.
+const tests = spawnSync(process.execPath, ["--test", "--test-concurrency=1", "*.integration.test.js"], { stdio: "inherit", env: process.env, cwd: distDir });
 process.exit(tests.status ?? 1);

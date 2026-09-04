@@ -41,6 +41,13 @@ async function streamEntries(): Promise<Array<{ id: string; event: string }>> {
   });
 }
 
+// publishBatch claims whatever row is due, so a report can carry rows this file never
+// inserted — the app writes outbox_events too. Assert about the row under test rather than
+// about the whole batch, so a neighbouring writer cannot turn a pass into a failure.
+function only(ids: string[], id: string): string[] {
+  return ids.filter(entry => entry === id);
+}
+
 test.before(async () => {
   if (skip) return;
   try {
@@ -53,7 +60,7 @@ test("publishes events with the fixed envelope then marks published_at", { skip 
   const id = randomUUID();
   await insertOutbox(id, "build.accepted");
   const report = await publishBatch(pool, redis, 10);
-  assert.deepEqual(report.published, [id]);
+  assert.deepEqual(only(report.published, id), [id]);
   const entries = await streamEntries();
   const entry = entries.find(item => item.id === id);
   assert.ok(entry, "event must be in the stream");
@@ -71,7 +78,7 @@ test("crash between publish and update redelivers the same id (duplicate-safe by
   // simulate crash: published_at is NOT updated; lease expires so the row is claimable again
   await pool.query("UPDATE outbox_events SET claimed_at = now() - interval '61 seconds' WHERE id=$1", [id]);
   const report = await publishBatch(pool, redis, 10);
-  assert.deepEqual(report.published, [id]);
+  assert.deepEqual(only(report.published, id), [id]);
   const entries = await streamEntries();
   assert.equal(entries.filter(entry => entry.id === id).length, 2, "same event id delivered twice is valid; consumers dedupe by id");
 });
@@ -95,14 +102,14 @@ test("failed publishes retry with backoff, then recover", { skip }, async () => 
     xAdd: async () => { throw new Error("redis down"); },
   };
   const first = await publishBatch(pool, down, 10);
-  assert.deepEqual(first.failed, [id]);
+  assert.deepEqual(only(first.failed, id), [id]);
   const row = (await pool.query("SELECT attempt_count, next_attempt_at, last_error FROM outbox_events WHERE id=$1", [id])).rows[0];
   assert.equal(row.attempt_count, 1);
   assert.ok(row.last_error.includes("redis down"));
   assert.ok(new Date(row.next_attempt_at).getTime() > Date.now(), "next attempt is backed off");
   await pool.query("UPDATE outbox_events SET next_attempt_at = now() WHERE id=$1", [id]);
   const second = await publishBatch(pool, redis, 10);
-  assert.deepEqual(second.published, [id], "event recovers once Redis is back");
+  assert.deepEqual(only(second.published, id), [id], "event recovers once Redis is back");
 });
 
 test("events dead-letter after 10 attempts into the DLQ stream", { skip }, async () => {
@@ -115,7 +122,7 @@ test("events dead-letter after 10 attempts into the DLQ stream", { skip }, async
     },
   };
   const report = await publishBatch(pool, selective, 10);
-  assert.deepEqual(report.deadLettered, [id]);
+  assert.deepEqual(only(report.deadLettered, id), [id]);
   const row = (await pool.query("SELECT attempt_count, dead_lettered_at FROM outbox_events WHERE id=$1", [id])).rows[0];
   assert.equal(row.attempt_count, 10);
   assert.ok(row.dead_lettered_at, "row must be dead-lettered after 10 attempts");
@@ -130,8 +137,8 @@ test("a failed DLQ publish keeps the event retryable", { skip }, async () => {
   await insertOutbox(id, "world_event.failed", 9);
   const unavailable: StreamPublisher = { xAdd: async () => { throw new Error("redis unavailable"); } };
   const report = await publishBatch(pool, unavailable, 10);
-  assert.deepEqual(report.failed, [id]);
-  assert.deepEqual(report.deadLettered, []);
+  assert.deepEqual(only(report.failed, id), [id]);
+  assert.deepEqual(only(report.deadLettered, id), []);
   const row = (await pool.query("SELECT dead_lettered_at, claimed_at, next_attempt_at, last_error FROM outbox_events WHERE id=$1", [id])).rows[0];
   assert.equal(row.dead_lettered_at, null);
   assert.equal(row.claimed_at, null);
@@ -147,7 +154,7 @@ test("publishes an envelope to a real Redis Stream", { skip: skip || !redisUrl }
   try {
     await client.connect();
     const report = await publishBatch(pool, client, 10);
-    assert.deepEqual(report.published, [id]);
+    assert.deepEqual(only(report.published, id), [id]);
     const entries = await client.xRange(OUTBOX_STREAM, "-", "+");
     const entry = entries.find(item => JSON.parse(item.message.event).id === id);
     assert.ok(entry, "event must be present in the real Redis stream");
