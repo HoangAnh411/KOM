@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { BattleReport } from "@kingdoms/shared";
+import { PROTOCOL_VERSION, terrainAt, terrainTypes, worldMapDigest } from "@kingdoms/shared";
 import { createServer } from "./app.js";
 import { config } from "./config.js";
 
@@ -27,6 +28,66 @@ test("accepted commands are recorded in the event ledger", async () => {
   const events = server.store.ledger.all();
   assert.ok(events.some(event => event.eventType === "auth.accepted"));
   await server.app.close();
+});
+
+// A `scout` mission costs iron, sits behind a cooldown, and returns resources plus
+// buildings blurred by accuracy. All of that was theatre while the snapshot shipped every
+// city's real stock to every client, so this pins the boundary: your own interior is
+// yours, everyone else's is what the map legitimately shows.
+test("a snapshot hides other players' city interiors but keeps the map readable", async () => {
+  type Session = { token: string; player: { id: string } };
+  type City = { id: string; playerId: string; playerName: string; x: number; y: number; frozen?: boolean; resources: Record<string, number>; buildings: Record<string, number>; queues: unknown[] };
+  const server = createServer();
+  const victim = (await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Scout Victim", factionId: "meridian" } })).json() as Session;
+  const viewer = (await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Scout Buyer", factionId: "veiled" } })).json() as Session;
+  const bootstrap = await server.app.inject({ method: "GET", url: "/api/bootstrap", headers: { authorization: `Bearer ${viewer.token}` } });
+  assert.equal(bootstrap.statusCode, 200);
+  const cities = (bootstrap.json() as { snapshot: { cities: City[] } }).snapshot.cities;
+  const own = cities.find(city => city.playerId === viewer.player.id)!;
+  const foreign = cities.find(city => city.playerId === victim.player.id)!;
+  const truth = server.store.snapshot.cities.find(city => city.playerId === victim.player.id)!;
+  assert.deepEqual(own.resources, server.store.snapshot.cities.find(city => city.playerId === viewer.player.id)!.resources, "a viewer still sees their own stock");
+  assert.ok(truth.resources.wood > 0, "the server still holds the real stock — this is a projection, not a wipe");
+  assert.deepEqual(foreign.resources, { food: 0, wood: 0, stone: 0, iron: 0 }, "another player's stock is what espionage sells");
+  assert.deepEqual(foreign.buildings, {}, "another player's build levels are what espionage sells");
+  assert.deepEqual(foreign.queues, [], "a build queue says what its owner is about to field");
+  // The map draws foreign cities from these fields and the target lists filter on
+  // `frozen`, so redacting the interior must not blank the city itself.
+  assert.equal(foreign.id, truth.id); assert.equal(foreign.x, truth.x); assert.equal(foreign.y, truth.y);
+  assert.equal(foreign.playerName, "Scout Victim"); assert.equal(foreign.frozen, truth.frozen);
+  await server.app.close();
+});
+
+// The world grid used to travel: a tile-by-tile `terrainMap` in every snapshot to every
+// viewer on every tick — 6 323 bytes at 20×20, 21 061 at 36×36 — none of which ever
+// changed. Both sides now import the authored map, so the snapshot names which world it
+// is and carries only what the database says differs from it. This pins the shape rather
+// than the saving: a `terrainMap` key reappearing here means clients are being handed the
+// world twice, and a missing digest means they cannot tell which world they were handed.
+test("a snapshot names the world instead of shipping it, and carries only real overrides", async () => {
+  const server = createServer();
+  try {
+    const session = (await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Terrain Reader", factionId: "meridian" } })).json() as { token: string };
+    const headers = { authorization: `Bearer ${session.token}` };
+    const read = async () => {
+      const response = await server.app.inject({ method: "GET", url: "/api/bootstrap", headers });
+      assert.equal(response.statusCode, 200);
+      return (response.json() as { snapshot: Record<string, unknown> }).snapshot;
+    };
+
+    const clean = await read();
+    assert.equal(clean.protocolVersion, PROTOCOL_VERSION);
+    assert.ok(!("terrainMap" in clean), "the grid must not travel — a v1 field here means the world ships twice");
+    assert.equal(clean.worldMapDigest, worldMapDigest(), "the snapshot names the world its battles are resolved on");
+    assert.deepEqual(clean.terrainOverrides, {}, "nothing writes map_tiles today, so there is nothing to override");
+
+    // One tile edited away from the authored map is the entire terrain payload now.
+    const edited = terrainTypes.find(type => type !== terrainAt(4, 5))!;
+    server.store.snapshot.terrainMap["4,5"] = edited;
+    assert.deepEqual(await read().then(snapshot => snapshot.terrainOverrides), { "4,5": edited }, "an override travels as exactly one tile");
+  } finally {
+    await server.app.close();
+  }
 });
 
 test("command responses conform to the shared CommandResponse contract", async () => {
@@ -85,17 +146,75 @@ test("early-rejected commands (unauthenticated, banned, rate-limited) conform to
   await server.app.close();
 });
 
+test("command rate-limit buckets are independent per command group", async () => {
+  const server = createServer();
+  const login = await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Bucket Player", factionId: "meridian" } });
+  const session = login.json() as { token: string; player: { id: string }; snapshot: { cities: Array<{ id: string; playerId: string }> } };
+  const cityId = session.snapshot.cities.find(city => city.playerId === session.player.id)!.id;
+  const headers = { authorization: `Bearer ${session.token}` };
+  const post = (url: string, payload: object) => server.app.inject({ method: "POST", url, headers, payload });
+  // Payloads below are deliberately incomplete: the limiter runs before schema parsing, so a 400
+  // still consumes the bucket. Only the 429/non-429 boundary is under test here.
+  for (let index = 1; index <= 5; index++) {
+    assert.notEqual((await post("/api/commands/spy/launch", { commandId: `bucket-spy-${index}` })).statusCode, 429, `spy ${index} stays inside the spy bucket`);
+  }
+  assert.equal((await post("/api/commands/spy/launch", { commandId: "bucket-spy-6" })).statusCode, 429);
+  // The spy bucket is spent; a build is a different bucket and must still be accepted.
+  const build = await post("/api/commands/build", { commandId: "bucket-build-1", cityId, buildingId: "warehouse", queueType: "build" });
+  assert.equal(build.statusCode, 200, "an exhausted spy bucket must not reject a build command");
+  // attack, formation and ambush share the combat bucket (10/min), so the eleventh combat command
+  // is the first to be rejected — and it must not touch what is left of the write bucket.
+  const combatUrls = ["/api/commands/attack", "/api/commands/formation", "/api/commands/ambush"];
+  for (let index = 1; index <= 10; index++) {
+    const url = combatUrls[index % combatUrls.length];
+    assert.notEqual((await post(url, { commandId: `bucket-combat-${index}` })).statusCode, 429, `combat ${index} stays inside the combat bucket`);
+  }
+  assert.equal((await post("/api/commands/attack", { commandId: "bucket-combat-11" })).statusCode, 429);
+  // ambush used to sit in the write bucket at 20/min, which made a caravan raid twice as cheap as
+  // the attack it stands in for; it now shares the combat counter it just helped exhaust.
+  assert.equal((await post("/api/commands/ambush", { commandId: "bucket-combat-12" })).statusCode, 429);
+  assert.notEqual((await post("/api/commands/harvest", { commandId: "bucket-write-2" })).statusCode, 429, "an exhausted combat bucket must not reject a logistics command");
+  await server.app.close();
+});
+
+test("authenticated read routes share one read bucket and stay open for a normal client", async () => {
+  const server = createServer();
+  const login = await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Read Bucket Player", factionId: "bastion" } });
+  const session = login.json() as { token: string };
+  const headers = { authorization: `Bearer ${session.token}` };
+  const get = (url: string) => server.app.inject({ method: "GET", url, headers });
+  // 60/min across the three reads: a bootstrap + battle-history + archive round trip on every
+  // reconnect stays far inside it, so only a scripted flood is refused.
+  for (let index = 1; index <= 20; index++) {
+    assert.equal((await get("/api/bootstrap")).statusCode, 200, `bootstrap ${index} stays inside the read bucket`);
+    assert.equal((await get("/api/battles")).statusCode, 200, `battles ${index} stays inside the read bucket`);
+    assert.equal((await get("/api/season-history")).statusCode, 200, `archive ${index} stays inside the read bucket`);
+  }
+  const limited = await get("/api/bootstrap");
+  assert.equal(limited.statusCode, 429);
+  assert.deepEqual(limited.json(), { code: "RATE_LIMITED" });
+  // The read bucket is separate from the write bucket, so reads never lock a player out of play.
+  const other = await server.app.inject({ method: "GET", url: "/api/bootstrap" });
+  assert.equal(other.statusCode, 401, "an unauthenticated read is still rejected before the limiter");
+  await server.app.close();
+});
+
 test("logistics REST flow supports retry-safe commands", async () => {
   const server = createServer();
   const login = await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Logistics Player", factionId: "meridian" } });
-  const session = login.json() as { token: string; player: { id: string }; snapshot: { cities: Array<{ id: string; playerId: string }>; logistics: { resourceNodes: Array<{ id: string; resourceType: string }> } } };
+  const session = login.json() as { token: string; player: { id: string }; snapshot: { cities: Array<{ id: string; playerId: string }>; logistics: { resourceNodes: Array<{ id: string; resourceType: string; x: number; y: number }> } } };
   const headers = { authorization: `Bearer ${session.token}` };
   const city = server.store.snapshot.cities.find(item => item.playerId === session.player.id)!;
   city.buildings.road_depot = 1;
   server.store.logistics.syncDepots(server.store.snapshot);
   const other = server.store.snapshot.cities.find(item => item.id !== city.id)!;
   other.playerId = session.player.id;
-  const node = session.snapshot.logistics.resourceNodes.find(item => item.resourceType === "wood")!;
+  // The nearest wood mine, not the first one in the map's authoring order. Placement guarantees a
+  // city can reach one of each resource, but on a 36-wide world that is not the mine that happens
+  // to be listed first — a player picks the one on their doorstep and so does this test.
+  const node = session.snapshot.logistics.resourceNodes
+    .filter(item => item.resourceType === "wood")
+    .sort((a, b) => (Math.abs(a.x - city.x) + Math.abs(a.y - city.y)) - (Math.abs(b.x - city.x) + Math.abs(b.y - city.y)))[0]!;
   const harvest = await server.app.inject({ method: "POST", url: "/api/commands/harvest", headers, payload: { commandId: "rest-harvest-1", nodeId: node.id, cityId: city.id, amount: 50 } });
   assert.equal(harvest.statusCode, 200);
   const retry = await server.app.inject({ method: "POST", url: "/api/commands/harvest", headers, payload: { commandId: "rest-harvest-1", nodeId: node.id, cityId: city.id, amount: 50 } });

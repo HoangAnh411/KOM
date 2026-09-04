@@ -15,8 +15,8 @@ test("login, build, websocket snapshot and session restore", async ({ page }, te
   const buildResponse = page.waitForResponse(response => response.url().endsWith("/api/commands/build"));
   await page.getByRole("button", { name: "Xây kho" }).click();
   expect((await buildResponse).ok()).toBeTruthy();
-  await expect(page.getByText("Build queues: 1/2")).toBeVisible();
+  await expect(page.getByText("Hàng đợi xây: 1/2")).toBeVisible();
   await page.reload();
   await expect(page.getByTestId("city-name")).toBeVisible();
-  await expect(page.getByText("Build queues: 1/2")).toBeVisible();
+  await expect(page.getByText("Hàng đợi xây: 1/2")).toBeVisible();
 });

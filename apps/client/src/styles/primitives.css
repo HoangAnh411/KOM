@@ -54,6 +54,11 @@
 .kom-panel__meta { color: var(--kom-text-hint); font-size: var(--kom-text-xs); }
 .kom-panel__actions { display: flex; gap: var(--kom-space-2); margin-left: auto; }
 .kom-panel__body { padding: var(--kom-panel-pad); display: flex; flex-direction: column; gap: var(--kom-space-4); }
+/* Body and footer are gap-based columns, so a paragraph inside them must not add
+ * the UA's 1em block margins on top of the gap. Written as a descendant rule
+ * rather than folded into `.kom-meta`, because that utility is also used inside
+ * modal cards and rows that have no gap of their own to fall back on. */
+.kom-panel__body p, .kom-panel__footer p { margin: 0; }
 .kom-panel__footer {
   display: flex;
   align-items: center;

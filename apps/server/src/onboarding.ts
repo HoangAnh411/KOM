@@ -2,6 +2,7 @@ import type { Pool, PoolClient } from "pg";
 import type { OnboardingProgress, OnboardingStep } from "@kingdoms/shared";
 import { onboardableSteps } from "@kingdoms/shared";
 import type { GameState, Player } from "./types.js";
+import { CommandRegistry } from "./command-registry.js";
 
 const VARIANT = "web_alpha_v1";
 
@@ -12,15 +13,15 @@ const VARIANT = "web_alpha_v1";
 // player_onboarding table and merge with fresh evidence so restarts never
 // regress progress. Purely cosmetic — no gameplay gating.
 export class OnboardingRepository {
-  private commands = new Set<string>();
   private progress = new Map<string, Set<OnboardingStep>>();
-  constructor(private readonly pool?: Pool) {}
+  constructor(private readonly pool?: Pool, private readonly commands: CommandRegistry = new CommandRegistry()) {}
 
-  capture(): { commands: string[]; progress: Array<[string, OnboardingStep[]]> } {
-    return { commands: [...this.commands], progress: [...this.progress].map(([playerId, steps]) => [playerId, [...steps]]) };
+  // Claimed command ids are no longer part of the capture: the shared `CommandRegistry` rolls them
+  // back for every repository at once. `progress` is the state that actually needs restoring.
+  capture(): { progress: Array<[string, OnboardingStep[]]> } {
+    return { progress: [...this.progress].map(([playerId, steps]) => [playerId, [...steps]]) };
   }
-  restore(capture: { commands: string[]; progress: Array<[string, OnboardingStep[]]> }): void {
-    this.commands = new Set(capture.commands);
+  restore(capture: { progress: Array<[string, OnboardingStep[]]> }): void {
     this.progress = new Map(capture.progress.map(([playerId, steps]) => [playerId, new Set(steps)]));
   }
 
@@ -90,8 +91,6 @@ export class OnboardingRepository {
   }
 
   private claim(commandId: string): boolean {
-    if (this.commands.has(commandId)) return false;
-    this.commands.add(commandId);
-    return true;
+    return this.commands.claim(commandId);
   }
 }

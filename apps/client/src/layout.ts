@@ -80,6 +80,17 @@ export function toggleSurface(current: SurfaceState, id: SurfaceId, band: Layout
   return id === "kingdom" ? { ...current, kingdom: next } : { ...current, activity: next };
 }
 
+/** Reveal a surface, which is not the same request as toggling it. A row in the
+ *  activity feed that points at the city panel has to make sure the kingdom
+ *  column is open; `toggleSurface` would have closed it in every band where it
+ *  already was. Returns `current` unchanged — by identity, so React can bail out
+ *  of the render — when there is nothing to open. */
+export function openSurface(current: SurfaceState, id: SurfaceId, band: LayoutBand): SurfaceState {
+  if (current[id]) return current;
+  if (band === "compact") return { kingdom: id === "kingdom", activity: id === "activity" };
+  return id === "kingdom" ? { ...current, kingdom: true } : { ...current, activity: true };
+}
+
 /** Only the closed state gets a class: an open surface is the base rule, and a
  *  closed one has to collapse its grid track to zero. Every class this can emit
  *  is asserted to have a rule in `styles.css`. */

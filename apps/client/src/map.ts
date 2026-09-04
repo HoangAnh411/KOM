@@ -1,9 +1,11 @@
 import { Application, Container, Graphics, RenderTexture, Sprite } from "pixi.js";
 import type { WorldSnapshot } from "@kingdoms/shared";
+import { regions, terrainAt } from "@kingdoms/shared";
 import type { InteractionMode } from "./state.js";
 import {
   armyGeometrySig, cityGeometrySig, eventSig, isoDepth, mapExtent, maxZoom, minZoom,
-  originAt, overlayGeometrySig, pickAt, terrainBounds, terrainSig, tileHeight, tileWidth, worldPoint,
+  originAt, overlayGeometrySig, pickAt, regionLabelsVisible, seatSig, terrainBounds, terrainPad,
+  terrainResolution, terrainSig, tileHeight, tileWidth, worldPoint,
 } from "./map-geometry.js";
 import { createLabel, type MapLabel } from "./map-labels.js";
 
@@ -39,6 +41,7 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
   app.stage.addChild(camera);
   camera.addChild(world);
   const eventLayer = new Container();
+  const regionLayer = new Container();
   const resourceLayer = new Container();
   const hubLayer = new Container();
   const cityLayer = new Container();
@@ -48,7 +51,7 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
   // Layer order is unchanged from before the refactor; `sortableChildren` adds
   // isometric depth *within* a layer, so a southern army no longer draws behind
   // a northern one, but armies still never sink below cities.
-  for (const layer of [eventLayer, resourceLayer, hubLayer, cityLayer, caravanLayer, armyLayer, overlayLayer]) world.addChild(layer);
+  for (const layer of [eventLayer, regionLayer, resourceLayer, hubLayer, cityLayer, caravanLayer, armyLayer, overlayLayer]) world.addChild(layer);
   for (const layer of [resourceLayer, hubLayer, cityLayer, caravanLayer, armyLayer]) layer.sortableChildren = true;
 
   let latestState = snapshot;
@@ -84,7 +87,8 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
   resizeObserver?.observe(container);
 
   // --- Camera input: unchanged pan/zoom/click behaviour ---------------------
-  // Pan with pointer drag; zoom with the wheel (0.6x–1.8x, anchored at the cursor).
+  // Pan with pointer drag; zoom with the wheel, clamped to the `minZoom`/`maxZoom`
+  // range the geometry module derives from the world's width, anchored at the cursor.
   let dragging = false;
   let clickStart: [number, number] | undefined;
   let lastPosition: [number, number] | undefined;
@@ -113,13 +117,14 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
     const worldY = (event.clientY - camera.position.y) / current;
     camera.scale.set(next);
     camera.position.set(event.clientX - worldX * next, event.clientY - worldY * next);
+    applySeatLabelZoom(next);
   }, { passive: false });
 
   function handleClick(clientX: number, clientY: number): void {
     const rect = canvas.getBoundingClientRect();
     const sx = (clientX - rect.left - camera.position.x) / camera.scale.x;
     const sy = (clientY - rect.top - camera.position.y) / camera.scale.y;
-    onSelect(pickAt(sx, sy, origin, latestState.armies, latestState.cities));
+    onSelect(pickAt(sx, sy, origin, latestState.armies, latestState.cities, ownPlayerId));
   }
 
   const focusCity = (x: number, y: number) => {
@@ -136,27 +141,29 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
   };
 
   // --- Terrain: baked once into a single RenderTexture ----------------------
-  // The field is 20x20 = 400 diamonds that only change when the server sends a
-  // different terrain map — previously 400 live Graphics objects re-tessellated
-  // on every rebuild. It is now rasterised into one texture and drawn as one
-  // Sprite. The texture covers the whole world (1120x560 world units) at 2x, so
-  // it stays crisp at the 1.8x zoom ceiling: 2244x1124 physical pixels, ~10 MB,
-  // comfortably inside the 4096 texture limit every WebGL target guarantees.
+  // The field is `mapExtent²` diamonds, read from the world authored in
+  // `@kingdoms/shared` — the same rows the server resolves battles against, so the
+  // ground a player sees and the ground a battle is fought on cannot drift. The
+  // snapshot carries only overrides on top of it, which is why this used to be that
+  // many live Graphics objects re-tessellated on every rebuild and is now rasterised
+  // into one texture drawn as one Sprite.
+  // The texture covers the whole world at `terrainResolution`, so it stays crisp at
+  // the 1.8x zoom ceiling. `terrainTextureSize()` owns the pixel arithmetic and
+  // `map-geometry.test.ts` holds it under the 4096px every WebGL target guarantees —
+  // that ceiling, not the renderer, is what caps how large the world can grow.
   const bounds = terrainBounds();
-  const terrainPad = 1; // keeps the 1px stroke of the outermost tiles off the texture edge
-  const terrainResolution = 2;
   let terrainTexture: RenderTexture | undefined;
   let terrainSprite: Sprite | undefined;
   let bakedTerrain: string | undefined;
 
   const bakeTerrain = (state: WorldSnapshot) => {
-    const sig = terrainSig(state.terrainMap);
+    const sig = terrainSig(state.worldMapDigest, state.terrainOverrides);
     if (sig === bakedTerrain && terrainSprite) return;
     bakedTerrain = sig;
     const field = new Graphics();
     for (let y = 0; y < mapExtent; y += 1) for (let x = 0; x < mapExtent; x += 1) {
       const [wx, wy] = worldPoint(x, y);
-      const terrain = state.terrainMap?.[`${x},${y}`] ?? "plains";
+      const terrain = state.terrainOverrides?.[`${x},${y}`] ?? terrainAt(x, y);
       let color = 0x21423f;
       if (terrain === "forest") color = 0x1a3f20;
       else if (terrain === "hills") color = 0x4a3f2a;
@@ -267,6 +274,59 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
     for (const [id, view] of hubs) if (!seen.has(id)) { view.root.destroy({ children: true }); hubs.delete(id); }
   };
 
+  // --- Province seats -------------------------------------------------------
+  // Sixteen markers, one per province, on the tile that decides who holds it.
+  // Everything static about them — code, name, seat tile, size — is authored in
+  // `world-map.ts` and read straight from the import; the snapshot supplies only
+  // `regionControl`, so this is the smallest thing the wire can say and still let
+  // the map paint territory.
+  //
+  // Drawn under the hubs on purpose. Every seat *is* an anchor, so a port's seat
+  // has a hub marker on the same tile, and the province ring belongs behind it
+  // rather than over the top of it.
+  const seatColors = { own: 0x63c5da, other: 0xe8ad67, unheld: 0x54657d } as const;
+  const seats = new Map<string, { root: Container; ring: Graphics; label: MapLabel; sig: string }>();
+  const syncSeats = (state: WorldSnapshot) => {
+    const control = state.regionControl ?? {};
+    for (const region of regions) {
+      let view = seats.get(region.code);
+      if (!view) {
+        const root = new Container();
+        root.cullable = true;
+        const ring = new Graphics();
+        root.addChild(ring);
+        const [wx, wy] = worldPoint(region.seatX, region.seatY);
+        root.position.set(wx, wy);
+        // Below the label the hubs use (y 21) so a port's two labels do not collide.
+        view = { root, ring, label: addLabel(root, region.name, 10, 0xc8d6e8, 0, 34), sig: "" };
+        view.label.view.visible = regionLabelsVisible(camera.scale.x);
+        seats.set(region.code, view);
+        regionLayer.addChild(root);
+      }
+      const sig = seatSig(control[region.code], ownPlayerId);
+      if (view.sig === sig) continue;
+      view.sig = sig;
+      const color = seatColors[sig as keyof typeof seatColors];
+      view.ring.clear();
+      // A ring on the seat tile rather than a filled diamond: the terrain under a
+      // seat is information too (a seat is a port or a mine), and territory should
+      // not paint over it.
+      view.ring.lineStyle(2, color, sig === "unheld" ? 0.45 : 0.9);
+      diamond(view.ring, 0, 0);
+      view.ring.closePath();
+      view.label.view.alpha = sig === "unheld" ? 0.55 : 0.95;
+    }
+  };
+  /** The zoom gate. Names are the only thing that hides — the markers stay, so a
+   *  zoomed-out player still sees who holds what, just not what it is called. */
+  let seatLabelsShown = regionLabelsVisible(1);
+  const applySeatLabelZoom = (zoom: number) => {
+    const shown = regionLabelsVisible(zoom);
+    if (shown === seatLabelsShown) return;
+    seatLabelsShown = shown;
+    for (const view of seats.values()) view.label.view.visible = shown;
+  };
+
   // --- Cities ---------------------------------------------------------------
   const cityHex = [0, -25, 22, -8, 22, 7, 0, 24, -22, 7, -22, -8];
   const cities = new Map<string, { root: Container; body: Graphics; label: MapLabel; lock?: MapLabel; geometry: string; text: string }>();
@@ -323,6 +383,8 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
         caravans.set(caravan.id, view);
         caravanLayer.addChild(root);
       }
+      // The server mirrors this lerp in `caravanTile()` (apps/server/src/logistics.ts) to judge
+      // ambush range, so a player is never refused for a tile they cannot see. Keep both in step.
       const from = state.cities.find(city => city.id === caravan.sourceCityId);
       const to = caravan.destinationCityId
         ? state.cities.find(city => city.id === caravan.destinationCityId)
@@ -452,6 +514,7 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
     latestState = next;
     bakeTerrain(next);
     syncEvents(next);
+    syncSeats(next);
     syncResources(next);
     syncHubs(next);
     syncCities(next);

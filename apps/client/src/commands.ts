@@ -29,6 +29,26 @@ export function resolvePending(pending: PendingCommand[], commandId: string): Pe
   return pending.filter(item => item.commandId !== commandId);
 }
 
+/** The pending entry that belongs to *one* control, so the control can show its
+ *  own status instead of the player hunting for their order in a strip at the
+ *  bottom of the column.
+ *
+ *  `kind` alone is too coarse — `"build"` backs all four build buttons — so
+ *  `match` compares the discriminating fields of the body (`buildingId`,
+ *  `armyId`, `caravanId`, …). The newest entry wins: after a timeout leaves an
+ *  `uncertain` entry behind, a fresh click on the same control is the more
+ *  current truth, and when it settles the older one surfaces again for retry. */
+export function pendingFor(pending: PendingCommand[], kind: string, match?: Record<string, unknown>): PendingCommand | undefined {
+  const entries = Object.entries(match ?? {});
+  let best: PendingCommand | undefined;
+  for (const item of pending) {
+    if (item.kind !== kind) continue;
+    if (!entries.every(([key, value]) => item.body[key] === value)) continue;
+    if (!best || item.startedAt >= best.startedAt) best = item;
+  }
+  return best;
+}
+
 export function loadPending(storage: Storage, playerId: string): PendingCommand[] {
   try {
     const raw = storage.getItem(pendingStorageKey(playerId));

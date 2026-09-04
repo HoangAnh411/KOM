@@ -22,10 +22,10 @@ test("harvest, depot, trade route and caravan flow", async ({ page }, testInfo) 
   const depotResponse = page.waitForResponse(response => response.url().endsWith("/api/commands/build"));
   await page.getByRole("button", { name: "Xây trạm trung chuyển" }).click();
   expect((await depotResponse).ok()).toBeTruthy();
-  await expect(page.getByText("Build queues: 1/2")).toBeVisible();
+  await expect(page.getByText("Hàng đợi xây: 1/2")).toBeVisible();
 
   // Wait for the build to finish (duration_seconds 12) — poll the queue text.
-  await expect(page.getByText("Build queues: 0/2")).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText("Hàng đợi xây: 0/2")).toBeVisible({ timeout: 20000 });
   await expect(cityPanel.getByText(/Trạm tiếp tế cấp 1/)).toBeVisible();
 
   // --- Harvest (delivers to the city warehouse) ---

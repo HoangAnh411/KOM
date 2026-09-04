@@ -1,55 +1,125 @@
 import { Pool, type PoolClient } from "pg";
-import { factions, gameRules, overallScore, militaryScore, diplomacyScore, type FactionId, type Scores } from "@kingdoms/shared";
+import { anchors as authoredAnchors, factions, gameRules, overallScore, militaryScore, diplomacyScore, regionAt, type FactionId, type Scores } from "@kingdoms/shared";
 import { createHash, randomUUID } from "node:crypto";
 import type { CityState, GameState, Player } from "./types.js";
 import { config } from "./config.js";
 import { LogisticsRepository } from "./logistics.js";
 import { EventLedger } from "./event-ledger.js";
 import { CombatRepository } from "./combat.js";
+import { controlledTiles, regionControl } from "./territory.js";
 import { DiplomacyRepository } from "./diplomacy.js";
 import { EspionageRepository } from "./espionage.js";
 import { WorldEventEngine } from "./world-events.js";
 import { RaiderEngine } from "./raiders.js";
 import { OnboardingRepository } from "./onboarding.js";
+import { CommandRegistry } from "./command-registry.js";
 import { buildLegacyRecords, hardReset, reputationCosmetic, seasonResetTemplate } from "./season-reset.js";
 import { buildSeasonAnalytics } from "./analytics.js";
 
-const buildingCosts: Record<string, { wood: number; stone: number; iron: number; food: number; seconds: number }> = {
-  town_hall: { wood: 100, stone: 50, iron: 0, food: 0, seconds: 10 }, warehouse: { wood: 80, stone: 25, iron: 0, food: 0, seconds: 8 }, road_depot: { wood: 120, stone: 80, iron: 20, food: 0, seconds: 12 }, barracks: { wood: 150, stone: 100, iron: 50, food: 0, seconds: 15 }
-};
+// Prices are `gameRules.buildings` — the same table the client reads to draw the
+// build menu — reshaped into the flat form `startBuild` charges from. This used to
+// be a second literal holding the same four rows, which meant a price change in
+// shared silently left the server charging the old cost while the UI promised the
+// new one. Deriving it makes that drift unrepresentable; `store.test.ts` asserts
+// the two still agree.
+const buildingCosts: Record<string, { wood: number; stone: number; iron: number; food: number; seconds: number }> =
+  Object.fromEntries(Object.values(gameRules.buildings).map(building => [building.id, { ...building.cost, seconds: building.durationSeconds }]));
 function newSeason(): GameState["season"] { const now = Date.now(); return { id: randomUUID(), status: "ACTIVE", startsAt: new Date(now).toISOString(), endsAt: new Date(now + config.seasonDurationMs).toISOString() }; }
 function makeCity(playerId: string, name: string, x: number, y: number): CityState { return { id: randomUUID(), playerId, name, x, y, resources: { food: 0, wood: 500, stone: 500, iron: 500 }, buildings: { town_hall: 1 }, queues: [], starterGranted: true }; }
 
-// Deterministic placement inside [2..17]x[2..17]: first valid tile in row-major
-// order — free of entities, at least 3 Manhattan from other cities, and within
-// 2 Manhattan of the market hub or a resource node. Throws when the map is full.
-function cityPlacement(state: GameState, logistics: LogisticsRepository): { x: number; y: number } {
-  const { minX, maxX, minY, maxY, minDistanceBetweenCities, maxDistanceToHubOrNode } = gameRules.cityPlacement;
-  const entities = [
-    ...state.cities.map(city => ({ x: city.x, y: city.y })),
-    ...logistics.snapshot().resourceNodes.map(node => ({ x: node.x, y: node.y })),
-    ...logistics.snapshot().marketHubs.map(hub => ({ x: hub.x, y: hub.y })),
-  ];
-  const anchors = [
-    ...logistics.snapshot().marketHubs,
-    ...logistics.snapshot().resourceNodes,
-  ];
-  const manhattan = (a: { x: number; y: number }, b: { x: number; y: number }) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
-  for (let y = minY; y <= maxY; y++) {
-    for (let x = minX; x <= maxX; x++) {
-      if (entities.some(entity => entity.x === x && entity.y === y)) continue;
-      if (state.cities.some(city => manhattan(city, { x, y }) < minDistanceBetweenCities)) continue;
-      const nearAnchor = anchors.some(anchor => manhattan(anchor, { x, y }) <= maxDistanceToHubOrNode);
-      if (!nearAnchor) continue;
-      return { x, y };
+/** Where the two seeded cities stand. Legacy coordinates: the logistics and espionage tests measure
+ *  distances between these and the inherited mines, so they are not free to move. */
+export const seedCityTiles = [{ x: 8, y: 8 }, { x: 13, y: 11 }] as const;
+type Tile = { x: number; y: number };
+/** A port or a mine as placement sees it: a tile, plus what it yields when it is a mine. */
+type PlacementAnchor = Tile & { resourceType?: "wood" | "stone" | "iron" };
+const harvestableTypes = ["wood", "stone", "iron"] as const;
+
+/** The placement window, split by province and row-major inside each one. Depends only on
+ *  `gameRules.cityPlacement` and the authored map, so it is built once. Provinces on the edge of
+ *  the world hold fewer tiles than the interior ones — the two-tile margin eats into them. */
+const provinceTiles = (() => {
+  let cached: Array<{ code: string; tiles: Array<{ x: number; y: number }> }> | undefined;
+  return () => {
+    if (cached) return cached;
+    const { minX, maxX, minY, maxY } = gameRules.cityPlacement;
+    const byCode = new Map<string, Array<{ x: number; y: number }>>();
+    for (let y = minY; y <= maxY; y += 1) {
+      for (let x = minX; x <= maxX; x += 1) {
+        const region = regionAt(x, y);
+        if (!region) continue;
+        const tiles = byCode.get(region.code) ?? [];
+        tiles.push({ x, y });
+        byCode.set(region.code, tiles);
+      }
+    }
+    cached = [...byCode.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([code, tiles]) => ({ code, tiles }));
+    return cached;
+  };
+})();
+
+// Deterministic placement inside the window `gameRules.cityPlacement` derives from the map size:
+// free of cities and anchors, at least `minDistanceBetweenCities` Manhattan from another city,
+// within `maxDistanceToHubOrNode` of a port or a mine, and with a mine of *every* resource type
+// inside `logistics.harvestRange`. That last rule is new with the 36-wide world: buildings cost
+// wood, stone and iron, and a province holds only two mines, so a site can now sit next to a quarry
+// and still have no iron it can reach — a city that runs out after the starter package and has no
+// local source at all. On the old 20-wide world all three mines were in reach of everywhere, so the
+// rule could stay unwritten.
+//
+// Provinces are visited emptiest-first, ties by code, and only then is each one scanned row-major.
+// So no province takes a second city while another still has none, and the sixteenth player is a
+// neighbour of nobody. Plain row-major over the whole window was harmless on a 20-wide world where
+// every legal tile was near one of four anchors anyway; on a 36-wide one it packs the first forty
+// players into the north-west corner, which makes a load test measure one crowded corner instead
+// of a world.
+function nextCitySite(cities: readonly Tile[], anchors: readonly PlacementAnchor[]): Tile | undefined {
+  const { minDistanceBetweenCities, maxDistanceToHubOrNode } = gameRules.cityPlacement;
+  const manhattan = (a: Tile, b: Tile) => Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
+  const taken = new Set([...cities, ...anchors].map(tile => `${tile.x},${tile.y}`));
+  const minesByType = harvestableTypes.map(type => anchors.filter(anchor => anchor.resourceType === type));
+  const cityCounts = new Map<string, number>();
+  for (const city of cities) {
+    const code = regionAt(city.x, city.y)?.code;
+    if (code) cityCounts.set(code, (cityCounts.get(code) ?? 0) + 1);
+  }
+  const provinces = [...provinceTiles()].sort((a, b) => (cityCounts.get(a.code) ?? 0) - (cityCounts.get(b.code) ?? 0) || a.code.localeCompare(b.code));
+  for (const province of provinces) {
+    for (const tile of province.tiles) {
+      if (taken.has(`${tile.x},${tile.y}`)) continue;
+      if (cities.some(city => manhattan(city, tile) < minDistanceBetweenCities)) continue;
+      if (!anchors.some(anchor => manhattan(anchor, tile) <= maxDistanceToHubOrNode)) continue;
+      if (!minesByType.every(mines => mines.some(mine => manhattan(mine, tile) <= gameRules.logistics.harvestRange))) continue;
+      return tile;
     }
   }
-  throw new Error("KINGDOM_FULL");
+  return undefined;
+}
+
+function cityPlacement(state: GameState, logistics: LogisticsRepository): Tile {
+  const anchors = [...logistics.snapshot().marketHubs, ...logistics.snapshot().resourceNodes];
+  const site = nextCitySite(state.cities, anchors);
+  if (!site) throw new Error("KINGDOM_FULL");
+  return site;
+}
+
+/** How many cities this kingdom holds before `KINGDOM_FULL` — the two seed cities plus every tile
+ *  the greedy placement can still reach. Pure: it runs the same `nextCitySite` against the authored
+ *  anchors instead of a live store, so `loadtest-seed` can reject an impossible `LOADTEST_USERS`
+ *  before it writes its first row rather than dying half-seeded. */
+export function citySiteCapacity(): number {
+  const anchors: PlacementAnchor[] = authoredAnchors.map(anchor => ({ x: anchor.x, y: anchor.y, resourceType: anchor.kind === "node" ? anchor.resourceType : undefined }));
+  const cities: Tile[] = seedCityTiles.map(tile => ({ ...tile }));
+  for (;;) {
+    const site = nextCitySite(cities, anchors);
+    if (!site) return cities.length;
+    cities.push(site);
+  }
 }
 export function createSeedState(): GameState {
   const kingdomId = randomUUID(); const first: Player = { id: randomUUID(), displayName: "Lan", factionId: "meridian", kingdomId, crossSeasonReputation: 0 }; const second: Player = { id: randomUUID(), displayName: "Minh", factionId: "bastion", kingdomId, crossSeasonReputation: 0 };
-  const firstCity = makeCity(first.id, "Meridian Outpost", 8, 8); const secondCity = makeCity(second.id, "Bastion Gate", 13, 11);
-  return { kingdom: { id: kingdomId, name: "Meridian Kingdom" }, season: newSeason(), players: [first, second], cities: [firstCity, secondCity], caravans: [], armies: [{ id: randomUUID(), ownerType: "player", ownerPlayerId: first.id, x: 9, y: 8, unitType: "infantry", strength: 100, morale: 100, formation: "line", supply: 100, lastSupplyAt: new Date().toISOString() }, { id: randomUUID(), ownerType: "player", ownerPlayerId: second.id, x: 14, y: 11, unitType: "archer", strength: 100, morale: 100, formation: "line", supply: 100, lastSupplyAt: new Date().toISOString() }], heroes: [], scores: {}, seasonHistory: [], legacyRecords: [], processedCommands: [], battleReports: [], terrainMap: {}, militaryThroughput: {}, alliances: [], allianceVotes: [], treaties: [], diplomacyThroughput: {}, spyMissions: [], worldEvents: [], counterIntelActive: {}, seasonMetrics: { resourcesProduced: {} }, raiderSpawnState: { sequence: 0 }, logisticsCounters: { exports: {}, harvests: {} } };
+  const firstCity = makeCity(first.id, "Meridian Outpost", seedCityTiles[0].x, seedCityTiles[0].y); const secondCity = makeCity(second.id, "Bastion Gate", seedCityTiles[1].x, seedCityTiles[1].y);
+  return { kingdom: { id: kingdomId, name: "Meridian Kingdom" }, season: newSeason(), players: [first, second], cities: [firstCity, secondCity], caravans: [], armies: [{ id: randomUUID(), ownerType: "player", ownerPlayerId: first.id, x: 9, y: 8, unitType: "infantry", strength: 100, morale: 100, formation: "line", supply: 100, lastSupplyAt: new Date().toISOString() }, { id: randomUUID(), ownerType: "player", ownerPlayerId: second.id, x: 14, y: 11, unitType: "archer", strength: 100, morale: 100, formation: "line", supply: 100, lastSupplyAt: new Date().toISOString() }], heroes: [], scores: {}, seasonHistory: [], legacyRecords: [], battleReports: [], terrainMap: {}, militaryThroughput: {}, regionControl: {}, alliances: [], allianceVotes: [], treaties: [], diplomacyThroughput: {}, spyMissions: [], worldEvents: [], counterIntelActive: {}, seasonMetrics: { resourcesProduced: {} }, raiderSpawnState: { sequence: 0 }, logisticsCounters: { exports: {}, harvests: {} } };
 }
 export class GameStore {
   private state: GameState = createSeedState(); private readonly pool?: Pool; readonly logistics: LogisticsRepository;
@@ -63,8 +133,17 @@ export class GameStore {
   readonly worldEvents: WorldEventEngine;
   readonly raiders: RaiderEngine;
   readonly onboarding: OnboardingRepository;
-  constructor() { this.pool = config.databaseUrl ? new Pool({ connectionString: config.databaseUrl, connectionTimeoutMillis: 1500 }) : undefined; this.logistics = new LogisticsRepository(this.pool); this.combat = new CombatRepository(this.pool); this.diplomacy = new DiplomacyRepository(this.pool); this.espionage = new EspionageRepository(this.pool); this.ledger = new EventLedger(this.pool); this.worldEvents = new WorldEventEngine(this.combat, this.ledger); this.raiders = new RaiderEngine(this.combat, this.ledger); this.onboarding = new OnboardingRepository(this.pool); this.logistics.seed(this.state); this.combat.seed(this.state); this.diplomacy.seed(this.state); this.worldEvents.seed(this.state); this.raiders.seed(this.state); }
-  async load(): Promise<void> { if (this.pool) { try { const result = await this.pool.query<{ state: GameState }>("SELECT state FROM game_state WHERE state_key = $1", ["kingdom"]); if (result.rows[0]?.state) { const saved = result.rows[0].state; this.state = { ...saved, players: saved.players.map(player => ({ ...player, crossSeasonReputation: player.crossSeasonReputation ?? 0 })), armies: (saved.armies ?? []).map(army => ({ ...army, ownerType: army.ownerType ?? "player", ownerPlayerId: army.ownerPlayerId ?? null })), heroes: saved.heroes ?? [], caravans: [], battleReports: saved.battleReports ?? [], terrainMap: saved.terrainMap ?? {}, militaryThroughput: saved.militaryThroughput ?? {}, alliances: saved.alliances ?? [], allianceVotes: saved.allianceVotes ?? [], treaties: saved.treaties ?? [], diplomacyThroughput: saved.diplomacyThroughput ?? {}, spyMissions: saved.spyMissions ?? [], worldEvents: (saved.worldEvents ?? []).map(event => ({ ...event, seed: event.seed ?? 0 })), counterIntelActive: saved.counterIntelActive ?? {}, seasonMetrics: saved.seasonMetrics ?? { resourcesProduced: {} }, raiderSpawnState: saved.raiderSpawnState ?? { sequence: 0 }, logisticsCounters: saved.logisticsCounters ?? { exports: {}, harvests: {} } }; const reps = await this.pool.query<{ player_id: string; score: number }>("SELECT player_id, score FROM player_reputation WHERE player_id = ANY($1::uuid[])", [this.state.players.map(player => player.id)]); for (const row of reps.rows) { const player = this.findPlayer(row.player_id); if (player) player.crossSeasonReputation = row.score; } } } catch (error) { console.warn("database load skipped", error instanceof Error ? error.message : error); } } this.logistics.seed(this.state); this.combat.seed(this.state); await this.logistics.load(this.state); await this.combat.load(this.state); await this.diplomacy.load(this.state); await this.espionage.load(this.state); this.worldEvents.seed(this.state); this.raiders.seed(this.state); await this.onboarding.load(this.state); await this.ledger.load(); }
+  // One bounded dedupe registry shared by every repository that claims a command id, in place of
+  // three unbounded Sets that were copied twice per command for rollback.
+  readonly commands: CommandRegistry;
+  constructor() { this.pool = config.databaseUrl ? new Pool({ connectionString: config.databaseUrl, connectionTimeoutMillis: 1500 }) : undefined; this.commands = new CommandRegistry(); this.logistics = new LogisticsRepository(this.pool, this.commands); this.combat = new CombatRepository(this.pool, this.commands); this.diplomacy = new DiplomacyRepository(this.pool, this.commands); this.ledger = new EventLedger(this.pool); this.espionage = new EspionageRepository(this.pool, this.commands, this.ledger); this.worldEvents = new WorldEventEngine(this.combat, this.ledger); this.raiders = new RaiderEngine(this.combat, this.ledger); this.onboarding = new OnboardingRepository(this.pool, this.commands); this.logistics.seed(this.state); this.combat.seed(this.state); this.diplomacy.seed(this.state); this.worldEvents.seed(this.state); this.raiders.seed(this.state); }
+  // `skipLedger` is for the command/moderation path: those call `load()` from *inside* their
+  // transaction, and the ledger scan there bought nothing the in-transaction point query does not
+  // already guarantee. Boot keeps the full load so `hasCommand()` starts warm.
+  // Destructuring `processedCommands` off the saved row is the whole P0.3b migration: the next
+  // `persistState` writes the row back without that key, so a row written by an older build
+  // shrinks on its own instead of needing a migration for one field.
+  async load(options?: { skipLedger?: boolean }): Promise<void> { if (this.pool) { try { const result = await this.pool.query<{ state: GameState }>("SELECT state FROM game_state WHERE state_key = $1", ["kingdom"]); if (result.rows[0]?.state) { const { processedCommands: _legacyProcessedCommands, ...saved } = result.rows[0].state as GameState & { processedCommands?: string[] }; this.state = { ...saved, players: saved.players.map(player => ({ ...player, crossSeasonReputation: player.crossSeasonReputation ?? 0 })), armies: (saved.armies ?? []).map(army => ({ ...army, ownerType: army.ownerType ?? "player", ownerPlayerId: army.ownerPlayerId ?? null })), heroes: saved.heroes ?? [], caravans: [], battleReports: saved.battleReports ?? [], terrainMap: saved.terrainMap ?? {}, militaryThroughput: saved.militaryThroughput ?? {}, regionControl: saved.regionControl ?? {}, alliances: saved.alliances ?? [], allianceVotes: saved.allianceVotes ?? [], treaties: saved.treaties ?? [], diplomacyThroughput: saved.diplomacyThroughput ?? {}, spyMissions: saved.spyMissions ?? [], worldEvents: (saved.worldEvents ?? []).map(event => ({ ...event, seed: event.seed ?? 0 })), counterIntelActive: saved.counterIntelActive ?? {}, seasonMetrics: saved.seasonMetrics ?? { resourcesProduced: {} }, raiderSpawnState: saved.raiderSpawnState ?? { sequence: 0 }, logisticsCounters: saved.logisticsCounters ?? { exports: {}, harvests: {} } }; const reps = await this.pool.query<{ player_id: string; score: number }>("SELECT player_id, score FROM player_reputation WHERE player_id = ANY($1::uuid[])", [this.state.players.map(player => player.id)]); for (const row of reps.rows) { const player = this.findPlayer(row.player_id); if (player) player.crossSeasonReputation = row.score; } } } catch (error) { console.warn("database load skipped", error instanceof Error ? error.message : error); } } this.logistics.seed(this.state); this.combat.seed(this.state); await this.logistics.load(this.state); await this.combat.load(this.state); await this.diplomacy.load(this.state); await this.espionage.load(this.state); this.worldEvents.seed(this.state); this.raiders.seed(this.state); await this.onboarding.load(this.state); if (!options?.skipLedger) await this.ledger.load(); }
   // Tick-resolved battles and auto-canceled pursuit orders for the HTTP layer
   // to broadcast over WebSocket; cleared by takeTick* once read.
   takeTickBattleReports(): ReturnType<CombatRepository["drainReports"]> { const out = this.tickReportBatch; this.tickReportBatch = []; return out; }
@@ -88,11 +167,14 @@ export class GameStore {
   }
   private async executeCommandUnlocked<T>(event: { eventType: string; aggregateType: string; aggregateId: string; commandId?: string; actorPlayerId: string }, action: () => T): Promise<{ alreadyApplied: boolean; result: T | "already_processed" }> {
     if (event.commandId && this.ledger.hasCommand(event.commandId)) return { alreadyApplied: true, result: "already_processed" };
-    let previousState = structuredClone(this.state); let previousLogistics = this.logistics.capture(); let previousEspionage = this.espionage.capture(); let previousCombat = this.combat.capture(); let previousOnboarding = this.onboarding.capture(); let appended: ReturnType<EventLedger["append"]> | undefined;
-    if (!this.pool) { try { const result = action(); appended = this.ledger.append({ ...event, payload: result }); return { alreadyApplied: false, result }; } catch (error) { this.state = previousState; this.logistics.restore(previousLogistics); this.espionage.restore(previousEspionage); this.combat.restore(previousCombat); this.onboarding.restore(previousOnboarding); if (appended) this.ledger.discard(appended.id); throw error; } }
+    let previousState = structuredClone(this.state); let previousLogistics = this.logistics.capture(); let previousEspionage = this.espionage.capture(); let previousOnboarding = this.onboarding.capture(); let appended: ReturnType<EventLedger["append"]> | undefined;
+    // Opening the registry journal is one empty array; rolling it back forgets exactly the ids this
+    // command claimed, so a command that throws stays retryable with the same `commandId`.
+    this.commands.begin();
+    if (!this.pool) { try { const result = action(); appended = this.ledger.append({ ...event, payload: result }); this.commands.commit(); return { alreadyApplied: false, result }; } catch (error) { this.state = previousState; this.logistics.restore(previousLogistics); this.espionage.restore(previousEspionage); this.onboarding.restore(previousOnboarding); this.commands.rollback(); if (appended) this.ledger.discard(appended.id); throw error; } }
     const client = await this.pool.connect();
-    try { await client.query("BEGIN"); await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`state:${this.state.kingdom.id}`]); await this.load(); previousState = structuredClone(this.state); previousLogistics = this.logistics.capture(); previousEspionage = this.espionage.capture(); previousCombat = this.combat.capture(); previousOnboarding = this.onboarding.capture(); const actor = await client.query("SELECT status FROM players WHERE id=$1", [event.actorPlayerId]); if (actor.rows[0]?.status === "banned") throw new Error("ACCOUNT_BANNED"); if (event.commandId) { const existing = await client.query("SELECT 1 FROM event_ledger WHERE command_id=$1", [event.commandId]); if (existing.rowCount) { await client.query("ROLLBACK"); return { alreadyApplied: true, result: "already_processed" }; } } const result = action(); appended = this.ledger.append({ ...event, payload: result }); await this.persistState(client); await client.query("COMMIT"); this.ledger.markPersisted(); return { alreadyApplied: false, result }; }
-    catch (error) { await client.query("ROLLBACK"); this.state = previousState; this.logistics.restore(previousLogistics); this.espionage.restore(previousEspionage); this.combat.restore(previousCombat); this.onboarding.restore(previousOnboarding); if (appended) this.ledger.discard(appended.id); throw error; } finally { client.release(); }
+    try { await client.query("BEGIN"); await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`state:${this.state.kingdom.id}`]); await this.load({ skipLedger: true }); previousState = structuredClone(this.state); previousLogistics = this.logistics.capture(); previousEspionage = this.espionage.capture(); previousOnboarding = this.onboarding.capture(); const actor = await client.query("SELECT status FROM players WHERE id=$1", [event.actorPlayerId]); if (actor.rows[0]?.status === "banned") throw new Error("ACCOUNT_BANNED"); if (event.commandId) { const existing = await client.query("SELECT 1 FROM event_ledger WHERE command_id=$1", [event.commandId]); if (existing.rowCount) { await client.query("ROLLBACK"); this.commands.rollback(); return { alreadyApplied: true, result: "already_processed" }; } } const result = action(); appended = this.ledger.append({ ...event, payload: result }); await this.persistState(client); await client.query("COMMIT"); this.ledger.markPersisted(); this.commands.commit(); return { alreadyApplied: false, result }; }
+    catch (error) { await client.query("ROLLBACK"); this.state = previousState; this.logistics.restore(previousLogistics); this.espionage.restore(previousEspionage); this.onboarding.restore(previousOnboarding); this.commands.rollback(); if (appended) this.ledger.discard(appended.id); throw error; } finally { client.release(); }
   }
   get snapshot(): GameState { return this.state; } findPlayer(id: string): Player | undefined { return this.state.players.find(player => player.id === id); } findCity(id: string): CityState | undefined { return this.state.cities.find(city => city.id === id); }
   get databasePool(): Pool | undefined { return this.pool; }
@@ -114,7 +196,7 @@ export class GameStore {
     if (!this.pool) { if ((player.status ?? "active") === status) return { status, alreadyApplied: true }; this.setPlayerStatus(playerId, status, frozenAt); this.ledger.append({ eventType: status === "banned" ? "player.ban" : "player.unban", aggregateType: "player", aggregateId: playerId, payload: { reason, status } }); return { status, alreadyApplied: false }; }
     const client = await this.pool.connect();
     try {
-      await client.query("BEGIN"); await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`state:${this.state.kingdom.id}`]); await this.load(); player = this.findPlayer(playerId)!; previousState = structuredClone(this.state); previousLogistics = this.logistics.capture(); previousEspionage = this.espionage.capture(); const locked = await client.query("SELECT p.status,u.banned_at FROM players p LEFT JOIN users u ON u.id=p.user_id WHERE p.id=$1 FOR UPDATE OF p", [playerId]);
+      await client.query("BEGIN"); await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`state:${this.state.kingdom.id}`]); await this.load({ skipLedger: true }); player = this.findPlayer(playerId)!; previousState = structuredClone(this.state); previousLogistics = this.logistics.capture(); previousEspionage = this.espionage.capture(); const locked = await client.query("SELECT p.status,u.banned_at FROM players p LEFT JOIN users u ON u.id=p.user_id WHERE p.id=$1 FOR UPDATE OF p", [playerId]);
       if (locked.rows[0]?.status === status) { await client.query("ROLLBACK"); return { status, alreadyApplied: true }; }
       if (status === "active" && locked.rows[0]?.banned_at) player.bannedAt = new Date(locked.rows[0].banned_at).toISOString();
       const pausedMs = status === "active" && player.bannedAt ? Math.max(0, Date.now() - Date.parse(player.bannedAt)) : 0; this.setPlayerStatus(playerId, status, frozenAt);
@@ -126,9 +208,21 @@ export class GameStore {
     } catch (error) { await client.query("ROLLBACK"); this.state = previousState; this.logistics.restore(previousLogistics); this.espionage.restore(previousEspionage); if (event) this.ledger.discard(event.id); throw error; } finally { client.release(); }
   }
   addDevPlayer(displayName: string, factionId: FactionId): Player { const existing = this.state.players.find(player => player.displayName.toLowerCase() === displayName.toLowerCase()); if (existing) return existing; const player: Player = { id: randomUUID(), displayName, factionId, kingdomId: this.state.kingdom.id, crossSeasonReputation: 0 }; const placement = cityPlacement(this.state, this.logistics); this.state.players.push(player); this.state.cities.push(makeCity(player.id, `${factions[factionId].name} City`, placement.x, placement.y)); return player; }
-  startBuild(playerId: string, commandId: string, cityId: string, buildingId: string, queueType: "build" | "research"): string { if (this.state.processedCommands.includes(commandId)) return "already_processed"; if (this.isPlayerFrozen(playerId)) throw new Error("ACCOUNT_BANNED"); const city = this.findCity(cityId); if (!city || city.playerId !== playerId) throw new Error("CITY_ACCESS_DENIED"); if (city.frozen) throw new Error("ACCOUNT_BANNED"); const limit = queueType === "build" ? 2 : 1; if (city.queues.filter(queue => queue.type === queueType).length >= limit) throw new Error("QUEUE_LIMIT_REACHED"); const cost = buildingCosts[buildingId]; if (!cost) throw new Error("UNKNOWN_BUILDING"); for (const key of ["food", "wood", "stone", "iron"] as const) if (city.resources[key] < cost[key]) throw new Error("INSUFFICIENT_RESOURCES"); for (const key of ["food", "wood", "stone", "iron"] as const) city.resources[key] -= cost[key]; const now = Date.now(); city.queues.push({ id: randomUUID(), type: queueType, buildingId, targetLevel: (city.buildings[buildingId] ?? 0) + 1, startedAt: new Date(now).toISOString(), completesAt: new Date(now + cost.seconds * 1000).toISOString() }); this.state.processedCommands.push(commandId); return "accepted"; }
+  startBuild(playerId: string, commandId: string, cityId: string, buildingId: string, queueType: "build" | "research"): string { if (!this.commands.claim(commandId)) return "already_processed"; if (this.isPlayerFrozen(playerId)) throw new Error("ACCOUNT_BANNED"); const city = this.findCity(cityId); if (!city || city.playerId !== playerId) throw new Error("CITY_ACCESS_DENIED"); if (city.frozen) throw new Error("ACCOUNT_BANNED"); const limit = queueType === "build" ? 2 : 1; if (city.queues.filter(queue => queue.type === queueType).length >= limit) throw new Error("QUEUE_LIMIT_REACHED"); const cost = buildingCosts[buildingId]; if (!cost) throw new Error("UNKNOWN_BUILDING"); for (const key of ["food", "wood", "stone", "iron"] as const) if (city.resources[key] < cost[key]) throw new Error("INSUFFICIENT_RESOURCES"); for (const key of ["food", "wood", "stone", "iron"] as const) city.resources[key] -= cost[key]; const now = Date.now(); city.queues.push({ id: randomUUID(), type: queueType, buildingId, targetLevel: (city.buildings[buildingId] ?? 0) + 1, startedAt: new Date(now).toISOString(), completesAt: new Date(now + cost.seconds * 1000).toISOString() }); return "accepted"; }
   tick(): boolean { let changed = false; for (const city of this.state.cities) if (!city.frozen && this.findPlayer(city.playerId)?.status !== "banned") for (const queue of city.queues.filter(item => Date.parse(item.completesAt) <= Date.now())) { city.buildings[queue.buildingId] = queue.targetLevel; city.queues = city.queues.filter(item => item.id !== queue.id); changed = true; } changed = this.applySupplyZones(Date.now()) || changed; this.logistics.syncDepots(this.state); const logisticsChanged = this.logistics.tick(this.state); const combatChanged = this.combat.tick(this.state, this.diplomacy); const diplomacyChanged = this.diplomacy.tick(this.state); const espionageChanged = this.espionage.tick(this.state); const worldEventsChanged = this.worldEvents.tick(this.state); const raiderChanged = this.raiders.tick(this.state); changed = logisticsChanged || combatChanged || diplomacyChanged || espionageChanged || worldEventsChanged || raiderChanged || changed; this.tickReportBatch = this.combat.drainReports(); const cancellations = this.combat.drainCancellations(); this.tickCancelBatch = cancellations; for (const report of this.tickReportBatch) if (report.attacker.playerId || report.defender.playerId) this.ledger.append({ eventType: "combat.resolved", aggregateType: "combat", aggregateId: report.id, payload: { seed: report.seed, victor: report.victor, attackerArmyId: report.attacker.armyId, defenderArmyId: report.defender.armyId, attackerPlayerId: report.attacker.playerId ?? null, defenderPlayerId: report.defender.playerId ?? null, input: { seed: report.seed }, result: report } }); for (const cancellation of cancellations) this.ledger.append({ eventType: "attack_order.canceled", aggregateType: "army", aggregateId: cancellation.armyId, payload: { orderId: cancellation.orderId, targetArmyId: cancellation.targetArmyId, reason: cancellation.reason } }); if (logisticsChanged) this.ledger.append({ eventType: "logistics.tick", aggregateType: "kingdom", aggregateId: this.state.kingdom.id, payload: { caravans: this.logistics.caravans().map(caravan => ({ id: caravan.id, status: caravan.status, progress: caravan.progress, ambushSeed: caravan.ambushSeed })) } }); if (diplomacyChanged) this.ledger.append({ eventType: "diplomacy.tick", aggregateType: "kingdom", aggregateId: this.state.kingdom.id, payload: { alliances: this.state.alliances.map(alliance => ({ id: alliance.id, leaderPlayerId: alliance.leaderPlayerId, leaderTermStartedAt: alliance.leaderTermStartedAt })), votes: this.state.allianceVotes.map(vote => ({ id: vote.id, status: vote.status })) } }); if (this.onboarding.verify(this.state)) changed = true; this.recalculateScores(); return changed; }
-  recalculateScores(): void { for (const player of this.state.players) { const delivered = this.logistics.snapshot().throughput[player.id]; const stats = this.state.militaryThroughput[player.id] ?? { victories: 0, defeats: 0, draws: 0, strengthDestroyed: 0, strengthLost: 0, tilesControlled: 0, successfulDefenses: 0 }; const economy = Math.min(1000, Math.floor(((delivered?.wood ?? 0) + (delivered?.stone ?? 0) + (delivered?.iron ?? 0) * 2) / 2)); const military = militaryScore(stats); const scores = { military, economy, diplomacy: diplomacyScore(this.diplomacy.getStats(player.id, this.state)), overall: 0 } satisfies Scores; scores.overall = overallScore(scores); this.state.scores[player.id] = scores; } }
+  // `militaryThroughput` also tracks `defeats`, `strengthDestroyed` and `strengthLost`
+  // (written in `combat.ts`, reported by `buildSeasonAnalytics`), but `militaryScore`
+  // reads only these four — losses cost a player nothing on the scoreboard today.
+  // That is a design decision belonging to `docs/GAME-DESIGN.md`, not a bug to patch
+  // here, so the zero-fallback stops claiming values the formula never looks at.
+  //
+  // `tilesControlled` is written here rather than accumulated: it is recomputed from where
+  // armies stand this tick, so it falls back to nothing when they march away. An entry is
+  // created the first time a player holds ground, the way `combat.ts` creates one the first
+  // time they fight — which is what stops territory score from depending on having been in a
+  // battle. A player who holds nothing and never fought still gets no row, so
+  // `military_throughput` stays the size of the players who did something.
+  recalculateScores(): void { const isBanned = (playerId: string) => this.isPlayerFrozen(playerId); const held = controlledTiles(this.state.armies, isBanned); this.state.regionControl = regionControl(this.state.armies, isBanned); for (const player of this.state.players) { const delivered = this.logistics.snapshot().throughput[player.id]; const tilesControlled = held[player.id] ?? 0; let stats = this.state.militaryThroughput[player.id]; if (!stats && tilesControlled > 0) stats = this.state.militaryThroughput[player.id] = { victories: 0, defeats: 0, draws: 0, strengthDestroyed: 0, strengthLost: 0, tilesControlled: 0, successfulDefenses: 0 }; if (stats) stats.tilesControlled = tilesControlled; const economy = Math.min(1000, Math.floor(((delivered?.wood ?? 0) + (delivered?.stone ?? 0) + (delivered?.iron ?? 0) * 2) / 2)); const military = militaryScore(stats ?? { victories: 0, draws: 0, tilesControlled: 0, successfulDefenses: 0 }); const scores = { military, economy, diplomacy: diplomacyScore(this.diplomacy.getStats(player.id, this.state)), overall: 0 } satisfies Scores; scores.overall = overallScore(scores); this.state.scores[player.id] = scores; } }
   // Per-minute supply cycle: army.Source zones re-evaluated each elapsed minute
   // from last_supply_at; +10 inside own city radius, +15 at own depot radius
   // (higher wins, not stacked), -5 outside; attrition below 25 supply. NPCs and
@@ -171,8 +265,8 @@ export class GameStore {
     return changed;
   }
   private prepareFinalization(now: number) { const seasonId = this.state.season.id; this.state.season.status = "FINALIZING"; this.recalculateScores(); const rankings = this.state.players.map(player => ({ playerId: player.id, scores: this.state.scores[player.id], overall: this.state.scores[player.id].overall })).sort((a, b) => b.overall - a.overall || a.playerId.localeCompare(b.playerId)).map((item, index) => ({ ...item, rank: index + 1 })); const closedAt = new Date(now).toISOString(); const legacy = buildLegacyRecords(this.state, seasonId, rankings); const analytics = buildSeasonAnalytics(this.state, seasonId, rankings); this.state.seasonHistory.push({ seasonId, rankings, closedAt }); this.state.legacyRecords.push(...legacy); const fullSnapshot = { ...structuredClone(this.state), logistics: structuredClone(this.logistics.snapshot()), caravans: structuredClone(this.logistics.caravans()), resetTemplate: seasonResetTemplate }; return { seasonId, rankings, closedAt, legacy, analytics, fullSnapshot, checksum: createHash("sha256").update(JSON.stringify(fullSnapshot)).digest("hex") }; }
-  async finalizeIfDue(options: { force?: boolean; reason?: string } = {}): Promise<boolean> { const now = Date.now(); if (this.state.season.status !== "ACTIVE" || (!options.force && Date.parse(this.state.season.endsAt) > now)) return false; const previousState = structuredClone(this.state); const previousLogistics = this.logistics.capture(); const previousEspionage = this.espionage.capture(); if (!this.pool) { const result = this.prepareFinalization(now); hardReset(this.state, newSeason()); this.logistics.resetForSeason(this.state); this.espionage.resetForSeason(); this.ledger.append({ eventType: "season.finalized", aggregateType: "season", aggregateId: result.seasonId, payload: { checksum: result.checksum, resetTemplate: seasonResetTemplate } }); return true; } return this.finalizeInDatabase(now, options, previousState, previousLogistics, previousEspionage); }
-  private async finalizeInDatabase(now: number, options: { force?: boolean; reason?: string }, previousState: GameState, previousLogistics: ReturnType<LogisticsRepository["capture"]>, previousEspionage: ReturnType<EspionageRepository["capture"]>): Promise<boolean> { const client = await this.pool!.connect(); try { await client.query("BEGIN"); await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`state:${this.state.kingdom.id}`]); await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`${this.state.kingdom.id}:${this.state.season.id}`]); await client.query("INSERT INTO seasons (id, kingdom_id, status, starts_at, ends_at, config) VALUES ($1,$2,'ACTIVE',$3,$4,$5) ON CONFLICT (id) DO NOTHING", [this.state.season.id, this.state.kingdom.id, this.state.season.startsAt, this.state.season.endsAt, JSON.stringify({ resetTemplate: seasonResetTemplate })]); const claimed = await client.query("UPDATE seasons SET status='FINALIZING' WHERE id=$1 AND finalized_at IS NULL AND status IN ('ACTIVE','FINALIZING') RETURNING id", [this.state.season.id]); if (!claimed.rowCount) { await client.query("ROLLBACK"); return false; } const result = this.prepareFinalization(now); await this.persistSeasonResult(client, result); hardReset(this.state, newSeason()); this.logistics.resetForSeason(this.state); this.espionage.resetForSeason(); await this.persistSeasonReset(client, result.seasonId, result.closedAt, options); this.ledger.append({ eventType: "season.finalized", aggregateType: "season", aggregateId: result.seasonId, payload: { checksum: result.checksum, resetTemplate: seasonResetTemplate } }); await this.persistState(client); await client.query("COMMIT"); this.ledger.markPersisted(); return true; } catch (error) { await client.query("ROLLBACK"); this.state = previousState; this.logistics.restore(previousLogistics); this.espionage.restore(previousEspionage); throw error; } finally { client.release(); } }
+  async finalizeIfDue(options: { force?: boolean; reason?: string } = {}): Promise<boolean> { const now = Date.now(); if (this.state.season.status !== "ACTIVE" || (!options.force && Date.parse(this.state.season.endsAt) > now)) return false; const previousState = structuredClone(this.state); const previousLogistics = this.logistics.capture(); const previousEspionage = this.espionage.capture(); if (!this.pool) { const result = this.prepareFinalization(now); hardReset(this.state, newSeason()); this.logistics.resetForSeason(this.state); this.espionage.resetForSeason(); this.commands.clear(); this.ledger.append({ eventType: "season.finalized", aggregateType: "season", aggregateId: result.seasonId, payload: { checksum: result.checksum, resetTemplate: seasonResetTemplate } }); return true; } return this.finalizeInDatabase(now, options, previousState, previousLogistics, previousEspionage); }
+  private async finalizeInDatabase(now: number, options: { force?: boolean; reason?: string }, previousState: GameState, previousLogistics: ReturnType<LogisticsRepository["capture"]>, previousEspionage: ReturnType<EspionageRepository["capture"]>): Promise<boolean> { const client = await this.pool!.connect(); try { await client.query("BEGIN"); await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`state:${this.state.kingdom.id}`]); await client.query("SELECT pg_advisory_xact_lock(hashtext($1))", [`${this.state.kingdom.id}:${this.state.season.id}`]); await client.query("INSERT INTO seasons (id, kingdom_id, status, starts_at, ends_at, config) VALUES ($1,$2,'ACTIVE',$3,$4,$5) ON CONFLICT (id) DO NOTHING", [this.state.season.id, this.state.kingdom.id, this.state.season.startsAt, this.state.season.endsAt, JSON.stringify({ resetTemplate: seasonResetTemplate })]); const claimed = await client.query("UPDATE seasons SET status='FINALIZING' WHERE id=$1 AND finalized_at IS NULL AND status IN ('ACTIVE','FINALIZING') RETURNING id", [this.state.season.id]); if (!claimed.rowCount) { await client.query("ROLLBACK"); return false; } const result = this.prepareFinalization(now); await this.persistSeasonResult(client, result); hardReset(this.state, newSeason()); this.logistics.resetForSeason(this.state); this.espionage.resetForSeason(); await this.persistSeasonReset(client, result.seasonId, result.closedAt, options); this.ledger.append({ eventType: "season.finalized", aggregateType: "season", aggregateId: result.seasonId, payload: { checksum: result.checksum, resetTemplate: seasonResetTemplate } }); await this.persistState(client); await client.query("COMMIT"); this.ledger.markPersisted(); this.commands.clear(); return true; } catch (error) { await client.query("ROLLBACK"); this.state = previousState; this.logistics.restore(previousLogistics); this.espionage.restore(previousEspionage); throw error; } finally { client.release(); } }
   private async persistSeasonResult(client: PoolClient, result: ReturnType<GameStore["prepareFinalization"]>): Promise<void> { await client.query("INSERT INTO season_snapshots (season_id, snapshot, checksum) VALUES ($1,$2,$3) ON CONFLICT (season_id) DO NOTHING", [result.seasonId, JSON.stringify(result.fullSnapshot), result.checksum]); for (const ranking of result.rankings) await client.query("INSERT INTO season_rankings (season_id, player_id, overall_score, military_score, economy_score, diplomacy_score, rank) VALUES ($1,$2,$3,$4,$5,$6,$7) ON CONFLICT (season_id, player_id) DO NOTHING", [result.seasonId, ranking.playerId, ranking.overall, ranking.scores.military, ranking.scores.economy, ranking.scores.diplomacy, ranking.rank]); for (const record of result.legacy) await client.query("INSERT INTO legacy_records (id, owner_id, season_id, record_type, payload, template_version) VALUES ($1,$2,$3,$4,$5,$6) ON CONFLICT (id) DO NOTHING", [record.id, record.ownerId, record.seasonId, record.recordType, JSON.stringify(record.payload), seasonResetTemplate]); for (const event of result.analytics) await client.query("INSERT INTO analytics_events (id, season_id, player_id, event_type, payload) VALUES ($1,$2,$3,$4,$5)", [event.id, event.seasonId, event.playerId ?? null, event.eventType, JSON.stringify(event.payload)]); }
   private async persistSeasonReset(client: PoolClient, closedSeasonId: string, closedAt: string, options: { force?: boolean; reason?: string }): Promise<void> { for (const player of this.state.players) await client.query("INSERT INTO player_reputation (player_id, score) VALUES ($1,$2) ON CONFLICT (player_id) DO UPDATE SET score=EXCLUDED.score", [player.id, player.crossSeasonReputation]); const playerIds = this.state.players.map(player => player.id); if (playerIds.length) { await client.query("DELETE FROM caravan_cargo WHERE caravan_id IN (SELECT id FROM caravans WHERE owner_player_id = ANY($1::uuid[]))", [playerIds]); await client.query("DELETE FROM caravans WHERE owner_player_id = ANY($1::uuid[])", [playerIds]); await client.query("DELETE FROM spy_cooldowns WHERE player_id = ANY($1::uuid[])", [playerIds]); await client.query("DELETE FROM counter_intel_active WHERE player_id = ANY($1::uuid[])", [playerIds]); } await client.query("DELETE FROM trade_routes WHERE kingdom_id=$1", [this.state.kingdom.id]); await client.query("DELETE FROM diplomacy_treaties WHERE kingdom_id=$1", [this.state.kingdom.id]); await client.query("DELETE FROM espionage_actions WHERE kingdom_id=$1", [this.state.kingdom.id]); await client.query("DELETE FROM world_events WHERE kingdom_id=$1", [this.state.kingdom.id]); for (const city of this.state.cities) { await client.query("DELETE FROM build_queues WHERE city_id=$1", [city.id]); await client.query("DELETE FROM city_buildings WHERE city_id=$1", [city.id]); await client.query("INSERT INTO city_buildings (city_id, building_id, level) VALUES ($1,'town_hall',1)", [city.id]); await client.query("INSERT INTO city_resources (city_id, food, wood, stone, iron) VALUES ($1,0,500,500,500) ON CONFLICT (city_id) DO UPDATE SET food=0, wood=500, stone=500, iron=500, updated_at=now()", [city.id]); } await client.query("UPDATE seasons SET status='CLOSED', finalized_at=$2 WHERE id=$1", [closedSeasonId, closedAt]); await client.query("INSERT INTO seasons (id, kingdom_id, status, starts_at, ends_at, config) VALUES ($1,$2,'ACTIVE',$3,$4,$5)", [this.state.season.id, this.state.kingdom.id, this.state.season.startsAt, this.state.season.endsAt, JSON.stringify({ resetTemplate: seasonResetTemplate })]); if (options.force) await client.query("INSERT INTO admin_actions (id, actor_id, action_type, reason) VALUES ($1,NULL,'season.close',$2)", [randomUUID(), options.reason ?? "manual close"]); }
   archiveForPlayer(playerId: string) { const latest = this.state.seasonHistory.at(-1); const player = this.findPlayer(playerId); if (!player) throw new Error("PLAYER_NOT_FOUND"); return { seasons: this.state.seasonHistory.map(history => ({ seasonId: history.seasonId, closedAt: history.closedAt, rankings: history.rankings.map(ranking => ({ ...ranking, displayName: this.findPlayer(ranking.playerId)?.displayName ?? "Unknown", factionId: this.findPlayer(ranking.playerId)?.factionId ?? "meridian" })) })), profile: { crossSeasonReputation: player.crossSeasonReputation, ...reputationCosmetic(player.crossSeasonReputation), crown: Boolean(latest?.rankings.some(ranking => ranking.playerId === playerId && ranking.rank <= 3)), legacyRecords: this.state.legacyRecords.filter(record => record.ownerId === playerId).map(({ id, seasonId, recordType, payload }) => ({ id, seasonId, recordType, payload })) } }; }

@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { GameStore } from "./store.js";
+import { gameRules, militaryScore, regionTileCounts, regions } from "@kingdoms/shared";
 
 test("build commands enforce ownership, costs, and the two-queue limit", () => {
   const store = new GameStore();
@@ -11,6 +12,23 @@ test("build commands enforce ownership, costs, and the two-queue limit", () => {
   assert.throws(() => store.startBuild(player.id, "command-003", city.id, "warehouse", "build"), /QUEUE_LIMIT_REACHED/);
   assert.throws(() => store.startBuild(store.snapshot.players[1].id, "command-004", city.id, "warehouse", "build"), /CITY_ACCESS_DENIED/);
   assert.equal(store.startBuild(player.id, "command-001", city.id, "warehouse", "build"), "already_processed");
+});
+
+test("the server charges exactly the price the client shows", () => {
+  // `buildingCosts` is derived from `gameRules.buildings` rather than restated, and
+  // this is the assertion that keeps it derived: if someone reintroduces a local
+  // table, the first price they get wrong fails here instead of in a player's city.
+  for (const building of Object.values(gameRules.buildings)) {
+    const store = new GameStore();
+    const player = store.snapshot.players[0]!;
+    const city = store.snapshot.cities.find(item => item.playerId === player.id)!;
+    const before = { ...city.resources };
+    assert.equal(store.startBuild(player.id, `cost-${building.id}`, city.id, building.id, "build"), "accepted");
+    for (const key of ["food", "wood", "stone", "iron"] as const)
+      assert.equal(city.resources[key], before[key] - building.cost[key], `${building.id} charged the wrong ${key}`);
+    const queue = city.queues.at(-1)!;
+    assert.equal(Date.parse(queue.completesAt) - Date.parse(queue.startedAt), building.durationSeconds * 1000, `${building.id} build time`);
+  }
 });
 
 test("command transaction restores domain state and ledger when the action fails", async () => {
@@ -80,4 +98,58 @@ test("rollback releases combat/onboarding claims so a retry with the same comman
   assert.equal(store.snapshot.armies.filter(army => army.ownerPlayerId === player.id).length, 2, "retry applied the recruit");
   assert.equal(store.snapshot.cities.find(item => item.id === city.id)!.resources.wood, 450, "cost deducted exactly once");
   assert.deepEqual(store.onboarding.progressFor(player.id).completedSteps, ["city_inspected"], "retry re-applied the ack");
+});
+
+// P0.3b turned build/diplomacy/espionage dedupe from "push the id on success" into "claim it at the
+// check". That is only safe because the command transaction rolls the claim back, so the guard a
+// player hits most often — not enough resources — must not burn their commandId.
+test("a build that fails on cost leaves its commandId claimable", async () => {
+  const store = new GameStore();
+  const player = store.snapshot.players[0];
+  const cityId = store.snapshot.cities.find(item => item.playerId === player.id)!.id;
+  // Rollback swaps in a `structuredClone` of the pre-command state, so the city has to be looked up
+  // again after every failure instead of held across one.
+  const city = () => store.snapshot.cities.find(item => item.id === cityId)!;
+  city().resources = { wood: 0, stone: 0, iron: 0, food: 0 };
+  const commandId = "build-broke-1";
+  const issue = () => store.executeCommand({ eventType: "build.accepted", aggregateType: "build", aggregateId: cityId, commandId, actorPlayerId: player.id }, () => store.startBuild(player.id, commandId, cityId, "road_depot", "build"));
+
+  await assert.rejects(issue, /INSUFFICIENT_RESOURCES/);
+  assert.equal(store.commands.has(commandId), false, "the failed claim was rolled back");
+  assert.equal(city().queues.length, 0);
+
+  city().resources = { wood: 500, stone: 500, iron: 500, food: 0 };
+  assert.equal((await issue()).result, "accepted", "the same commandId is accepted once the player can afford it");
+  assert.equal(city().queues.length, 1);
+  assert.equal((await issue()).result, "already_processed", "and only applies once");
+  assert.equal(city().queues.length, 1);
+});
+
+// The 300 territory points of `militaryScore` had no writer until now: `militaryThroughput` rows
+// were created by `combat.ts` when a player first fought, so a player who never fought could not
+// score territory at all, and one who did carried a `tilesControlled` that never moved off zero.
+test("territory score follows where armies stand, and needs no battle to exist", () => {
+  const store = new GameStore();
+  const player = store.snapshot.players[0]!;
+  const army = store.snapshot.armies.find(item => item.ownerPlayerId === player.id)!;
+  const province = regions.find(region => region.name === "Cửa Chợ Meridian")!;
+  const tiles = regionTileCounts()[province.code]!;
+  const stats = () => store.snapshot.militaryThroughput[player.id];
+  const military = () => store.snapshot.scores[player.id]!.military;
+
+  store.recalculateScores();
+  assert.equal(stats(), undefined, "no battle and no ground held is still no row");
+  assert.equal(military(), 0);
+
+  army.x = province.seatX; army.y = province.seatY;
+  store.recalculateScores();
+  assert.equal(stats()!.tilesControlled, tiles, "a row appears the moment the province is held");
+  assert.equal(stats()!.victories, 0, "and it did not have to be won in a battle");
+  assert.equal(military(), militaryScore({ victories: 0, draws: 0, tilesControlled: tiles, successfulDefenses: 0 }));
+  assert.ok(military() > 0 && military() < 300, `one province pays ${military()}, which is neither nothing nor the cap`);
+
+  army.x = 0; army.y = 0;
+  store.recalculateScores();
+  assert.equal(stats()!.tilesControlled, 0, "marching away gives the province up");
+  assert.equal(military(), 0);
 });

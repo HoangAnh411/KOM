@@ -8,11 +8,26 @@
 // origin is applied once, as a transform on the world container, which is what
 // keeps terrain and entities in sync across a resize.
 
+import { gameRules } from "@kingdoms/shared";
+
 export const tileWidth = 56;
 export const tileHeight = 28;
-export const minZoom = 0.6;
+/** Re-exported rather than redeclared: the grid size is server-authoritative
+ *  (`gameRules.map.extent`) because battles are resolved against it. Keeping the
+ *  old export name means every consumer here is untouched by a resize. */
+export const mapExtent = gameRules.map.extent;
+
+/** Narrowest viewport the e2e matrix covers (1920/1440/1280/1024/900). The zoom
+ *  floor is pinned to it so a resize can never strand the player looking at part of
+ *  the world with no way to pull back. */
+export const narrowestViewport = 900;
 export const maxZoom = 1.8;
-export const mapExtent = 20;
+/** Zoom-out floor. Derived, not chosen: it is whichever is smaller of the historical
+ *  0.6 and the zoom that fits the full world width on the narrowest viewport. At
+ *  extent 20 that is 0.6 unchanged (1120 units need only 0.8); at extent 36 the world
+ *  is 2016 units wide and the floor drops itself to ~0.446, so widening the map does
+ *  not quietly cut the far edge off. `map-geometry.test.ts` asserts the property. */
+export const minZoom = Math.min(0.6, narrowestViewport / (mapExtent * tileWidth));
 
 /** Isometric projection, world space. Affine in (x, y), so interpolating grid
  *  coordinates and projecting equals projecting and then interpolating — the
@@ -40,6 +55,27 @@ export function terrainBounds(): { x: number; y: number; width: number; height: 
   return { x: minX - halfW, y: minY - halfH, width: maxX - minX + tileWidth, height: maxY - minY + tileHeight };
 }
 
+/** Inset kept around the baked field so the 1px stroke of the outermost diamonds
+ *  is not clipped by the texture edge. */
+export const terrainPad = 1;
+
+/** Device-pixel ratio the terrain texture is baked at, re-exported from the rules
+ *  for the same reason as `mapExtent`: it is half of the arithmetic that caps the
+ *  world's size, so it is written down once. */
+export const terrainResolution = gameRules.map.textureResolution;
+
+/** Physical pixel size of the single RenderTexture `map.ts` bakes terrain into.
+ *
+ *  It lives here, next to the bounds it is derived from, because it is the hard cap
+ *  on how large the world may grow: WebGL only guarantees 4096px per axis, and the
+ *  bake is one texture, not a chunked atlas. Keeping it pure means the ceiling is a
+ *  test (`map-geometry.test.ts`) rather than a comment nobody re-derives after a
+ *  resize. Extent 36 needs 4036px, 60 to spare; extent 40 would want 4484. */
+export function terrainTextureSize(): { width: number; height: number } {
+  const bounds = terrainBounds();
+  return { width: (bounds.width + terrainPad * 2) * terrainResolution, height: (bounds.height + terrainPad * 2) * terrainResolution };
+}
+
 /** Painter's-order depth for entities inside a layer.
  *
  *  Screen y is `(x + y) * tileHeight / 2`, so `x + y` alone is the visual depth.
@@ -50,21 +86,35 @@ export function isoDepth(x: number, y: number): number {
   return (x + y) * 64 + x;
 }
 
-export type PickArmy = { id: string; x: number; y: number; strength: number };
+export type PickArmy = { id: string; x: number; y: number; strength: number; ownerPlayerId?: string | null };
 export type PickCity = { id: string; x: number; y: number };
 export type PickResult = { kind: "army" | "city"; id: string } | { kind: "tile"; x: number; y: number } | undefined;
 
 /** Hit test in camera-local space, i.e. after pan/zoom have been undone but
  *  before the world origin is subtracted. Arithmetic is identical to the
  *  pre-refactor renderer: armies win ties within 13px, cities within 27px, and
- *  anything else falls through to the inverse projection for a tile pick. */
-export function pickAt(sx: number, sy: number, origin: { x: number; y: number }, armies: readonly PickArmy[], cities: readonly PickCity[]): PickResult {
-  let bestArmy: { id: string; distSq: number } | undefined;
+ *  anything else falls through to the inverse projection for a tile pick.
+ *
+ *  `ownPlayerId` breaks an *exact* tie in the player's favour, and that is the
+ *  whole of its job. Several armies routinely stand on one tile — a migrating
+ *  mob wanders onto a city, a raider hunts the garrison — and two entities on
+ *  the same tile project to the same point, so `distSq` is bit-identical and the
+ *  winner used to be whichever the snapshot happened to list first. That made
+ *  the player's own army unselectable behind a neutral one: nothing on screen
+ *  said why the click did nothing, and there was no gesture to get past it.
+ *  Required rather than optional so a new call site cannot silently reintroduce
+ *  it. Ownership does *not* outrank distance — a nearer foreign army still wins,
+ *  or a mob one tile over could never be clicked at all. */
+export function pickAt(sx: number, sy: number, origin: { x: number; y: number }, armies: readonly PickArmy[], cities: readonly PickCity[], ownPlayerId: string): PickResult {
+  let bestArmy: { id: string; distSq: number; own: boolean } | undefined;
   for (const army of armies) {
     if (army.strength <= 0) continue;
     const [ax, ay] = worldPoint(army.x, army.y);
     const distSq = (ax + origin.x - sx) ** 2 + (ay + origin.y - sy) ** 2;
-    if (distSq <= 13 ** 2 && (!bestArmy || distSq < bestArmy.distSq)) bestArmy = { id: army.id, distSq };
+    if (distSq > 13 ** 2) continue;
+    const own = army.ownerPlayerId === ownPlayerId;
+    const better = !bestArmy || distSq < bestArmy.distSq || (distSq === bestArmy.distSq && own && !bestArmy.own);
+    if (better) bestArmy = { id: army.id, distSq, own };
   }
   let bestCity: { id: string; distSq: number } | undefined;
   for (const city of cities) {
@@ -121,13 +171,34 @@ export function overlayGeometrySig(army: SigArmy, selected: boolean): string {
   return `${ring}|none`;
 }
 
-export function terrainSig(terrainMap: Record<string, string> | undefined): string {
-  return JSON.stringify(terrainMap ?? {});
+/** What decides whether the terrain texture has to be baked again. The grid itself is
+ *  authored in `@kingdoms/shared`, so a digest of *which world this is* plus the tiles
+ *  the server says differ from it is the whole input — this used to stringify a 1 296-key
+ *  map on every snapshot to discover nothing had changed. A different world must rebuild,
+ *  which is why the digest is part of the signature and not an assertion elsewhere. */
+export function terrainSig(worldMapDigest: string | undefined, overrides: Record<string, string> | undefined): string {
+  return `${worldMapDigest ?? ""}|${JSON.stringify(overrides ?? {})}`;
 }
 
 export function eventSig(events: readonly { id: string; eventType: string; severity: unknown; affectedTiles: unknown }[]): string {
   return JSON.stringify(events.map(event => `${event.id}:${event.eventType}:${event.severity}:${JSON.stringify(event.affectedTiles)}`));
 }
+
+/** A province seat's marker geometry: whose banner flies over it, in the three states the
+ *  marker is drawn in. Not the holder's id — two rivals taking turns holding a seat is the
+ *  same amber marker, and rebuilding it on every handover would be redraw for nothing. */
+export function seatSig(controllerPlayerId: string | undefined, ownPlayerId: string): string {
+  if (!controllerPlayerId) return "unheld";
+  return controllerPlayerId === ownPlayerId ? "own" : "other";
+}
+
+/** Province names appear only from this zoom up. At the floor (0.4, the whole 36×36 world in a
+ *  900px viewport) sixteen names sit about twenty pixels apart and overlap the armies and cities
+ *  they are supposed to be behind; the seat markers stay visible at every zoom, so nothing
+ *  disappears — only the text does, and it comes back on the way in. A rule rather than a
+ *  literal in the wheel handler so `map-geometry.test.ts` can hold it against `minZoom`. */
+export const regionLabelZoom = 1;
+export const regionLabelsVisible = (zoom: number): boolean => zoom >= regionLabelZoom;
 
 // === LABEL CHARSET ===
 //

@@ -1,16 +1,36 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import type { Caravan, Depot, DestinationKind, LogisticsSnapshot, MarketHub, ResourceNode, Resources, TradeRoute } from "@kingdoms/shared";
-import { gameRules } from "@kingdoms/shared";
+import { anchors, gameRules, regionAt, worldId } from "@kingdoms/shared";
 import type { CityState, GameState } from "./types.js";
+import { CommandRegistry } from "./command-registry.js";
 
 type Throughput = { wood: number; stone: number; iron: number };
 type LogisticsData = LogisticsSnapshot & { caravans: Caravan[] };
-type LogisticsCapture = { data: LogisticsData; commands: string[] };
+// Claimed command ids used to be copied in here too, twice per command. They live in the shared
+// `CommandRegistry` now, which the store rolls back in one call; this capture is the real state.
+type LogisticsCapture = { data: LogisticsData };
 const resourceKeys = ["wood", "stone", "iron"] as const;
 const emptyThroughput = (): Throughput => ({ wood: 0, stone: 0, iron: 0 });
 const depotCapacity = (level: number) => level * 100;
-const mapExtent = 20;
+const mapExtent = gameRules.map.extent;
+/** What a mine holds and how fast it comes back, by what it produces — the three rates the three
+ *  hand-written nodes used to carry, kept to the tile. Iron recovers slowest, which is the other
+ *  half of "iron is the scarce one" (the map authors only eight of them). These are logistics
+ *  balance numbers, not geography, so they live here rather than beside the map. */
+const recoveryRates = { wood: 5, stone: 5, iron: 3 } as const;
+const nodeCapacity = 1000;
+/** Which province a mine pays into. Throws only if an anchor has been authored outside the grid,
+ *  which `world-map.test.ts` already forbids. Derived per kingdom so two kingdoms sharing the
+ *  authored map do not share a `regions` row. */
+const anchorRegionId = (kingdomId: string, x: number, y: number): string => {
+  const region = regionAt(x, y);
+  if (!region) throw new Error(`anchor ${x},${y} is outside the authored world`);
+  return worldId(kingdomId, "region", region.code);
+};
+// Manhattan reach an ambusher needs to the caravan's current tile. Owner-set: 3 tiles, so a
+// raid costs a real march and the escort system has something to defend against.
+const ambushRange = 3;
 const assertActivePlayer = (state: GameState, playerId: string) => { if (state.players.find(player => player.id === playerId)?.status === "banned") throw new Error("ACCOUNT_BANNED"); };
 const assertActiveTarget = (state: GameState, playerId: string, frozen?: boolean) => { if (frozen || state.players.find(player => player.id === playerId)?.status === "banned") throw new Error("TARGET_FROZEN"); };
 
@@ -31,27 +51,57 @@ function findHubTile(anchorX: number, anchorY: number, occupied: Set<string>): {
   throw new Error("MAP_FULL");
 }
 
+// A caravan has no x/y of its own: it is a point on the line between its source city and its
+// destination (city or market hub), placed by `progress`. This mirrors the client lerp at
+// apps/client/src/map.ts:326-332 so the server judges range against the tile the player can
+// actually see the caravan on. Keep the two in step; `undefined` here matches the client
+// hiding a caravan whose endpoints no longer resolve.
+export function caravanTile(caravan: Caravan, state: GameState, hubs: MarketHub[]): { x: number; y: number } | undefined {
+  const from = state.cities.find(city => city.id === caravan.sourceCityId);
+  const to = caravan.destinationCityId ? state.cities.find(city => city.id === caravan.destinationCityId) : hubs.find(hub => hub.id === caravan.destinationMarketId);
+  if (!from || !to) return undefined;
+  return { x: Math.round(from.x + (to.x - from.x) * caravan.progress), y: Math.round(from.y + (to.y - from.y) * caravan.progress) };
+}
+
 export class LogisticsRepository {
   private data: LogisticsData = { resourceNodes: [], depots: [], tradeRoutes: [], marketHubs: [], throughput: {}, caravans: [] };
-  private commands = new Set<string>();
-  constructor(private readonly pool?: Pool) {}
+  constructor(private readonly pool?: Pool, private readonly commands: CommandRegistry = new CommandRegistry()) {}
 
+  /** Ports and mines are the authored map's, not this file's. They used to be four literals here —
+   *  three mines and one hub — which is why `resource_nodes.region_id` was a fresh `randomUUID()`
+   *  per node: there was no map to ask which province a mine was in.
+   *
+   *  Two things make a reseed converge now. Ids are derived from `(kingdom, tile)`, so the upsert
+   *  in `persist()` finds the same row on every boot instead of inserting a 37th copy; and rows
+   *  whose tile is no longer an anchor are pruned, which is how an edit to the map reaches a
+   *  database that was seeded before it. */
   seed(state: GameState): void {
-    if (!this.data.resourceNodes.length) this.data.resourceNodes = [
-      { id: randomUUID(), kingdomId: state.kingdom.id, regionId: randomUUID(), x: 6, y: 8, resourceType: "wood", remaining: 1000, capacity: 1000, recoveryRate: 5 },
-      { id: randomUUID(), kingdomId: state.kingdom.id, regionId: randomUUID(), x: 15, y: 10, resourceType: "stone", remaining: 1000, capacity: 1000, recoveryRate: 5 },
-      { id: randomUUID(), kingdomId: state.kingdom.id, regionId: randomUUID(), x: 10, y: 14, resourceType: "iron", remaining: 1000, capacity: 1000, recoveryRate: 3 }
-    ];
-    this.seedMarketHub(state);
+    if (!this.data.resourceNodes.length) this.data.resourceNodes = anchors.flatMap(anchor => anchor.kind !== "node" ? [] : [{
+      id: worldId(state.kingdom.id, anchor.x, anchor.y),
+      kingdomId: state.kingdom.id,
+      regionId: anchorRegionId(state.kingdom.id, anchor.x, anchor.y),
+      x: anchor.x, y: anchor.y,
+      resourceType: anchor.resourceType,
+      remaining: nodeCapacity, capacity: nodeCapacity,
+      recoveryRate: recoveryRates[anchor.resourceType],
+    } satisfies ResourceNode]);
+    this.seedMarketHubs(state);
     this.syncDepots(state);
   }
 
-  private seedMarketHub(state: GameState): void {
+  /** One port per quadrant. `findHubTile()` still stands behind each one: an authored tile can be
+   *  taken by a city on a world loaded from the database, and a port that failed to place would be
+   *  a quadrant with no market. The id follows the *authored* tile rather than where the port
+   *  ended up, so the same port keeps the same row even if it had to shuffle. */
+  private seedMarketHubs(state: GameState): void {
     if (this.data.marketHubs.length) return;
     const occupied = new Set([...state.cities, ...this.data.resourceNodes].map(item => `${item.x},${item.y}`));
-    const { anchorX, anchorY, name } = gameRules.market;
-    const tile = findHubTile(anchorX, anchorY, occupied);
-    this.data.marketHubs = [{ id: randomUUID(), kingdomId: state.kingdom.id, name, x: tile.x, y: tile.y }];
+    this.data.marketHubs = anchors.flatMap(anchor => {
+      if (anchor.kind !== "market") return [];
+      const tile = findHubTile(anchor.x, anchor.y, occupied);
+      occupied.add(`${tile.x},${tile.y}`);
+      return [{ id: worldId(state.kingdom.id, anchor.x, anchor.y), kingdomId: state.kingdom.id, name: anchor.name, x: tile.x, y: tile.y } satisfies MarketHub];
+    });
   }
 
   syncDepots(state: GameState): void { this.data.depots = state.cities.filter(city => (city.buildings.road_depot ?? 0) > 0).map(city => ({ cityId: city.id, level: city.buildings.road_depot, capacity: depotCapacity(city.buildings.road_depot) } satisfies Depot)); }
@@ -60,9 +110,26 @@ export class LogisticsRepository {
     this.seed(state); if (!this.pool) return;
     try {
       const nodes = await this.pool.query<ResourceNode>(`SELECT id, kingdom_id AS "kingdomId", region_id AS "regionId", x, y, resource_type AS "resourceType", remaining::int, capacity::int, recovery_rate::int AS "recoveryRate" FROM resource_nodes WHERE kingdom_id = $1`, [state.kingdom.id]);
-      if (nodes.rows.length) this.data.resourceNodes = nodes.rows;
+      // The map decides which mines and ports exist; the database only remembers what has happened
+      // to them. Rows are matched by derived id, so a row seeded against an older world matches
+      // nothing, is ignored here, and is deleted on the next save. Replacing the authored set with
+      // whatever the table holds — which is what this used to do — would mean a database seeded
+      // yesterday quietly kept the game on yesterday's map.
+      const savedNodes = new Map(nodes.rows.map(row => [row.id, row]));
+      for (const node of this.data.resourceNodes) {
+        const row = savedNodes.get(node.id);
+        // Only `remaining` is restored: capacity and recovery rate are balance numbers this file
+        // owns, so tuning them in code is not overruled by a row written before the change.
+        if (row) node.remaining = Math.max(0, Math.min(row.remaining, node.capacity));
+      }
       const hubs = await this.pool.query<MarketHub>(`SELECT id, kingdom_id AS "kingdomId", name, x, y FROM market_hubs WHERE kingdom_id = $1`, [state.kingdom.id]);
-      if (hubs.rows.length) this.data.marketHubs = hubs.rows;
+      // A port keeps the tile it was actually placed on — `findHubTile` may have shuffled it off
+      // the authored anchor — because that is the tile players have been marching caravans to.
+      const savedHubs = new Map(hubs.rows.map(row => [row.id, row]));
+      for (const hub of this.data.marketHubs) {
+        const row = savedHubs.get(hub.id);
+        if (row) { hub.x = row.x; hub.y = row.y; }
+      }
       const routes = await this.pool.query<TradeRoute>(`SELECT id, kingdom_id AS "kingdomId", owner_player_id AS "ownerPlayerId", source_city_id AS "sourceCityId", destination_kind AS "destinationKind", destination_city_id AS "destinationCityId", destination_market_id AS "destinationMarketId", distance, travel_time_seconds AS "travelTimeSeconds", status FROM trade_routes WHERE kingdom_id = $1`, [state.kingdom.id]);
       this.data.tradeRoutes = routes.rows;
       const throughput = await this.pool.query<{ playerId: string; wood: number; stone: number; iron: number }>(`SELECT player_id AS "playerId", wood::int, stone::int, iron::int FROM economy_throughput WHERE season_id = $1`, [state.season.id]);
@@ -72,7 +139,19 @@ export class LogisticsRepository {
     } catch (error) { console.warn("logistics load skipped", error instanceof Error ? error.message : error); }
   }
 
+  /** Ports and mines are the only rows here whose existence the *map* decides, so they are the only
+   *  ones that can go stale when the map is edited. Everything else below belongs to the players.
+   *
+   *  This runs before the upserts on purpose. A database seeded against the old world holds three
+   *  mines and one port under `randomUUID()` keys at tiles the new map may reuse; deleting them
+   *  first means the insert that follows lands on a clean tile instead of racing an index. */
+  private async pruneWorldRows(client: PoolClient, state: GameState): Promise<void> {
+    await client.query("DELETE FROM market_hubs WHERE kingdom_id = $1 AND NOT (id = ANY($2::uuid[]))", [state.kingdom.id, this.data.marketHubs.map(hub => hub.id)]);
+    await client.query("DELETE FROM resource_nodes WHERE kingdom_id = $1 AND NOT (id = ANY($2::uuid[]))", [state.kingdom.id, this.data.resourceNodes.map(node => node.id)]);
+  }
+
   async persist(client: PoolClient, state: GameState): Promise<void> {
+    await this.pruneWorldRows(client, state);
     for (const hub of this.data.marketHubs) await client.query("INSERT INTO market_hubs (id, kingdom_id, name, x, y) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, x=EXCLUDED.x, y=EXCLUDED.y", [hub.id, hub.kingdomId, hub.name, hub.x, hub.y]);
     for (const node of this.data.resourceNodes) await client.query("INSERT INTO resource_nodes (id, kingdom_id, region_id, x, y, resource_type, remaining, capacity, recovery_rate) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET remaining=EXCLUDED.remaining, capacity=EXCLUDED.capacity, recovery_rate=EXCLUDED.recovery_rate", [node.id,node.kingdomId,node.regionId,node.x,node.y,node.resourceType,node.remaining,node.capacity,node.recoveryRate]);
     for (const depot of this.data.depots) await client.query("INSERT INTO depots (city_id, level, capacity) VALUES ($1,$2,$3) ON CONFLICT (city_id) DO UPDATE SET level=EXCLUDED.level, capacity=EXCLUDED.capacity", [depot.cityId,depot.level,depot.capacity]);
@@ -84,6 +163,7 @@ export class LogisticsRepository {
     if (!this.pool) return; const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
+      await this.pruneWorldRows(client, state);
       for (const hub of this.data.marketHubs) await client.query("INSERT INTO market_hubs (id, kingdom_id, name, x, y) VALUES ($1,$2,$3,$4,$5) ON CONFLICT (id) DO UPDATE SET name=EXCLUDED.name, x=EXCLUDED.x, y=EXCLUDED.y", [hub.id, hub.kingdomId, hub.name, hub.x, hub.y]);
       for (const node of this.data.resourceNodes) await client.query("INSERT INTO resource_nodes (id, kingdom_id, region_id, x, y, resource_type, remaining, capacity, recovery_rate) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT (id) DO UPDATE SET remaining=EXCLUDED.remaining, capacity=EXCLUDED.capacity, recovery_rate=EXCLUDED.recovery_rate", [node.id,node.kingdomId,node.regionId,node.x,node.y,node.resourceType,node.remaining,node.capacity,node.recoveryRate]);
       for (const depot of this.data.depots) await client.query("INSERT INTO depots (city_id, level, capacity) VALUES ($1,$2,$3) ON CONFLICT (city_id) DO UPDATE SET level=EXCLUDED.level, capacity=EXCLUDED.capacity", [depot.cityId,depot.level,depot.capacity]);
@@ -97,10 +177,10 @@ export class LogisticsRepository {
   snapshot(): LogisticsSnapshot { return { resourceNodes: this.data.resourceNodes, depots: this.data.depots, tradeRoutes: this.data.tradeRoutes, marketHubs: this.data.marketHubs, throughput: this.data.throughput }; }
   caravans(): Caravan[] { return this.data.caravans; }
   setPlayerFrozen(playerId: string, frozen: boolean, frozenAt: string | undefined, deltaMs: number, state: GameState): void { for (const caravan of this.data.caravans) { const owned = caravan.ownerPlayerId === playerId; const targetsPlayer = state.cities.find(city => city.id === caravan.destinationCityId)?.playerId === playerId; if (!owned && !targetsPlayer) continue; if (!frozen && deltaMs > 0) { if (caravan.departureAt) caravan.departureAt = new Date(Date.parse(caravan.departureAt) + deltaMs).toISOString(); if (caravan.arrivesAt) caravan.arrivesAt = new Date(Date.parse(caravan.arrivesAt) + deltaMs).toISOString(); } if (owned) { caravan.frozen = frozen; caravan.frozenAt = frozenAt; } } }
-  capture(): LogisticsCapture { return { data: structuredClone(this.data), commands: [...this.commands] }; }
-  restore(capture: LogisticsCapture): void { this.data = structuredClone(capture.data); this.commands = new Set(capture.commands); }
+  capture(): LogisticsCapture { return { data: structuredClone(this.data) }; }
+  restore(capture: LogisticsCapture): void { this.data = structuredClone(capture.data); }
   resetForSeason(state: GameState): void { this.data.caravans = []; this.data.tradeRoutes = []; this.data.throughput = {}; for (const node of this.data.resourceNodes) node.remaining = node.capacity; this.syncDepots(state); /* market hub survives season reset */ }
-  private claim(commandId: string): boolean { if (this.commands.has(commandId)) return false; this.commands.add(commandId); return true; }
+  private claim(commandId: string): boolean { return this.commands.claim(commandId); }
 
   harvest(commandId: string, nodeId: string, cityId: string, playerId: string, amount: number, state: GameState): string {
     assertActivePlayer(state, playerId);
@@ -108,7 +188,7 @@ export class LogisticsRepository {
     if (!city || city.playerId !== playerId) throw new Error("CITY_ACCESS_DENIED");
     if (!node || node.remaining < amount) throw new Error("NODE_DEPLETED");
     if ((city.buildings.road_depot ?? 0) < 1) throw new Error("DEPOT_REQUIRED");
-    if (Math.abs(city.x - node.x) + Math.abs(city.y - node.y) > 10) throw new Error("HARVEST_OUT_OF_RANGE");
+    if (Math.abs(city.x - node.x) + Math.abs(city.y - node.y) > gameRules.logistics.harvestRange) throw new Error("HARVEST_OUT_OF_RANGE");
     if (!this.claim(commandId)) return "already_processed";
     city.resources[node.resourceType] += amount; node.remaining -= amount;
     const produced = state.seasonMetrics.resourcesProduced[playerId] ??= { wood: 0, stone: 0, iron: 0 }; produced[node.resourceType] += amount;
@@ -169,6 +249,12 @@ export class LogisticsRepository {
     if (caravan) assertActiveTarget(state, caravan.ownerPlayerId, caravan.frozen);
     if (!caravan || caravan.status !== "moving") throw new Error("CARAVAN_NOT_MOVING");
     if (caravan.ownerPlayerId === attackerPlayerId) throw new Error("INVALID_ATTACKER");
+    // An ambush used to cost nothing but a command: no army, no distance, so any active player
+    // could strip 60% of any cargo anywhere on the map and escorts protected nothing. Require a
+    // live army of the attacker's within `ambushRange` of where the caravan is right now. The
+    // Manhattan test is inline to match the HARVEST_OUT_OF_RANGE check above.
+    const tile = caravanTile(caravan, state, this.data.marketHubs);
+    if (!tile || !state.armies.some(army => army.ownerPlayerId === attackerPlayerId && !army.frozen && army.strength > 0 && Math.abs(army.x - tile.x) + Math.abs(army.y - tile.y) <= ambushRange)) throw new Error("AMBUSH_OUT_OF_RANGE");
     const seed = Array.from(commandId).reduce((value, char) => (value * 31 + char.charCodeAt(0)) >>> 0, 7);
     if (!this.claim(commandId)) throw new Error("already_processed");
     if (diplomacy) {

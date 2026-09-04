@@ -1,9 +1,16 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import type { Army, AttackOrder, BattleReport, Formation, TerrainType, UnitType, FactionId } from "@kingdoms/shared";
-import { recruitmentCost } from "@kingdoms/shared";
+import { recruitmentCost, terrainAt } from "@kingdoms/shared";
 import type { GameState } from "./types.js";
+import { CommandRegistry } from "./command-registry.js";
 import { resolveBattle } from "./battle-engine.js";
+
+/** What the ground is at a tile: the authored world, with `map_tiles` overrides on top. Every
+ *  reader goes through this — a raw `state.terrainMap[key]` lookup would answer `undefined` for
+ *  the 1296 tiles nobody has overridden, which is every tile today. */
+export const terrainOf = (state: GameState, x: number, y: number): TerrainType =>
+  state.terrainMap[`${x},${y}`] ?? terrainAt(x, y);
 
 function assertActivePlayer(state: GameState, playerId: string): void { if (state.players.find(player => player.id === playerId)?.status === "banned") throw new Error("ACCOUNT_BANNED"); }
 function assertActiveTarget(state: GameState, playerId: string | null | undefined, frozen?: boolean): void { if (frozen || (playerId && state.players.find(player => player.id === playerId)?.status === "banned")) throw new Error("TARGET_FROZEN"); }
@@ -11,7 +18,6 @@ function assertActiveTarget(state: GameState, playerId: string | null | undefine
 export type AttackOrderCancellation = { orderId: string; armyId: string; targetArmyId: string; reason: "target_destroyed" | "target_frozen"; at: string };
 
 export class CombatRepository {
-  private commands = new Set<string>();
   // Tick-resolved battles and auto-canceled pursuit orders, drained once per
   // tick by the store (ledger) and the HTTP layer (WebSocket broadcast).
   private reportsToBroadcast: BattleReport[] = [];
@@ -20,24 +26,23 @@ export class CombatRepository {
   drainReports(): BattleReport[] { const out = this.reportsToBroadcast; this.reportsToBroadcast = []; return out; }
   drainCancellations(): AttackOrderCancellation[] { const out = this.pendingCancellations; this.pendingCancellations = []; return out; }
 
-  capture(): { commands: string[] } { return { commands: [...this.commands] }; }
-  restore(capture: { commands: string[] }): void { this.commands = new Set(capture.commands); }
-  
-  constructor(private readonly pool?: Pool) {}
+  // No `capture()`/`restore()`: the only state this repository owned outside `GameState` was the
+  // claimed-command Set, and that now lives in the shared `CommandRegistry`, which the store rolls
+  // back once for every repository instead of copying three Sets twice per command.
+  constructor(private readonly pool?: Pool, private readonly commands: CommandRegistry = new CommandRegistry()) {}
 
+  /** There is no terrain to generate any more. This used to be three modulo expressions
+   *  (`(x+y)%7`, `(x*y)%11`, `(x+y)%13`) painting diagonal stripes into all 400 tiles of
+   *  `state.terrainMap`, which meant this file quietly owned the shape of the world. The world is
+   *  now authored in `@kingdoms/shared` and read with `terrainAt()`, so `state.terrainMap` holds
+   *  only the tiles that *differ* from it — `map_tiles` overrides, and nothing else.
+   *
+   *  Seeding is therefore a reset rather than a fill, and the reset is the point: a `game_state`
+   *  row saved against the old striped world would otherwise come back as 400 overrides and paint
+   *  those stripes across the middle of the new map. `load()` refills from `map_tiles`, which is
+   *  the only thing allowed to put an override there. */
   seed(state: GameState): void {
-    if (!state.terrainMap || Object.keys(state.terrainMap).length === 0) {
-      state.terrainMap = {};
-      for (let y = 0; y < 20; y++) {
-        for (let x = 0; x < 20; x++) {
-          let terrain: TerrainType = "plains";
-          if ((x + y) % 7 === 0) terrain = "hills";
-          else if ((x * y) % 11 === 0) terrain = "forest";
-          else if ((x + y) % 13 === 0) terrain = "swamp";
-          state.terrainMap[`${x},${y}`] = terrain;
-        }
-      }
-    }
+    state.terrainMap = {};
   }
 
   async load(state: GameState): Promise<void> {
@@ -47,8 +52,12 @@ export class CombatRepository {
       const terrainRes = await this.pool.query<{ x: number; y: number; terrain_type: string }>(
         `SELECT x, y, terrain_type FROM map_tiles WHERE kingdom_id = $1`, [state.kingdom.id]
       );
-      if (terrainRes.rows.length) {
-        for (const row of terrainRes.rows) state.terrainMap[`${row.x},${row.y}`] = row.terrain_type as TerrainType;
+      // Only rows that disagree with the authored world are kept. A `map_tiles` row that merely
+      // restates what `terrainAt()` already says is not an override, and storing it would put a
+      // tile on the wire for no reason once the snapshot carries the differences.
+      for (const row of terrainRes.rows) {
+        const terrain = row.terrain_type as TerrainType;
+        if (terrain !== terrainAt(row.x, row.y)) state.terrainMap[`${row.x},${row.y}`] = terrain;
       }
       
       const battleRes = await this.pool.query(
@@ -102,9 +111,7 @@ export class CombatRepository {
   }
 
   private claim(commandId: string): boolean {
-    if (this.commands.has(commandId)) return false;
-    this.commands.add(commandId);
-    return true;
+    return this.commands.claim(commandId);
   }
 
   recruit(commandId: string, cityId: string, unitType: UnitType, amount: number, playerId: string, state: GameState): Army {
@@ -233,7 +240,7 @@ export class CombatRepository {
   resolveEncounter(attacker: Army, defender: Army, seed: number, state: GameState, diplomacy?: any, commandId?: string, broadcast = true): BattleReport {
     const attackerPlayer = attacker.ownerPlayerId ? state.players.find(p => p.id === attacker.ownerPlayerId) : undefined;
     const defenderPlayer = defender.ownerPlayerId ? state.players.find(p => p.id === defender.ownerPlayerId) : undefined;
-    const terrain = state.terrainMap[`${attacker.x},${attacker.y}`] ?? "plains";
+    const terrain = terrainOf(state, attacker.x, attacker.y);
     const input = {
       attacker: { unitType: attacker.unitType, strength: attacker.strength, morale: attacker.morale, formation: attacker.formation, supply: attacker.supply, factionId: attackerPlayer?.factionId ?? "ravager" as FactionId },
       defender: { unitType: defender.unitType, strength: defender.strength, morale: defender.morale, formation: defender.formation, supply: defender.supply, factionId: defenderPlayer?.factionId ?? "ravager" as FactionId },

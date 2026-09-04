@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { gameRules } from "@kingdoms/shared";
 import { GameStore } from "./store.js";
 
 test("raider engine keeps exactly RAIDER_TARGET_COUNT raiders, idempotently", () => {
@@ -21,7 +22,7 @@ test("raider spawn is deterministic: strength in [30..60], sequence advances", (
     assert.equal(raider.formation, "line");
   }
   const first = raiders[0];
-  assert.ok(first.x >= 0 && first.x < 20 && first.y >= 0 && first.y < 20);
+  assert.ok(first.x >= 0 && first.x < gameRules.map.extent && first.y >= 0 && first.y < gameRules.map.extent);
   for (const city of store.snapshot.cities) {
     assert.ok(Math.abs(city.x - first.x) + Math.abs(city.y - first.y) >= 4, "raider spawned too close to a city");
   }
