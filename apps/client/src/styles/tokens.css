@@ -173,13 +173,11 @@
   --kom-info-border: var(--kom-slate-600);
   --kom-info-text: var(--kom-slate-100);
 
-  /* Two world-event accents and one supply signal. Named after what they mean in
-   * the game rather than the hue, because nothing else in the UI may borrow
-   * them: verdant is brighter than the system allows anywhere else, and blight
-   * reuses the espionage violet on purpose — both are "something happened to
-   * the world", not "someone did this to you". */
-  --kom-event-boon: var(--kom-verdant-400);
-  --kom-event-blight: var(--kom-violet-400);
+  /* One supply signal, and no world-event accents. `--kom-event-boon` and
+   * `--kom-event-blight` were a third colour scheme for a single left rule on an
+   * event row: an event's severity is a `StatusChip` now, drawn from the same
+   * eight states as every other status in the UI, so the two accents left with
+   * the rule that was their only consumer. */
   --kom-supply-low: var(--kom-ember-300);
 
   /* Semantic UI states. Each one is a fill/border/text triple so a chip, a

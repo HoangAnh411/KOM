@@ -54,37 +54,64 @@ const screenAt = (x: number, y: number): [number, number] => {
   const [wx, wy] = worldPoint(x, y);
   return [wx + origin.x, wy + origin.y];
 };
+/** The viewer. Armies below leave `ownerPlayerId` unset, so they are somebody
+ *  else's unless a case says otherwise — the ordinary shape of these fixtures. */
+const ME = "player-me";
 
 test("picking prefers armies, then cities, then falls through to the tile", () => {
   const armies = [{ id: "a1", x: 5, y: 5, strength: 10 }];
   const cities = [{ id: "c1", x: 5, y: 5 }, { id: "c2", x: 12, y: 3 }];
-  assert.deepEqual(pickAt(...screenAt(5, 5), origin, armies, cities), { kind: "army", id: "a1" });
+  assert.deepEqual(pickAt(...screenAt(5, 5), origin, armies, cities, ME), { kind: "army", id: "a1" });
   // 20px out: past the 13px army radius, still inside the 27px city radius.
   const [cx, cy] = screenAt(5, 5);
-  assert.deepEqual(pickAt(cx, cy + 20, origin, armies, cities), { kind: "city", id: "c1" });
-  assert.deepEqual(pickAt(...screenAt(12, 3), origin, armies, cities), { kind: "city", id: "c2" });
-  assert.deepEqual(pickAt(...screenAt(1, 17), origin, armies, cities), { kind: "tile", x: 1, y: 17 });
+  assert.deepEqual(pickAt(cx, cy + 20, origin, armies, cities, ME), { kind: "city", id: "c1" });
+  assert.deepEqual(pickAt(...screenAt(12, 3), origin, armies, cities, ME), { kind: "city", id: "c2" });
+  assert.deepEqual(pickAt(...screenAt(1, 17), origin, armies, cities, ME), { kind: "tile", x: 1, y: 17 });
 });
 
 test("picking ignores wiped armies and clicks outside the field", () => {
   const armies = [{ id: "dead", x: 5, y: 5, strength: 0 }];
-  assert.deepEqual(pickAt(...screenAt(5, 5), origin, armies, []), { kind: "tile", x: 5, y: 5 });
-  assert.equal(pickAt(...screenAt(-3, 4), origin, [], []), undefined);
-  assert.equal(pickAt(...screenAt(20, 20), origin, [], []), undefined);
+  assert.deepEqual(pickAt(...screenAt(5, 5), origin, armies, [], ME), { kind: "tile", x: 5, y: 5 });
+  assert.equal(pickAt(...screenAt(-3, 4), origin, [], [], ME), undefined);
+  assert.equal(pickAt(...screenAt(20, 20), origin, [], [], ME), undefined);
 });
 
 test("picking resolves every tile of the field back to itself", () => {
   for (let y = 0; y < mapExtent; y += 1) for (let x = 0; x < mapExtent; x += 1) {
-    assert.deepEqual(pickAt(...screenAt(x, y), origin, [], []), { kind: "tile", x, y });
+    assert.deepEqual(pickAt(...screenAt(x, y), origin, [], [], ME), { kind: "tile", x, y });
   }
 });
 
 test("closest army wins when two overlap", () => {
   const [sx, sy] = screenAt(5, 5);
   const armies = [{ id: "far", x: 5, y: 5, strength: 9 }, { id: "near", x: 5, y: 5, strength: 9 }];
-  assert.deepEqual(pickAt(sx + 4, sy, origin, armies, []), { kind: "army", id: "far" });
+  assert.deepEqual(pickAt(sx + 4, sy, origin, armies, [], ME), { kind: "army", id: "far" });
   armies[1] = { id: "near", x: 5.1, y: 5, strength: 9 };
-  assert.deepEqual(pickAt(sx + 4, sy, origin, armies, []), { kind: "army", id: "near" });
+  assert.deepEqual(pickAt(sx + 4, sy, origin, armies, [], ME), { kind: "army", id: "near" });
+});
+
+// Two armies on one tile project to the same point, so the tie is exact and the
+// old rule handed it to whichever the snapshot listed first. A migrating mob
+// standing on the player's city therefore ate the click and their own army could
+// not be selected at all — the failure `map-command.spec.ts` hit at random on
+// CI, and the one a player would read as "the map stopped responding".
+test("the player's own army wins an exact tie, in either snapshot order", () => {
+  const mob = { id: "mob", x: 5, y: 5, strength: 90 };
+  const mine = { id: "mine", x: 5, y: 5, strength: 10, ownerPlayerId: ME };
+  assert.deepEqual(pickAt(...screenAt(5, 5), origin, [mob, mine], [], ME), { kind: "army", id: "mine" });
+  assert.deepEqual(pickAt(...screenAt(5, 5), origin, [mine, mob], [], ME), { kind: "army", id: "mine" });
+  // A null owner is a neutral, not a match for a viewer who has no id yet.
+  assert.deepEqual(pickAt(...screenAt(5, 5), origin, [{ ...mob, ownerPlayerId: null }], [], ""), { kind: "army", id: "mob" });
+});
+
+test("ownership breaks ties but never outranks distance", () => {
+  const [sx, sy] = screenAt(5, 5);
+  const mine = { id: "mine", x: 5, y: 5, strength: 10, ownerPlayerId: ME };
+  // 4px east of the tile centre: the mob one tenth of a tile over is genuinely
+  // closer, and must stay clickable — that is how you target it to attack.
+  const nearerMob = { id: "mob", x: 5.1, y: 5, strength: 90 };
+  assert.deepEqual(pickAt(sx + 4, sy, origin, [mine, nearerMob], [], ME), { kind: "army", id: "mob" });
+  assert.deepEqual(pickAt(sx + 4, sy, origin, [nearerMob, mine], [], ME), { kind: "army", id: "mob" });
 });
 
 // === CHANGE SIGNATURES ===

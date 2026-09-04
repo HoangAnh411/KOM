@@ -17,7 +17,7 @@ test("map entity selection, direct move order and prompt-free alliance form", as
   const barracksResponse = page.waitForResponse(response => response.url().endsWith("/api/commands/build"));
   await page.getByRole("button", { name: "Xây trại lính" }).click();
   expect((await barracksResponse).ok()).toBeTruthy();
-  await expect(page.getByText("Build queues: 0/2")).toBeVisible({ timeout: 25000 });
+  await expect(page.getByText("Hàng đợi xây: 0/2")).toBeVisible({ timeout: 25000 });
   await page.getByRole("button", { name: "Tuyển quân mới" }).click();
   const recruitModal = page.getByRole("dialog", { name: "Tuyển quân" });
   await recruitModal.getByRole("radio", { name: /^Bộ binh/ }).check();

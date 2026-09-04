@@ -7,6 +7,7 @@ import { Icon } from "../ui/Icon.js";
 import { Panel, PanelBody, PanelFooter, PanelHeader } from "../ui/Panel.js";
 import { StatusChip } from "../ui/Status.js";
 import type { UiState } from "../ui/tokens.js";
+import { spyMissionLabels } from "../vocabulary.js";
 
 type LaunchableMission = "scout" | "sabotage" | "steal";
 
@@ -15,7 +16,6 @@ const statusLabels: Record<string, string> = { in_progress: "Đang chạy", succ
  * player reads, `hostile` is how it is coloured. Intercepted is crimson because
  * someone did it to you; failed is amber because nobody did. */
 const statusStates: Record<string, UiState> = { in_progress: "pending", success: "success", intercepted: "hostile", failed: "warning" };
-const missionLabels = { scout: "Trinh sát", sabotage: "Phá hoại", steal: "Đánh cắp", counter_intel: "Phản gián" } as const;
 
 function reportLabel(mission: SpyMission): string {
   const report = mission.report as { resources?: Record<string, number>; buildings?: Record<string, number>; armies?: unknown[]; building?: string; supplyDamaged?: boolean; stolen?: Record<string, number> } | undefined;
@@ -42,7 +42,7 @@ export function EspionagePanel() {
       {missions.map(m => {
         const uiState = statusStates[m.status];
         return <div className="spy-mission" key={m.id}>
-          <strong>{missionLabels[m.missionType]}</strong>
+          <strong>{spyMissionLabels[m.missionType]}</strong>
           {uiState
             ? <StatusChip state={uiState}>{statusLabels[m.status] ?? m.status}</StatusChip>
             : <span className="hint">{statusLabels[m.status] ?? m.status}</span>}

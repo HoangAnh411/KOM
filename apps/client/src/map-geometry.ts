@@ -50,21 +50,35 @@ export function isoDepth(x: number, y: number): number {
   return (x + y) * 64 + x;
 }
 
-export type PickArmy = { id: string; x: number; y: number; strength: number };
+export type PickArmy = { id: string; x: number; y: number; strength: number; ownerPlayerId?: string | null };
 export type PickCity = { id: string; x: number; y: number };
 export type PickResult = { kind: "army" | "city"; id: string } | { kind: "tile"; x: number; y: number } | undefined;
 
 /** Hit test in camera-local space, i.e. after pan/zoom have been undone but
  *  before the world origin is subtracted. Arithmetic is identical to the
  *  pre-refactor renderer: armies win ties within 13px, cities within 27px, and
- *  anything else falls through to the inverse projection for a tile pick. */
-export function pickAt(sx: number, sy: number, origin: { x: number; y: number }, armies: readonly PickArmy[], cities: readonly PickCity[]): PickResult {
-  let bestArmy: { id: string; distSq: number } | undefined;
+ *  anything else falls through to the inverse projection for a tile pick.
+ *
+ *  `ownPlayerId` breaks an *exact* tie in the player's favour, and that is the
+ *  whole of its job. Several armies routinely stand on one tile — a migrating
+ *  mob wanders onto a city, a raider hunts the garrison — and two entities on
+ *  the same tile project to the same point, so `distSq` is bit-identical and the
+ *  winner used to be whichever the snapshot happened to list first. That made
+ *  the player's own army unselectable behind a neutral one: nothing on screen
+ *  said why the click did nothing, and there was no gesture to get past it.
+ *  Required rather than optional so a new call site cannot silently reintroduce
+ *  it. Ownership does *not* outrank distance — a nearer foreign army still wins,
+ *  or a mob one tile over could never be clicked at all. */
+export function pickAt(sx: number, sy: number, origin: { x: number; y: number }, armies: readonly PickArmy[], cities: readonly PickCity[], ownPlayerId: string): PickResult {
+  let bestArmy: { id: string; distSq: number; own: boolean } | undefined;
   for (const army of armies) {
     if (army.strength <= 0) continue;
     const [ax, ay] = worldPoint(army.x, army.y);
     const distSq = (ax + origin.x - sx) ** 2 + (ay + origin.y - sy) ** 2;
-    if (distSq <= 13 ** 2 && (!bestArmy || distSq < bestArmy.distSq)) bestArmy = { id: army.id, distSq };
+    if (distSq > 13 ** 2) continue;
+    const own = army.ownerPlayerId === ownPlayerId;
+    const better = !bestArmy || distSq < bestArmy.distSq || (distSq === bestArmy.distSq && own && !bestArmy.own);
+    if (better) bestArmy = { id: army.id, distSq, own };
   }
   let bestCity: { id: string; distSq: number } | undefined;
   for (const city of cities) {

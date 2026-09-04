@@ -1,11 +1,14 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import test from "node:test";
 import { iconPaths, iconViewBox } from "./ui/icon-paths.js";
 import {
   buttonVariants, densities, iconNames, panelAccents, stateIcons, stateLabels, stateTokens, uiStates,
 } from "./ui/tokens.js";
 import { buttonClass, iconClass, panelClass, statusClass } from "./ui/variants.js";
+import { allianceRoleLabels, treatyLabels, worldEventIcons, worldEventLabels, worldEventStates } from "./vocabulary.js";
 
 // The client runner has no DOM, so the design system is asserted as text: the two
 // stylesheets are read off disk and checked against the TypeScript registry that
@@ -22,6 +25,18 @@ const component = (name: string): string =>
 const tokens = source("tokens.css");
 const primitives = source("primitives.css");
 
+const sourceRoot = fileURLToPath(new URL("../src/", import.meta.url));
+const sourceFiles = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+  const path = join(dir, entry.name);
+  if (entry.isDirectory()) return sourceFiles(path);
+  return /\.tsx?$/.test(entry.name) && !entry.name.endsWith(".test.ts") ? [path] : [];
+});
+const relative = (path: string): string => path.slice(sourceRoot.length).replace(/\\/g, "/");
+/** A component's own comment quoting the markup it no longer writes must not read
+ *  as the markup — the same rule `vocabulary.test.ts` scans under. */
+const stripSource = (code: string): string =>
+  code.replace(/\/\*[\s\S]*?\*\//g, "").replace(/(^|[^:"'`\\])\/\/[^\n]*/g, "$1");
+
 const stripComments = (css: string): string => css.replace(/\/\*[\s\S]*?\*\//g, "");
 const COLOUR = /#[0-9a-fA-F]{3,8}\b|\brgba?\(|\bhsla?\(/;
 const declaredVars = (css: string): Set<string> =>
@@ -29,6 +44,25 @@ const declaredVars = (css: string): Set<string> =>
 const referencedVars = (css: string): string[] =>
   [...stripComments(css).matchAll(/var\((--kom-[\w-]+)/g)].map((m) => m[1]!);
 const selector = (name: string): RegExp => new RegExp(`\\.${name}(?![\\w-])`);
+
+/** The opening tag of every `<Name …>` in a file, brace-aware. An `onClick` arrow
+ *  carries a `>` of its own, so the tag ends at the first `>` outside every
+ *  `{…}` expression — which is the difference between reading one element's props
+ *  and reading the whole subtree's. */
+const openingTags = (code: string, name: string): string[] => {
+  const marker = `<${name}`;
+  const tags: string[] = [];
+  for (let start = code.indexOf(marker); start >= 0; start = code.indexOf(marker, start + 1)) {
+    let depth = 0;
+    for (let cursor = start + marker.length; cursor < code.length; cursor += 1) {
+      const char = code[cursor];
+      if (char === "{") depth += 1;
+      else if (char === "}") depth -= 1;
+      else if (char === ">" && depth === 0) { tags.push(code.slice(start, cursor + 1)); break; }
+    }
+  }
+  return tags;
+};
 
 test("colour literals live in the palette layer and nowhere else", () => {
   const marker = tokens.indexOf("PALETTE END");
@@ -174,3 +208,301 @@ test("buttons keep a visible focus ring and a redrawn disabled state", () => {
   assert.match(disabled, /border:[^;]*dashed/);
   assert.match(disabled, /cursor:\s*not-allowed/);
 });
+
+// A dialog is four behaviours, not a class name, and three of the four shipped
+// modals had only the markup: no trap, no Escape, no focus restore. The fix is
+// worth nothing if the next modal is hand-rolled again, so the scan is the rule.
+
+test("only ui/Modal.tsx builds a dialog", () => {
+  const files = sourceFiles(sourceRoot).filter((file) => relative(file) !== "ui/Modal.tsx");
+  assert.ok(files.length > 10, `expected to scan the client source tree, found ${files.length} files`);
+  const offenders = (pattern: RegExp): string[] =>
+    files.filter((file) => pattern.test(stripSource(readFileSync(file, "utf8")))).map(relative);
+  assert.deepEqual(offenders(/role="(?:dialog|alertdialog)"/), [], "render <Modal> instead of writing role=dialog");
+  // Catches the other half: a scrim and a card with the ARIA left off is still a
+  // hand-rolled dialog, and a `role`-only scan would wave it through.
+  assert.deepEqual(offenders(/className="modal-(?:backdrop|card)/), [], "the scrim and the card belong to the primitive");
+});
+
+test("the modal primitive names itself, traps Tab, cancels on Escape and gives focus back", () => {
+  const modal = component("Modal.tsx");
+  assert.match(modal, /aria-modal="true"/);
+  assert.match(modal, /aria-labelledby=\{titleId\}/, "the dialog is named by its own title, not a duplicated string");
+  assert.match(modal, /event\.key === "Escape"/);
+  assert.match(modal, /event\.key !== "Tab"/);
+  // The cleanup has to do both jobs: an unhooked listener that forgets the focus
+  // leaves the player's caret on a node that no longer exists.
+  assert.match(modal, /return \(\) => \{[^}]*removeEventListener\("keydown"[^}]*\.focus\?\.\(\)/);
+  const focusable = /focusableSelector = "([^"]+)"/.exec(modal)?.[1] ?? "";
+  for (const control of ["button", "input", "select", "textarea", "summary"]) {
+    assert.ok(focusable.split(", ").includes(control), `${control} is unreachable inside the trap`);
+  }
+  assert.match(focusable, /\[tabindex\]:not\(\[tabindex='-1'\]\)/, "an opted-in tabindex must cycle, an opted-out one must not");
+  // The scrim, the card and the action band are the primitive's rules now. Named
+  // here so the legacy-CSS sweep cannot take them along with the modals they used
+  // to belong to.
+  const shell = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  for (const name of ["modal-backdrop", "modal-card", "modal-actions"]) {
+    assert.match(shell, selector(name), `<Modal> asks for .${name}, which has no rule`);
+  }
+});
+
+// The kingdom column is the surface a player touches every minute, so it is the
+// one where "assembled from the primitives" has to be a rule and not a habit.
+// `EspionagePanel` is in the list because it was the migration exemplar: if the
+// shape it demonstrated stops being checked, the next panel copies whatever the
+// previous one drifted into. `AdvancedDrawer` is one file holding four panels —
+// alliance, events, archive and diplomacy — so one entry covers all four, and it
+// is the entry that made deleting the `.hud section` bridge possible: the rule
+// could only go once nothing in the column needed a sheet to dress it.
+
+const kingdomPanels = ["CityPanel.tsx", "ArmyPanel.tsx", "LogisticsPanel.tsx", "OnboardingPanel.tsx", "EspionagePanel.tsx", "AdvancedDrawer.tsx"];
+const panelSource = (name: string): string =>
+  stripSource(readFileSync(new URL(`../src/components/${name}`, import.meta.url), "utf8"));
+
+test("the kingdom column's panels are assembled from the primitives", () => {
+  for (const name of kingdomPanels) {
+    const code = panelSource(name);
+    assert.match(code, /<Panel\b/, `${name} does not render a Panel`);
+    assert.match(code, /<PanelHeader\b/, `${name} writes its own header`);
+    // A hand-rolled `<section>` + `<h2>` is how the four panels drifted apart in
+    // the first place: each one chose its own padding, heading size and spacing.
+    assert.equal(/<section\b/.test(code), false, `${name} still writes its own <section>`);
+    assert.equal(/<h2\b/.test(code), false, `${name} still writes its own heading`);
+    assert.equal(/<button\b/.test(code), false, `${name} still writes a raw <button>`);
+    for (const [token] of code.matchAll(/\bkom-[a-z0-9_-]+/g)) {
+      assert.ok(selector(token).test(primitives) || selector(token).test(readFileSync(new URL("../src/styles.css", import.meta.url), "utf8")),
+        `${name} asks for .${token}, which has no rule in either sheet`);
+    }
+  }
+});
+
+test("the activity column shows facts now, not a shape where facts will go", () => {
+  // The column shipped as an `aria-hidden` skeleton — three grey bars and a
+  // comment promising rows "when there is something real to put in them". The
+  // skeleton is the thing this test is here to keep deleted: it read as content to
+  // a sighted player and as nothing at all to a screen reader, and a placeholder
+  // that survives one more round becomes the design.
+  const code = stripSource(readFileSync(new URL("../src/components/ActivityColumn.tsx", import.meta.url), "utf8"));
+  for (const ghost of ["placeholderRows", "aria-hidden", "skeleton"]) {
+    assert.equal(code.includes(ghost), false, `ActivityColumn still renders a ${ghost}`);
+  }
+  // Assembled from the same primitives as the other column, and with the two
+  // registries doing the talking: a row's chip and glyph come from `activity.ts`,
+  // never from a literal chosen here.
+  for (const tag of ["Panel", "PanelHeader", "PanelBody", "StatusChip", "Icon", "Button"]) {
+    assert.match(code, new RegExp(`<${tag}\\b`), `ActivityColumn does not use ${tag}`);
+  }
+  assert.equal(/<section\b|<h2\b|<button\b/.test(code), false, "ActivityColumn writes markup the primitives own");
+  assert.match(code, /activityKindLabels\[/, "a row's chip wording must come from the registry");
+  // Both panels are the column's own furniture rather than the primitives', so
+  // their classes live in styles.css; either sheet is enough, neither is not.
+  const shell = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  for (const [, token] of code.matchAll(/className="([a-z][a-z0-9_ -]*)"/g)) {
+    for (const name of token!.split(" ").filter(Boolean)) {
+      assert.ok(selector(name).test(primitives) || selector(name).test(shell), `ActivityColumn asks for .${name}, which has no rule`);
+    }
+  }
+  // A row that goes nowhere must not look like a control: `activityAnchors` is
+  // partial on purpose, so the component has to branch and give the anchorless
+  // rows static text instead of a button that answers Enter and does nothing.
+  assert.match(code, /activity-row__jump/);
+  assert.match(code, /activity-row__static/);
+});
+
+test("the command tray renders the table and nothing the table did not decide", () => {
+  const code = stripSource(readFileSync(new URL("../src/components/CommandTray.tsx", import.meta.url), "utf8"));
+  // Two placeholders left this file at once: the right half's reserved label, and
+  // the floating inspector's own raw controls on the left. The `<select>` is the
+  // one worth naming — it was the widest thing in a 60px strip, and a player had
+  // to open it to find out whether merging was possible at all.
+  for (const ghost of ["command-tray__reserved", "<select", "<button", "<h2"]) {
+    assert.equal(code.includes(ghost), false, `CommandTray still writes ${ghost}`);
+  }
+  for (const tag of ["Button", "Icon", "Modal"]) assert.match(code, new RegExp(`<${tag}\\b`), `CommandTray does not use ${tag}`);
+  // Everything on screen comes from the pure table: which commands exist, which
+  // are blocked, the sentence when one is, and the words for the selection. A
+  // label chosen here would be a rule the DOM-free tests cannot see.
+  for (const call of ["trayGroups", "traySubject"]) {
+    assert.match(code, new RegExp(`${call}\\(`), `CommandTray does not read ${call}()`);
+  }
+  assert.match(code, /reason=\{command\.check\.reason\}/, "a blocked tray command must carry its reason");
+  // The law the whole `{ ok, reason }` convention exists for: a command the player
+  // cannot run is disabled, never dropped. Both ways of dropping one — a filter,
+  // or a conditional render on the gate — are absences rather than assertions,
+  // because there is no DOM here to count buttons in.
+  assert.equal(/\.filter\(|check\.ok\s*(\?|&&)/.test(code), false, "the tray must disable a command it cannot run, not hide it");
+  const shell = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  for (const [, token] of code.matchAll(/className="([a-z][a-z0-9_ -]*)"/g)) {
+    for (const name of token!.split(" ").filter(Boolean)) {
+      assert.ok(selector(name).test(primitives) || selector(name).test(shell), `CommandTray asks for .${name}, which has no rule`);
+    }
+  }
+});
+
+test("each world event has exactly one wording, one glyph and one chip", () => {
+  // The mirror of "each state has exactly one wording and one glyph", for the
+  // snapshot's enums rather than the design system's. TypeScript already refuses a
+  // missing key — all three maps are `Record<WorldEventType, …>` — so what is left
+  // to catch is the pair that renders identically: two events sharing a wording, or
+  // a label that is still the protocol key. `mob_migration` was on screen for two
+  // phases, and the drawer and the activity feed both read these maps, so a second
+  // spelling would put two names on one event.
+  const kinds = Object.keys(worldEventLabels) as Array<keyof typeof worldEventLabels>;
+  const sorted = kinds.slice().sort();
+  assert.ok(kinds.length > 0, "no world events are named at all");
+  assert.deepEqual(Object.keys(worldEventIcons).sort(), sorted, "the icon map covers a different set of events");
+  assert.deepEqual(Object.keys(worldEventStates).sort(), sorted, "the chip map covers a different set of events");
+  const labels = kinds.map((kind) => worldEventLabels[kind]);
+  assert.equal(new Set(labels).size, labels.length, "two world events share a wording");
+  for (const kind of kinds) {
+    assert.ok(worldEventLabels[kind].length > 0, `${kind} has an empty wording`);
+    assert.ok(iconNames.includes(worldEventIcons[kind]), `${kind} maps to an unknown icon`);
+    assert.ok(uiStates.includes(worldEventStates[kind]), `${kind} maps to an unknown state`);
+    assert.equal(/^[a-z][a-z_]*$/.test(worldEventLabels[kind]), false, `${kind} is still labelled with its protocol key`);
+  }
+  // The other two enums a player used to read raw, held to the same two rules.
+  for (const [enumName, map] of [["treaty type", treatyLabels], ["alliance role", allianceRoleLabels]] as const) {
+    const words = Object.values(map);
+    assert.equal(new Set(words).size, words.length, `two ${enumName} values share a wording`);
+    for (const word of words) {
+      assert.ok(word.length > 0, `a ${enumName} wording is empty`);
+      assert.equal(/^[a-z][a-z_]*$/.test(word), false, `a ${enumName} label is still a protocol key`);
+    }
+  }
+  // And the drawer has to reach the player *through* those maps. `{event.eventType}`
+  // in JSX is exactly how the raw key got on screen, so the shape is banned rather
+  // than the symptom described: every read of one of these fields is an index.
+  const drawer = panelSource("AdvancedDrawer.tsx");
+  for (const field of ["eventType", "treatyType", "role"]) {
+    assert.equal(new RegExp(`\\{\\s*\\w+\\.${field}\\s*\\}`).test(drawer), false,
+      `AdvancedDrawer renders a raw ${field} instead of its wording`);
+  }
+  for (const map of ["worldEventLabels", "worldEventIcons", "worldEventStates", "treatyLabels", "allianceRoleLabels"]) {
+    assert.match(drawer, new RegExp(`${map}\\[`), `the drawer does not use ${map}`);
+  }
+});
+
+test("a control that issues an order shows the state of that order beside it", () => {
+  // The pending strip at the bottom of the column is a summary, not a status: at
+  // 288px it is below the fold, and in the compact band the whole column is
+  // closed. So each control that can issue an order carries its own chip.
+  for (const name of ["CityPanel.tsx", "ArmyPanel.tsx", "LogisticsPanel.tsx", "OnboardingPanel.tsx"]) {
+    assert.match(panelSource(name), /<PendingChip\b/, `${name} issues orders with no visible status`);
+  }
+  const chip = panelSource("PendingChip.tsx");
+  assert.match(chip, /pendingFor\(/, "the chip must match one command, not any command of that kind");
+  assert.match(chip, /state="pending"/);
+  assert.match(chip, /state="uncertain"/);
+});
+
+test("every gated button carries the reason it is gated", () => {
+  // `disabled` without `reason` is the failure this whole pass exists to remove:
+  // a dead control with no sentence beside it, which a player reads as a broken
+  // game rather than as a rule they have not met yet. A disabled button is also
+  // out of the tab order, so the reason has to be text, not a tooltip.
+  const offenders: string[] = [];
+  let scanned = 0;
+  for (const file of sourceFiles(sourceRoot)) {
+    for (const tag of openingTags(stripSource(readFileSync(file, "utf8")), "Button")) {
+      scanned += 1;
+      if (/\bdisabled=/.test(tag) && !/\breason=/.test(tag)) offenders.push(`${relative(file)}: ${tag.replace(/\s+/g, " ").slice(0, 72)}`);
+    }
+  }
+  assert.deepEqual(offenders, []);
+  // A brace-aware scan that silently matched nothing would pass this test for the
+  // wrong reason, so the count is asserted too.
+  assert.ok(scanned > 20, `expected to read the column's buttons, read ${scanned}`);
+});
+
+// The chrome: the surfaces that are not a panel and were therefore the last to be
+// looked at — the login card, the top bar, the toast stack, the map's toolbar and
+// the frozen state. Each assertion below is one defect, not a style preference.
+
+test("nothing but the primitive writes a control", () => {
+  // The end of the line the primitives started: with the toolbar and the tray
+  // migrated there is no raw `<button>` left in the client, so the bare-element
+  // rules that used to ring them (`.map-toolbar button:focus-visible`) could go —
+  // and must not be needed again. A raw `<button>` is not a cosmetic slip: it
+  // misses the focus ring, the disabled treatment and the `reason` gate at once.
+  const files = sourceFiles(sourceRoot).filter((file) => relative(file) !== "ui/Button.tsx");
+  const offenders = files.filter((file) => /<button\b/.test(stripSource(readFileSync(file, "utf8")))).map(relative);
+  assert.deepEqual(offenders, [], "render <Button> instead of a raw <button>");
+  // And the login card's inputs are named by a `<label>`, not only by a
+  // placeholder — text that vanishes exactly when the player wants to check what
+  // they typed. The placeholders stay, so `getByPlaceholder` keeps working.
+  const auth = stripSource(readFileSync(new URL("../src/components/AuthScreen.tsx", import.meta.url), "utf8"));
+  const labels = [...auth.matchAll(/className="login-field"/g)].length;
+  assert.ok(labels >= 4, `expected a labelled field per input, found ${labels}`);
+  for (const placeholder of ["Tên đăng nhập", "Mật khẩu", "Tên người chơi"]) {
+    assert.ok(auth.includes(`placeholder="${placeholder}"`), `the "${placeholder}" placeholder is what three specs type into`);
+  }
+});
+
+test("the page has one h1, and the header's numbers are not punctuation", () => {
+  const header = stripSource(readFileSync(new URL("../src/components/StrategicHeader.tsx", import.meta.url), "utf8"));
+  // `AuthScreen`'s h1 unmounts at login, so before this the game screen had no h1
+  // at all and heading navigation started inside a panel. The player's own kingdom
+  // is what the document is about.
+  assert.match(header, /<h1>/, "the strategic header must carry the page's h1");
+  assert.equal(/<h1>/.test(stripSource(readFileSync(new URL("../src/components/KingdomColumn.tsx", import.meta.url), "utf8"))), false,
+    "two h1s on one screen is not an outline");
+  // The three scores were `⚔ ◈ ✦`: glyphs with no accessible name, announced as
+  // the punctuation they are. `title` on an `Icon` is what turns it from decoration
+  // into a named image, so the scan is for the glyphs *and* for the title.
+  for (const glyph of ["⚔", "◈", "✦"]) {
+    assert.equal(header.includes(glyph), false, `the header still labels a score with ${glyph}`);
+  }
+  assert.equal([...header.matchAll(/title=\{entry\.label\}/g)].length, 1, "a score icon must be named for a screen reader");
+});
+
+test("a toast can be dismissed, and blocks nothing while it is up", () => {
+  const app = stripSource(readFileSync(new URL("../src/App.tsx", import.meta.url), "utf8"));
+  const shell = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  // The old dismiss was `onClick` on the toast `<div>` — unreachable by mouse,
+  // because the sheet says `pointer-events: none`, and never in the tab order,
+  // because a `<div>` is not a control. It was dead code in both directions.
+  assert.match(app, /<Button\b/, "a notice must be dismissable by a real control");
+  assert.match(app, /aria-label="Đóng thông báo"/);
+  assert.match(app, /role="status"/);
+  assert.match(app, /aria-live="polite"/);
+  // And by keyboard, which the button alone does not give: a toast lives four
+  // seconds, and tabbing to it from wherever focus is takes longer than that on the
+  // game screen. The listener is hung only while a notice is up, and stands down for
+  // an Escape a dialog already answered — `ui/Modal.tsx` calls `preventDefault()`.
+  assert.match(app, /event\.key !== "Escape" \|\| event\.defaultPrevented/,
+    "Escape must clear notices, and must not fight the dialog's own Escape");
+  assert.match(app, /if \(notices\.length === 0\) return;/, "an idle page must carry no keydown listener");
+  assert.match(app, /return \(\) => document\.removeEventListener\("keydown"/);
+  // The pointer-events split is the law, and it is split across two files: the body
+  // stays transparent to clicks so a notice about a command cannot block the
+  // control that issues the next one, and the button takes them back.
+  assert.match(shell, /\.toast-layer[^{]*\{[^}]*pointer-events:\s*none/, "the toast layer must let clicks through");
+  assert.match(shell, /\.toast\s*\{[^}]*pointer-events:\s*none/, "the toast body must let clicks through");
+  assert.match(shell, /\.toast__close(?![\w-])[^{]*\{[^}]*pointer-events:\s*auto/, "the dismiss button must be clickable");
+  // A layer, not a corner: every toast used to be `position: fixed` at the same
+  // spot, so the second notice landed on the first and the first was never read.
+  assert.equal(/\.toast\s*\{[^}]*position:\s*fixed/.test(shell), false, "a toast that fixes itself cannot stack");
+});
+
+test("a frozen city disables its controls instead of fading them", () => {
+  const column = stripSource(readFileSync(new URL("../src/components/KingdomColumn.tsx", import.meta.url), "utf8"));
+  const shell = readFileSync(new URL("../src/styles.css", import.meta.url), "utf8");
+  // `pointer-events: none` plus `opacity: .5` disabled the mouse and nothing else:
+  // every button stayed in the tab order and still fired on Enter, and the faded
+  // text dropped under 3:1. `disabled` on a fieldset is the one thing in the
+  // platform that disables every control inside it.
+  assert.match(column, /<fieldset className="kingdom-column__panels" disabled=\{frozen\}>/,
+    "the frozen column must disable its controls, not fade them");
+  assert.equal(/hud-frozen/.test(column), false, "the faded frozen class is back");
+  assert.match(column, /<StatusChip state="frozen"/, "a disabled column must say why it is disabled");
+  // `data-frozen` is what `production-loop.spec.ts` reads, so the fieldset is an
+  // addition to the aside's contract and not a replacement for it.
+  assert.match(column, /data-frozen=/);
+  // A fieldset's `min-inline-size: min-content` would stop the column shrinking to
+  // its 320px flyout width, which is the one thing that makes this swap risky.
+  assert.match(shell, /\.kingdom-column__panels\s*\{[^}]*min-width:\s*0/, "the panel fieldset must be allowed to shrink");
+  assert.match(shell, /\.kingdom-column__panels\s*>\s*\*[^{]*\{[^}]*scroll-margin-top/,
+    "a jump chip must still clear the sticky head now the panels are nested");
+});
+

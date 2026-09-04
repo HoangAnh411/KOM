@@ -30,7 +30,7 @@ test("alliance leader vote reaches a passed state", async ({ page, request }, te
 test("mob migration is rendered with spawned NPC armies", async ({ page }, testInfo) => {
   await login(page, `NPC E2E ${testInfo.project.name} ${Date.now()}`);
   await page.getByTestId("advanced-drawer-toggle").click();
-  const event = page.getByTestId("world-event").filter({ hasText: "mob_migration" }).first(); await expect(event).toBeVisible({ timeout: 10_000 });
+  const event = page.getByTestId("world-event").filter({ hasText: "Loạn quân di cư" }).first(); await expect(event).toBeVisible({ timeout: 10_000 });
   // The shared e2e world grows player armies that can kill wandering mobs, so only the
   // mob-count row itself is asserted here; deterministic spawn counts live in unit tests.
   await expect(event).toContainText(/bọn xâm lược/);

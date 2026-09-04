@@ -17,11 +17,20 @@ test("recruit, attack mob, battle report and cancel pursuit", async ({ page, req
   const barracksResponse = page.waitForResponse(response => response.url().endsWith("/api/commands/build"));
   await page.getByRole("button", { name: "Xây trại lính" }).click();
   expect((await barracksResponse).ok()).toBeTruthy();
-  await expect(page.getByText("Build queues: 0/2")).toBeVisible({ timeout: 25000 });
+  await expect(page.getByText("Hàng đợi xây: 0/2")).toBeVisible({ timeout: 25000 });
 
   // --- Recruit 10 cavalry (cheapest affordable unit) ---
-  await page.getByRole("button", { name: "Tuyển quân mới" }).click();
+  const recruitButton = page.getByRole("button", { name: "Tuyển quân mới" });
+  await recruitButton.click();
   const recruitModal = page.getByRole("dialog", { name: "Tuyển quân" });
+  await expect(recruitModal).toBeVisible();
+  // The four behaviours of a dialog, on one that shipped with none of them: focus
+  // moves in, Escape cancels, and focus goes back to the button that opened it.
+  await expect.poll(async () => await recruitModal.evaluate(card => card.contains(document.activeElement))).toBe(true);
+  await page.keyboard.press("Escape");
+  await expect(recruitModal).toBeHidden();
+  await expect(recruitButton).toBeFocused();
+  await recruitButton.click();
   await expect(recruitModal).toBeVisible();
   await recruitModal.getByRole("radio", { name: /^Kỵ binh/ }).check();
   const recruitResponse = page.waitForResponse(response => response.url().endsWith("/api/commands/recruit"));
@@ -37,8 +46,14 @@ test("recruit, attack mob, battle report and cancel pursuit", async ({ page, req
   const prepared = await request.post(`${api}/api/dev/battle-target`, { headers: { authorization: `Bearer ${session.token}` } });
   expect(prepared.ok()).toBeTruthy();
   const targetArmyId = ((await prepared.json()) as { targetArmyId: string }).targetArmyId;
-  await armyRow.getByRole("button", { name: "Tấn công" }).click();
+  const attackButton = armyRow.getByRole("button", { name: "Tấn công" });
+  await attackButton.click();
   const attackModal = page.getByRole("dialog", { name: "Tấn công" });
+  await expect(attackModal).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(attackModal).toBeHidden();
+  await expect(attackButton).toBeFocused();
+  await attackButton.click();
   const targetSelect = attackModal.getByLabel("Mục tiêu tấn công");
   await expect.poll(async () => await targetSelect.locator("option").count(), { timeout: 15000 }).toBeGreaterThan(1);
   await targetSelect.selectOption(targetArmyId);
@@ -50,6 +65,10 @@ test("recruit, attack mob, battle report and cancel pursuit", async ({ page, req
   // --- The mob fights back: a battle report modal should arrive via WebSocket ---
   const reportModal = page.getByRole("dialog", { name: "Báo cáo trận đánh" });
   await expect(reportModal).toBeVisible({ timeout: 25000 });
+  // Escape is not asserted here: reports queue, so a second battle can put another
+  // one on screen and "gone after Escape" would be a race, not a rule. The trap
+  // engaging is what this modal never had.
+  await expect.poll(async () => await reportModal.evaluate(card => card.contains(document.activeElement))).toBe(true);
   await reportModal.getByRole("button", { name: "Đóng" }).click();
 
   // --- Battle resolved: any surviving army is idling again, dead armies are gone ---
