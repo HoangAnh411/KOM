@@ -221,6 +221,29 @@ test("a province seat is not empty ground, and says what standing there is worth
   assert.match(group.hint ?? "", new RegExp(String(gameRules.territory.captureRadius)), "the hint must state the capture rule");
 });
 
+test("a seat that is also a mine is still a seat, and keeps the harvest route", () => {
+  // The case that shipped broken, and the only case that occurs: all sixteen seats are
+  // anchors — twelve mines and the four markets — so a tray that asked about the mine
+  // first called the tile a province is won on "Điểm khai thác" for twelve provinces.
+  const seat = regions[0]!;
+  const onSeat = node({ id: "node-seat", x: seat.seatX, y: seat.seatY });
+  const snapshot = world({ logistics: { ...world().logistics, resourceNodes: [onSeat, node()] } });
+  const group = only({ kind: "tile", x: seat.seatX, y: seat.seatY }, snapshot);
+  assert.match(group.title, new RegExp(seat.name), "the rarer fact takes the title: sixteen seats against thirty-six anchors");
+  assert.deepEqual(
+    group.commands.map(command => command.intent),
+    [{ kind: "panel", anchor: "army" }, { kind: "panel", anchor: "logistics" }],
+    "both routes: the army that takes the province, and the panel that harvests the mine",
+  );
+  // Nothing about the mine is lost — the half that identifies things still names it and
+  // says what is left, which is why the title could be spent on the seat.
+  const subject = traySubject({ kind: "tile", x: seat.seatX, y: seat.seatY }, snapshot, ME);
+  assert.equal(subject.title, `Mỏ ${resourceLabels.wood}`);
+  assert.match(subject.detail, /400\/800/);
+  // And a mine that is not a seat is unchanged.
+  assert.equal(only({ kind: "tile", x: 3, y: 4 }, snapshot).title, "Điểm khai thác");
+});
+
 test("the left half of a tile names its province and who holds it", () => {
   const seat = regions[0]!;
   const tile: MapSelection = { kind: "tile", x: seat.seatX, y: seat.seatY };

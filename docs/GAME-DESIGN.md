@@ -137,6 +137,35 @@ chỗ chết. Giờ hàng được tạo ở lần đầu **giữ đất**, khô
 upsert mỗi lần lưu cho những người không làm gì. Bảng `regions` và cột `map_tiles.region_id` vẫn là
 di tích — không dòng nào ghi vào chúng; id tỉnh mà luật đọc nằm ở `resource_nodes.region_id`.
 
+### Người chơi thấy lãnh thổ ở đâu
+
+Chiếm vùng mà không thấy được thì là một bảng điểm bí ẩn: điểm quân sự nhảy 76 và không có gì trên
+màn hình nói vì sao. Nên quyền kiểm soát xuất hiện ở **ba** bề mặt đã có, không thêm panel nào.
+
+Trên dây chỉ đi **mã tỉnh → id người giữ**, và chỉ những tỉnh có chủ (`regionControl`, vắng mã =
+không ai giữ, đầu mùa là `{}`). Tên tỉnh, toạ độ seat và số ô là dữ liệu authored mà client đã
+import từ `world-map.ts`, nên đẩy chúng lên dây mỗi tick là lặp lại đúng khuyết điểm của `terrainMap`
+(6 323 byte đứng yên, gửi cho mọi người xem, mỗi giây). Đo: hình đầy đủ 16 hàng tốn 1 493 byte mỗi
+tick; hình đã chọn tốn **18 byte** khi chưa ai giữ gì và **705 byte** ở trần lý thuyết, cả mười sáu
+tỉnh có chủ.
+
+- **Bản đồ** vẽ mười sáu ô lỵ sở thành một **viền** hình thoi cộng tên tỉnh, nằm dưới lớp thương
+  cảng và mỏ. Viền chứ không tô kín: địa hình dưới seat cũng là thông tin (đồi có lợi cho bên phòng
+  thủ), tô kín là xoá một nửa lý do người chơi nhìn vào đấy. Ba màu đúng theo quy ước sẵn có của
+  renderer — của mình, của người khác, chưa ai giữ. **Tên** tỉnh chỉ hiện từ zoom 1.0 trở lên; ở sàn
+  zoom 0.4 (cả thế giới trong một viewport 900px) mười sáu cái tên nằm cách nhau chừng hai mươi pixel
+  và đè lên chính quân với thành mà chúng phải ở phía sau. Marker thì **không bao giờ tắt**, nên
+  không tỉnh nào biến mất — chỉ chữ tắt.
+- **Cột hoạt động** có hai loại hàng, `region-captured` / `region-lost`, và hàng nói **tên tỉnh cùng
+  số ô** vì số ô là thứ quy ra điểm. Feed chỉ kể tỉnh **của người xem**, giống mọi hàng khác trong
+  cột đó: trong một vương quốc 122 người, người lạ đổi chác vùng cho nhau sẽ chôn mất những hàng
+  người chơi làm được gì đó với. Bản đồ vẫn vẽ của tất cả — đó là chỗ để nhìn cả thế giới.
+- **Tray** đặt ô lỵ sở **trước** mỏ khi một ô là cả hai, và cả mười sáu seat đều là anchor (mười hai
+  mỏ, bốn thương cảng), nên đó là *mọi* seat. Ưu tiên theo cái hiếm hơn: mười sáu seat so với ba mươi
+  sáu anchor, và một seat là ô quyết định cả tỉnh. Mỏ không mất gì — nửa trái vẫn gọi tên nó và in
+  còn bao nhiêu, còn đường vào bảng Vận tải vẫn là một nút ngay đó. Nửa trái của **mọi** ô trong tỉnh
+  nói tỉnh nào và ai giữ; chưa ai giữ thì nói *"chưa ai giữ"* thay vì im lặng.
+
 ## Faction identity
 
 - Meridian League: thương mại, capacity và throughput.

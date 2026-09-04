@@ -217,6 +217,30 @@ function cityGroup(snapshot: WorldSnapshot, cityId: string, playerId: string): T
 
 function tileGroup(snapshot: WorldSnapshot, x: number, y: number): TrayGroup {
   const node = nodeAt(snapshot, x, y);
+  // A seat is the one tile in eighty that decides who scores the province, so it
+  // gets its own group rather than reading as empty ground. The left half already
+  // names the province and its holder; what the tray adds is the rule — the seat
+  // is held by standing an army on or beside it — and the panel that owns the
+  // army you would send.
+  //
+  // Tested before the mine, and that order is the whole of it: every one of the
+  // sixteen seats is also an anchor — twelve mines and the four markets — so asking
+  // about the mine first made this branch dead code for twelve provinces, and the
+  // tray answered "Điểm khai thác" for the tile a province is won on. Nothing about
+  // the mine is lost by yielding the title: the left half names it and prints what
+  // is left in it, and the harvest route stays here as its own button.
+  const seat = seatAt(x, y);
+  if (seat) {
+    return {
+      id: `seat-${seat.code}`,
+      title: `Ô lỵ sở ${seat.name}`,
+      icon: "banner",
+      hint: `Đóng quân trong ${gameRules.territory.captureRadius} ô quanh đây để giữ cả vùng.`,
+      commands: node
+        ? [panelCommand("army", "Mở bảng Quân đội"), panelCommand("logistics", "Mở bảng Vận tải")]
+        : [panelCommand("army", "Mở bảng Quân đội")],
+    };
+  }
   if (node) {
     return {
       id: `node-${node.id}`,
@@ -228,21 +252,6 @@ function tileGroup(snapshot: WorldSnapshot, x: number, y: number): TrayGroup {
       // that the order for a mine is a logistics one.
       hint: "Lệnh khai thác nằm ở bảng Vận tải.",
       commands: [panelCommand("logistics", "Mở bảng Vận tải")],
-    };
-  }
-  // A seat is the one tile in eighty that decides who scores the province, so it
-  // gets its own group rather than reading as empty ground. The left half already
-  // names the province and its holder; what the tray adds is the rule — the seat
-  // is held by standing an army on or beside it — and the panel that owns the
-  // army you would send.
-  const seat = seatAt(x, y);
-  if (seat) {
-    return {
-      id: `seat-${seat.code}`,
-      title: `Ô lỵ sở ${seat.name}`,
-      icon: "banner",
-      hint: `Đóng quân trong ${gameRules.territory.captureRadius} ô quanh đây để giữ cả vùng.`,
-      commands: [panelCommand("army", "Mở bảng Quân đội")],
     };
   }
   return {
