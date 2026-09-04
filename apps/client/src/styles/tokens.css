@@ -1,0 +1,282 @@
+/* Kingdoms of Meridian — design tokens.
+ *
+ * Two layers, and the split is load-bearing:
+ *
+ *   1. PALETTE — the only place in the client where a colour literal may appear.
+ *   2. SEMANTIC — everything else, defined purely as var() references.
+ *
+ * `ui-primitives.test.ts` fails if a colour literal appears after the PALETTE
+ * END marker. That is what stops one hex from drifting into three different
+ * names, which is how design systems rot.
+ *
+ * Map colours are deliberately absent. The Pixi renderer hands numeric literals
+ * (0x21423f) straight to the GPU and cannot read CSS variables, so terrain and
+ * entity colours stay in `map.ts`. UI and map palettes are separate by
+ * construction here, not by convention.
+ */
+:root {
+  /* ── PALETTE BEGIN ──────────────────────────────────────────────────────
+   * Every value below is taken from the shipped UI, so adopting a token is a
+   * rename and never a repaint. Only the violet steps are new: espionage had
+   * exactly one colour before and needed a full ramp. */
+
+  /* Ink — the charcoal command tent everything sits in. */
+  --kom-ink-900: #0d1b2e;
+  --kom-ink-850: #0e1b2d;
+  --kom-ink-800: #102238;
+  --kom-ink-700: #1b3854;
+  /* The context column is ink-900 at 96%: the map has to stay faintly visible
+   * behind it, which is the one place a surface is deliberately translucent. */
+  --kom-ink-900-veil: rgba(13, 27, 46, .96);
+
+  /* Mist — cool blue-white, the existing reading text. */
+  --kom-mist-50: #f4f7fb;
+  --kom-mist-200: #cfe0f0;
+  --kom-mist-300: #c6d3df;
+  --kom-mist-400: #9fb8d1;
+
+  /* Parchment — warm accent text for titles and brass surfaces. */
+  --kom-parchment-100: #f2e6cd;
+  --kom-parchment-300: #d9c9a8;
+  --kom-parchment-500: #a89372;
+
+  /* Slate — neutral, NPC, borders, and informational notices. */
+  --kom-slate-100: #dcefff;
+  --kom-slate-300: #a9bfd5;
+  --kom-slate-400: #8fb0d0;
+  --kom-slate-500: #45617d;
+  --kom-slate-600: #3d7fa8;
+  --kom-slate-800: #1b4a6b;
+
+  /* Brass — primary, and the player's own holdings. */
+  --kom-brass-200: #ffe9a3;
+  --kom-brass-400: #f0d15a;
+  --kom-brass-500: #d8963f;
+  --kom-brass-800: #8a6d3b;
+  --kom-brass-ink: #092034;
+  --kom-brass-tint: rgba(240, 209, 90, .14);
+
+  /* Teal — allied, and success. */
+  --kom-teal-200: #9be3b8;
+  --kom-teal-400: #4caf7d;
+  --kom-teal-600: #7fa28f;
+  --kom-teal-800: #1e5631;
+  --kom-teal-tint: rgba(76, 175, 125, .18);
+
+  /* Amber — warning. */
+  --kom-amber-200: #ffd7a1;
+  --kom-amber-400: #ffb03a;
+  --kom-amber-tint: rgba(255, 176, 58, .15);
+
+  /* Ember — deeper orange, reserved for conditions that stop play entirely
+   * (a protocol mismatch) so they never read as an ordinary warning. */
+  --kom-ember-200: #ffe0c2;
+  --kom-ember-300: #ff9d66;
+  --kom-ember-400: #ff8f5c;
+  --kom-ember-900: rgba(92, 40, 8, .94);
+
+  /* Crimson — hostile, rejected, frozen. */
+  --kom-crimson-100: #ffe3dd;
+  --kom-crimson-200: #ffd2d2;
+  --kom-crimson-250: #ffb3a7;
+  --kom-crimson-350: #ff7676;
+  --kom-crimson-400: #ff5c57;
+  --kom-crimson-600: #b03a3a;
+  --kom-crimson-800: #6b292b;
+  --kom-crimson-900: rgba(116, 24, 35, .92);
+  --kom-crimson-900-soft: rgba(116, 24, 35, .55);
+  --kom-crimson-tint: rgba(255, 92, 87, .16);
+
+  /* Violet — espionage. */
+  --kom-violet-200: #e2c4ff;
+  --kom-violet-400: #c26cff;
+  --kom-violet-900: rgba(56, 26, 82, .92);
+  --kom-violet-tint: rgba(194, 108, 255, .14);
+
+  /* Verdant — the gold-rush world event only. Kept as a palette entry rather
+   * than a loose literal; it is brighter than the rest of the system on
+   * purpose and is not for UI chrome. */
+  --kom-verdant-400: #7dff72;
+
+  /* Neutral washes. Layering over ink is what gives panels depth without
+   * gradients, so these carry real weight in the visual language. */
+  --kom-wash-light-05: rgba(255, 255, 255, .05);
+  --kom-wash-light-06: rgba(255, 255, 255, .06);
+  --kom-wash-light-08: rgba(255, 255, 255, .08);
+  --kom-wash-light-12: rgba(255, 255, 255, .12);
+  --kom-wash-dark-20: rgba(0, 0, 0, .2);
+  --kom-wash-dark-25: rgba(0, 0, 0, .25);
+  --kom-wash-dark-40: rgba(0, 0, 0, .4);
+  --kom-wash-scrim: rgba(2, 8, 16, .66);
+
+  /* ── PALETTE END ─────────────────────────────────────────────────────── */
+
+  /* Surfaces. Four opaque steps only: the app floor, the chrome around it, a
+   * panel, and something raised on top of a panel. More steps than that and
+   * panels stop reading as a hierarchy. The rail and the context column are the
+   * shell's two darker floors, and the three washes are lifts applied *over*
+   * whatever they sit on rather than surfaces of their own. */
+  --kom-bg-app: var(--kom-ink-850);
+  --kom-bg-chrome: var(--kom-ink-800);
+  --kom-bg-rail: var(--kom-ink-900);
+  --kom-bg-context: var(--kom-ink-900-veil);
+  --kom-surface: var(--kom-wash-dark-20);
+  --kom-surface-sunken: var(--kom-wash-dark-25);
+  --kom-surface-raised: var(--kom-ink-700);
+  --kom-surface-wash: var(--kom-wash-light-05);
+  --kom-surface-hover: var(--kom-wash-light-06);
+  --kom-surface-chip: var(--kom-wash-light-12);
+
+  /* Borders. `subtle` divides content inside a panel; `strong` separates one
+   * region of the shell from another. */
+  --kom-border-subtle: var(--kom-wash-light-08);
+  --kom-border-strong: var(--kom-slate-500);
+  --kom-border-accent: var(--kom-brass-800);
+
+  /* Text. */
+  --kom-text: var(--kom-mist-50);
+  --kom-text-heading: var(--kom-mist-200);
+  --kom-text-body: var(--kom-mist-300);
+  --kom-text-hint: var(--kom-mist-400);
+  --kom-text-muted: var(--kom-slate-300);
+  --kom-text-link: var(--kom-slate-400);
+  --kom-text-accent: var(--kom-parchment-100);
+  --kom-text-accent-dim: var(--kom-parchment-500);
+
+  /* Allegiance. These six are the game's vocabulary, not decoration: a player
+   * should be able to read allegiance off a chip without its label. */
+  --kom-primary: var(--kom-brass-400);
+  --kom-primary-soft: var(--kom-brass-200);
+  --kom-primary-deep: var(--kom-brass-500);
+  --kom-primary-tint: var(--kom-brass-tint);
+  --kom-on-primary: var(--kom-brass-ink);
+  --kom-allied: var(--kom-teal-400);
+  --kom-allied-soft: var(--kom-teal-200);
+  --kom-allied-muted: var(--kom-teal-600);
+  --kom-allied-deep: var(--kom-teal-800);
+  --kom-allied-tint: var(--kom-teal-tint);
+  --kom-hostile: var(--kom-crimson-400);
+  --kom-hostile-soft: var(--kom-crimson-250);
+  --kom-hostile-deep: var(--kom-crimson-600);
+  --kom-hostile-tint: var(--kom-crimson-tint);
+  --kom-on-hostile: var(--kom-crimson-100);
+  --kom-espionage: var(--kom-violet-400);
+  --kom-espionage-soft: var(--kom-violet-200);
+  --kom-espionage-tint: var(--kom-violet-tint);
+  --kom-neutral: var(--kom-slate-400);
+  --kom-neutral-soft: var(--kom-slate-300);
+  --kom-scrim: var(--kom-wash-scrim);
+
+  /* Informational notice — the one notice kind that is not a game state. Slate
+   * so it never competes with success, warning or hostile for attention. */
+  --kom-info-fill: var(--kom-slate-800);
+  --kom-info-border: var(--kom-slate-600);
+  --kom-info-text: var(--kom-slate-100);
+
+  /* Two world-event accents and one supply signal. Named after what they mean in
+   * the game rather than the hue, because nothing else in the UI may borrow
+   * them: verdant is brighter than the system allows anywhere else, and blight
+   * reuses the espionage violet on purpose — both are "something happened to
+   * the world", not "someone did this to you". */
+  --kom-event-boon: var(--kom-verdant-400);
+  --kom-event-blight: var(--kom-violet-400);
+  --kom-supply-low: var(--kom-ember-300);
+
+  /* Semantic UI states. Each one is a fill/border/text triple so a chip, a
+   * banner and a panel accent can all express the same state consistently.
+   *
+   * `pending` and `uncertain` are deliberately different hues: pending is the
+   * server still thinking, which needs no action, while uncertain means the
+   * command may or may not have landed and the player must decide to retry.
+   * Collapsing them into one colour is how players end up double-issuing
+   * orders. `protocol-blocked` gets ember rather than amber because it stops
+   * every command, unlike a warning. */
+  --kom-state-pending-fill: var(--kom-surface-wash);
+  --kom-state-pending-border: var(--kom-slate-500);
+  --kom-state-pending-text: var(--kom-slate-300);
+  --kom-state-uncertain-fill: var(--kom-amber-tint);
+  --kom-state-uncertain-border: var(--kom-amber-400);
+  --kom-state-uncertain-text: var(--kom-amber-200);
+  --kom-state-rejected-fill: var(--kom-crimson-800);
+  --kom-state-rejected-border: var(--kom-crimson-350);
+  --kom-state-rejected-text: var(--kom-crimson-250);
+  --kom-state-frozen-fill: var(--kom-crimson-900);
+  --kom-state-frozen-border: var(--kom-crimson-350);
+  --kom-state-frozen-text: var(--kom-crimson-200);
+  --kom-state-protocol-blocked-fill: var(--kom-ember-900);
+  --kom-state-protocol-blocked-border: var(--kom-ember-400);
+  --kom-state-protocol-blocked-text: var(--kom-ember-200);
+  --kom-state-success-fill: var(--kom-teal-tint);
+  --kom-state-success-border: var(--kom-teal-400);
+  --kom-state-success-text: var(--kom-teal-200);
+  --kom-state-warning-fill: var(--kom-amber-tint);
+  --kom-state-warning-border: var(--kom-brass-500);
+  --kom-state-warning-text: var(--kom-amber-200);
+  --kom-state-hostile-fill: var(--kom-crimson-900-soft);
+  --kom-state-hostile-border: var(--kom-crimson-400);
+  --kom-state-hostile-text: var(--kom-crimson-250);
+
+  /* Spacing. 4px base with the 2px and 6px half-steps the dense panels need. */
+  --kom-space-1: 2px;
+  --kom-space-2: 4px;
+  --kom-space-3: 6px;
+  --kom-space-4: 8px;
+  --kom-space-5: 12px;
+  --kom-space-6: 16px;
+  --kom-space-7: 24px;
+
+  --kom-radius-sm: 8px;
+  --kom-radius-md: 10px;
+  --kom-radius-lg: 12px;
+  --kom-radius-xl: 16px;
+  --kom-radius-pill: 999px;
+
+  /* Depth comes from layering and a hairline top highlight, not gradients:
+   * `--kom-edge-highlight` is the 1px of catch-light along a panel's top edge
+   * that reads as beaten metal without a single gradient stop. */
+  --kom-edge-highlight: inset 0 1px 0 var(--kom-wash-light-06);
+  --kom-shadow-panel: 0 2px 10px var(--kom-wash-dark-20);
+  --kom-shadow-raised: 0 10px 26px var(--kom-wash-dark-40);
+  --kom-shadow-modal: 0 14px 40px var(--kom-wash-dark-40);
+
+  /* Typography. Inter is declared first but is NOT bundled — it renders only
+   * where the player already has it, and system-ui carries everyone else.
+   * Every step in the stack has full Vietnamese coverage (Segoe UI, SF,
+   * Roboto), which is why no webfont is fetched. */
+  --kom-font-ui: Inter, system-ui, sans-serif;
+  --kom-text-2xs: .68rem;
+  --kom-text-xs: .72rem;
+  --kom-text-sm: .78rem;
+  --kom-text-md: .82rem;
+  --kom-text-base: .88rem;
+  --kom-text-lg: 1rem;
+  --kom-text-xl: 1.25rem;
+  --kom-text-2xl: 1.6rem;
+  --kom-weight-regular: 400;
+  --kom-weight-medium: 600;
+  --kom-weight-bold: 700;
+  /* Both leadings stay at or above 1.2: stacked Vietnamese diacritics (ế, ự,
+   * Ỹ) clip against the line box below that, and the test enforces it. */
+  --kom-leading-tight: 1.25;
+  --kom-leading-normal: 1.45;
+
+  /* Motion. A strategy UI should feel deliberate, not springy; nothing here is
+   * long enough to delay a click's feedback past the ~100ms perception floor. */
+  --kom-motion-fast: 90ms;
+  --kom-motion-base: 160ms;
+  --kom-motion-slow: 260ms;
+  --kom-ease-out: cubic-bezier(.2, .7, .3, 1);
+
+  /* Stacking. The shell used bare integers 2–8; naming them means the Situation
+   * Room can add a layer without auditing every z-index in the file. */
+  --kom-z-map-overlay: 2;
+  --kom-z-chrome: 3;
+  --kom-z-banner: 5;
+  --kom-z-alert: 6;
+  --kom-z-toast: 7;
+  --kom-z-modal: 8;
+
+  --kom-focus-ring: 0 0 0 2px var(--kom-ink-850), 0 0 0 4px var(--kom-primary);
+  --kom-icon-sm: 14px;
+  --kom-icon-md: 18px;
+}

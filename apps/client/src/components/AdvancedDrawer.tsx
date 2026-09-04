@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { SeasonArchive, Treaty } from "@kingdoms/shared";
 import * as api from "../api.js";
 import { useGame } from "../state.js";
+import { usePanelAnchor } from "../panel-anchors.js";
 import { EspionagePanel } from "./EspionagePanel.js";
 
 const countdown = (endsAt: string, now: number) => { const seconds = Math.max(0, Math.ceil((Date.parse(endsAt) - now) / 1000)); return `${Math.floor(seconds / 60)}m ${seconds % 60}s`; };
@@ -10,11 +11,11 @@ const countdown = (endsAt: string, now: number) => { const seconds = Math.max(0,
  * dialog with Escape-to-cancel, replacing the old native confirm(). */
 export function TreatyBreakModal({ treaty, partnerName, onConfirm, onClose }: { treaty: Treaty; partnerName: string; onConfirm: () => void; onClose: () => void }) {
   const card = useRef<HTMLDivElement>(null);
+  const cancelButton = useRef<HTMLButtonElement>(null);
   const focusedRef = useRef<HTMLElement | undefined>();
   useEffect(() => {
-    const first = card.current?.querySelector<HTMLElement>("button.close-focus-default");
     focusedRef.current = document.activeElement as HTMLElement;
-    first?.focus();
+    cancelButton.current?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") { event.preventDefault(); onClose(); return; }
       if (event.key !== "Tab" || !card.current) return;
@@ -33,7 +34,7 @@ export function TreatyBreakModal({ treaty, partnerName, onConfirm, onClose }: { 
       <p>Bạn đang xóa hiệp ước <strong>{treaty.treatyType}</strong> với <strong>{partnerName}</strong>.</p>
       <p className="reputation-cost">Trừ <strong>150 điểm danh tiếng</strong> — phá hiệp ước làm mất uy tín của bạn trong khu vực và các hiệp ước khác sẽ khó được chấp nhận hơn.</p>
       <div className="modal-actions">
-        <button autoFocus className="close-focus-default" onClick={onClose}>Hủy</button>
+        <button autoFocus ref={cancelButton} onClick={onClose}>Hủy</button>
         <button className="destructive" onClick={onConfirm}>Phá hiệp ước (−150 danh tiếng)</button>
       </div>
     </div>
@@ -55,7 +56,7 @@ function AlliancePanel() {
   const myRole = myAlliance?.members.find(member => member.playerId === session.player.id)?.role;
   const openVote = snapshot.allianceVotes?.find(vote => vote.allianceId === myAlliance?.id && vote.status === "open");
 
-  return <section className="alliance-panel">
+  return <section className="alliance-panel" aria-label="Liên minh">
     <h2>Liên minh</h2>
     {!myAlliance ? (
       <div className="alliance-create">
@@ -116,9 +117,9 @@ function EventsPanel() {
   const snapshot = state.snapshot!;
   const [now, setNow] = useState(Date.now());
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
-  return <section className="events-panel">
+  return <section className="events-panel" aria-label="Sự kiện thế giới">
     <h2>Sự kiện thế giới</h2>
-    {snapshot.worldEvents?.length ? snapshot.worldEvents.map(event => <div className={`event-row event-${event.eventType}`} key={event.id}>
+    {snapshot.worldEvents?.length ? snapshot.worldEvents.map(event => <div className={`event-row event-${event.eventType}`} data-testid="world-event" key={event.id}>
       <strong>{event.eventType}</strong>
       <span>Mức độ {event.severity}</span>
       <span>Còn {countdown(event.endsAt, now)}</span>
@@ -131,13 +132,13 @@ function ArchivePanel() {
   const { state, runCommand, addNotice } = useGame();
   const session = state.session!;
   const [archive, setArchive] = useState<SeasonArchive>();
-  return <section className="archive-panel">
+  return <section className="archive-panel" aria-label="Lịch sử mùa">
     <h2>Lịch sử mùa</h2>
     <button onClick={() => api.seasonHistory(session.token).then(setArchive).catch(error => addNotice(error instanceof Error ? error.message : "Không tải được lịch sử mùa."))}>Nạp lịch sử mùa</button>
     {archive && <div className="archive-content">
       {archive.profile.badge && <p><strong>{archive.profile.badge}</strong></p>}
       <p className="hint">{archive.profile.title ?? "Chưa có danh hiệu"} · Danh tiếng {archive.profile.crossSeasonReputation}{archive.profile.crown && " · 👑"}</p>
-      {archive.seasons.map((season, index) => <details key={season.seasonId} className="archive-season"><summary>Mùa {archive.seasons.length - index} · đóng {new Date(season.closedAt).toLocaleDateString()} · {season.rankings.length} người chơi</summary>{season.rankings.map(row => <div key={row.playerId}>#{row.rank} {row.displayName}: {row.overall}</div>)}</details>)}
+      {archive.seasons.map((season, index) => <details key={season.seasonId} className="archive-season" data-testid="archive-season"><summary>Mùa {archive.seasons.length - index} · đóng {new Date(season.closedAt).toLocaleDateString()} · {season.rankings.length} người chơi</summary>{season.rankings.map(row => <div key={row.playerId}>#{row.rank} {row.displayName}: {row.overall}</div>)}</details>)}
     </div>}
   </section>;
 }
@@ -154,12 +155,13 @@ function DiplomacyPanel() {
   const pendingTreaties = myTreaties.filter(t => t.status === "proposed" && t.targetPlayerId === session.player.id);
   const activeTreaties = myTreaties.filter(t => t.status === "active");
   const playerName = (playerId: string) => snapshot.cities.find(c => c.playerId === playerId)?.playerName ?? playerId;
+  const anchor = usePanelAnchor<HTMLElement>("diplomacy");
 
-  return <section className="diplomacy-panel">
+  return <section ref={anchor} className="diplomacy-panel" aria-label="Ngoại giao">
     <h2>Ngoại giao</h2>
     {pendingTreaties.length > 0 && <div className="treaty-pending">
       <h4>Lời đề nghị đang chờ</h4>
-      {pendingTreaties.map(t => <div className="treaty-row" key={t.id}>
+      {pendingTreaties.map(t => <div className="treaty-row" data-testid="treaty-proposal" key={t.id}>
         <span>{playerName(t.proposerPlayerId)} đề nghị {t.treatyType}</span>
         <button onClick={() => runCommand({ kind: "treaty_respond", label: "Chấp nhận hiệp ước", path: "/api/commands/treaty/respond", body: { treatyId: t.id, accept: true } }).catch(() => undefined)}>Chấp nhận</button>
         <button onClick={() => runCommand({ kind: "treaty_respond", label: "Từ chối hiệp ước", path: "/api/commands/treaty/respond", body: { treatyId: t.id, accept: false } }).catch(() => undefined)}>Từ chối</button>
@@ -169,7 +171,7 @@ function DiplomacyPanel() {
       <h4>Hiệp ước đang có hiệu lực</h4>
       {activeTreaties.map(t => {
         const partnerId = t.proposerPlayerId === session.player.id ? t.targetPlayerId : t.proposerPlayerId;
-        return <div className="treaty-row" key={t.id}>
+        return <div className="treaty-row" data-testid="treaty-active" key={t.id}>
           <span>{t.treatyType} với {playerName(partnerId)}</span>
           <button className="destructive" onClick={() => setBreaking(t)}>Phá hiệp ước</button>
         </div>;

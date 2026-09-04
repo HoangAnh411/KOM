@@ -1,13 +1,11 @@
-import { Application, Container, Graphics, Text } from "pixi.js";
+import { Application, Container, Graphics, RenderTexture, Sprite } from "pixi.js";
 import type { WorldSnapshot } from "@kingdoms/shared";
 import type { InteractionMode } from "./state.js";
-
-const tileWidth = 56;
-const tileHeight = 28;
-const minZoom = 0.6;
-const maxZoom = 1.8;
-const mapExtent = 20;
-function point(x: number, y: number, originX: number, originY: number): [number, number] { return [originX + (x - y) * tileWidth / 2, originY + (x + y) * tileHeight / 2]; }
+import {
+  armyGeometrySig, cityGeometrySig, eventSig, isoDepth, mapExtent, maxZoom, minZoom,
+  originAt, overlayGeometrySig, pickAt, terrainBounds, terrainSig, tileHeight, tileWidth, worldPoint,
+} from "./map-geometry.js";
+import { createLabel, type MapLabel } from "./map-labels.js";
 
 export type MapSelection = { kind: "army" | "city"; id: string } | { kind: "tile"; x: number; y: number };
 export type WorldMap = {
@@ -17,25 +15,75 @@ export type WorldMap = {
   destroy: () => void;
 };
 
-// Entity layers hold a Map<entityId, DisplayObject> and patch by id — snapshots
-// never tear down a whole layer, only terrain/events (rarely changing) rebuild.
+// Scene graph:
+//
+//   stage
+//   └── camera        pan + zoom
+//       └── world     screen origin of grid (0,0)
+//           ├── terrainSprite   one RenderTexture-backed Sprite (was 400 Graphics)
+//           ├── eventLayer      one Graphics per rebuild
+//           ├── resource/hub/city/caravan/army layers   depth-sorted containers
+//           └── overlayLayer    selection rings + order lines
+//
+// All geometry is drawn in WORLD space, so entity movement is a container
+// transform and the screen origin is a single `world.position` write. That is
+// what keeps terrain and entities aligned when the viewport resizes: nothing is
+// re-baked, the whole world moves together.
 export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, ownPlayerId: string, onSelect: (selection: MapSelection | undefined) => void): WorldMap {
   const app = new Application({ resizeTo: container, backgroundColor: 0x0e1b2d, antialias: true });
   const canvas = app.view as HTMLCanvasElement;
   container.appendChild(canvas);
-  const terrainLayer = new Container(); app.stage.addChild(terrainLayer);
-  const eventLayer = new Container(); app.stage.addChild(eventLayer);
-  const resourceLayer = new Container(); app.stage.addChild(resourceLayer);
-  const hubLayer = new Container(); app.stage.addChild(hubLayer);
-  const cityLayer = new Container(); app.stage.addChild(cityLayer);
-  const caravanLayer = new Container(); app.stage.addChild(caravanLayer);
-  const armyLayer = new Container(); app.stage.addChild(armyLayer);
-  const overlayLayer = new Container(); app.stage.addChild(overlayLayer);
-  const originAt = () => ({ x: Math.max(container.clientWidth / 2, 360), y: 50 });
+
+  const camera = new Container();
+  const world = new Container();
+  app.stage.addChild(camera);
+  camera.addChild(world);
+  const eventLayer = new Container();
+  const resourceLayer = new Container();
+  const hubLayer = new Container();
+  const cityLayer = new Container();
+  const caravanLayer = new Container();
+  const armyLayer = new Container();
+  const overlayLayer = new Container();
+  // Layer order is unchanged from before the refactor; `sortableChildren` adds
+  // isometric depth *within* a layer, so a southern army no longer draws behind
+  // a northern one, but armies still never sink below cities.
+  for (const layer of [eventLayer, resourceLayer, hubLayer, cityLayer, caravanLayer, armyLayer, overlayLayer]) world.addChild(layer);
+  for (const layer of [resourceLayer, hubLayer, cityLayer, caravanLayer, armyLayer]) layer.sortableChildren = true;
+
   let latestState = snapshot;
   let selection: MapSelection | undefined;
   let interactionMode: InteractionMode = { kind: "idle" };
 
+  // --- Viewport cache -------------------------------------------------------
+  // `originAt()` used to be called from inside every draw function, so a single
+  // snapshot forced dozens of `clientWidth` reads and with them dozens of
+  // synchronous layout flushes. The viewport is now read only when it actually
+  // changes, and the origin is applied as one transform.
+  let viewportWidth = container.clientWidth;
+  let viewportHeight = container.clientHeight;
+  let origin = originAt(viewportWidth);
+  world.position.set(origin.x, origin.y);
+
+  const applyViewport = (width: number, height: number) => {
+    if (width === viewportWidth && height === viewportHeight) return;
+    viewportWidth = width;
+    viewportHeight = height;
+    const next = originAt(width);
+    // Compensate the camera by the origin delta so the player keeps looking at
+    // the same tiles across a resize instead of having the world jump sideways.
+    camera.position.set(camera.position.x - (next.x - origin.x) * camera.scale.x, camera.position.y - (next.y - origin.y) * camera.scale.y);
+    origin = next;
+    world.position.set(origin.x, origin.y);
+  };
+
+  const resizeObserver = typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(entries => {
+    const entry = entries[entries.length - 1];
+    if (entry) applyViewport(entry.contentRect.width, entry.contentRect.height);
+  });
+  resizeObserver?.observe(container);
+
+  // --- Camera input: unchanged pan/zoom/click behaviour ---------------------
   // Pan with pointer drag; zoom with the wheel (0.6x–1.8x, anchored at the cursor).
   let dragging = false;
   let clickStart: [number, number] | undefined;
@@ -43,7 +91,7 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
   canvas.addEventListener("pointerdown", event => { dragging = true; clickStart = [event.clientX, event.clientY]; lastPosition = [event.clientX, event.clientY]; canvas.setPointerCapture(event.pointerId); });
   canvas.addEventListener("pointermove", event => {
     if (!dragging || !lastPosition) return;
-    layer.position.set(layer.position.x + event.clientX - lastPosition[0], layer.position.y + event.clientY - lastPosition[1]);
+    camera.position.set(camera.position.x + event.clientX - lastPosition[0], camera.position.y + event.clientY - lastPosition[1]);
     lastPosition = [event.clientX, event.clientY];
   });
   const stopDrag = (event?: PointerEvent) => {
@@ -58,264 +106,351 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
   canvas.addEventListener("wheel", event => {
     event.preventDefault();
     const factor = Math.exp(-event.deltaY * 0.0012);
-    const current = layer.scale.x;
+    const current = camera.scale.x;
     const next = Math.min(maxZoom, Math.max(minZoom, current * factor));
     if (next === current) return;
-    const worldX = (event.clientX - layer.position.x) / current;
-    const worldY = (event.clientY - layer.position.y) / current;
-    layer.scale.set(next);
-    layer.position.set(event.clientX - worldX * next, event.clientY - worldY * next);
+    const worldX = (event.clientX - camera.position.x) / current;
+    const worldY = (event.clientY - camera.position.y) / current;
+    camera.scale.set(next);
+    camera.position.set(event.clientX - worldX * next, event.clientY - worldY * next);
   }, { passive: false });
 
   function handleClick(clientX: number, clientY: number): void {
     const rect = canvas.getBoundingClientRect();
-    const sx = (clientX - rect.left - layer.position.x) / layer.scale.x;
-    const sy = (clientY - rect.top - layer.position.y) / layer.scale.y;
-    const origin = originAt();
-    let bestArmy: { id: string; distSq: number } | undefined;
-    for (const army of latestState.armies) {
-      if (army.strength <= 0) continue;
-      const [ax, ay] = point(army.x, army.y, origin.x, origin.y);
-      const distSq = (ax - sx) ** 2 + (ay - sy) ** 2;
-      if (distSq <= 13 ** 2 && (!bestArmy || distSq < bestArmy.distSq)) bestArmy = { id: army.id, distSq };
-    }
-    let bestCity: { id: string; distSq: number } | undefined;
-    for (const city of latestState.cities) {
-      const [cx, cy] = point(city.x, city.y, origin.x, origin.y);
-      const distSq = (cx - sx) ** 2 + (cy - sy) ** 2;
-      if (distSq <= 27 ** 2 && (!bestCity || distSq < bestCity.distSq)) bestCity = { id: city.id, distSq };
-    }
-    if (bestArmy && (!bestCity || bestArmy.distSq <= bestCity.distSq)) { onSelect({ kind: "army", id: bestArmy.id }); return; }
-    if (bestCity) { onSelect({ kind: "city", id: bestCity.id }); return; }
-    // Isometric inverse: dx → (x − y) · tileWidth/2, dy → (x + y) · tileHeight/2.
-    const dx = sx - origin.x; const dy = sy - origin.y;
-    const x = Math.round(((dx * 2) / tileWidth + (dy * 2) / tileHeight) / 2);
-    const y = Math.round(((dy * 2) / tileHeight - (dx * 2) / tileWidth) / 2);
-    if (x >= 0 && x < mapExtent && y >= 0 && y < mapExtent) onSelect({ kind: "tile", x, y });
-    else onSelect(undefined);
+    const sx = (clientX - rect.left - camera.position.x) / camera.scale.x;
+    const sy = (clientY - rect.top - camera.position.y) / camera.scale.y;
+    onSelect(pickAt(sx, sy, origin, latestState.armies, latestState.cities));
   }
 
   const focusCity = (x: number, y: number) => {
-    const origin = originAt();
-    const [cx, cy] = point(x, y, origin.x, origin.y);
-    layer.position.set(container.clientWidth / 2 - cx * layer.scale.x, container.clientHeight / 2 - cy * layer.scale.y);
+    const [wx, wy] = worldPoint(x, y);
+    camera.position.set(viewportWidth / 2 - (wx + origin.x) * camera.scale.x, viewportHeight / 2 - (wy + origin.y) * camera.scale.y);
   };
 
-  const clearLayer = (target: Container) => { target.removeChildren().forEach(child => child.destroy()); };
+  const diamond = (target: Graphics, cx: number, cy: number) => {
+    target.moveTo(cx, cy - tileHeight / 2);
+    target.lineTo(cx + tileWidth / 2, cy);
+    target.lineTo(cx, cy + tileHeight / 2);
+    target.lineTo(cx - tileWidth / 2, cy);
+    target.closePath();
+  };
 
-  // --- Terrain: rebuilt only when the terrain map itself changes ---
-  let terrainSig = "";
-  const syncTerrain = (state: WorldSnapshot) => {
-    const sig = JSON.stringify(state.terrainMap ?? {});
-    if (sig === terrainSig) return;
-    terrainSig = sig;
-    clearLayer(terrainLayer);
-    const origin = originAt(); const originX = origin.x; const originY = origin.y;
-    for (let y = 0; y < 20; y += 1) for (let x = 0; x < 20; x += 1) {
-      const [cx, cy] = point(x, y, originX, originY); const tile = new Graphics();
+  // --- Terrain: baked once into a single RenderTexture ----------------------
+  // The field is 20x20 = 400 diamonds that only change when the server sends a
+  // different terrain map — previously 400 live Graphics objects re-tessellated
+  // on every rebuild. It is now rasterised into one texture and drawn as one
+  // Sprite. The texture covers the whole world (1120x560 world units) at 2x, so
+  // it stays crisp at the 1.8x zoom ceiling: 2244x1124 physical pixels, ~10 MB,
+  // comfortably inside the 4096 texture limit every WebGL target guarantees.
+  const bounds = terrainBounds();
+  const terrainPad = 1; // keeps the 1px stroke of the outermost tiles off the texture edge
+  const terrainResolution = 2;
+  let terrainTexture: RenderTexture | undefined;
+  let terrainSprite: Sprite | undefined;
+  let bakedTerrain: string | undefined;
+
+  const bakeTerrain = (state: WorldSnapshot) => {
+    const sig = terrainSig(state.terrainMap);
+    if (sig === bakedTerrain && terrainSprite) return;
+    bakedTerrain = sig;
+    const field = new Graphics();
+    for (let y = 0; y < mapExtent; y += 1) for (let x = 0; x < mapExtent; x += 1) {
+      const [wx, wy] = worldPoint(x, y);
       const terrain = state.terrainMap?.[`${x},${y}`] ?? "plains";
       let color = 0x21423f;
       if (terrain === "forest") color = 0x1a3f20;
       else if (terrain === "hills") color = 0x4a3f2a;
       else if (terrain === "swamp") color = 0x2a3540;
-      tile.beginFill(color); tile.lineStyle(1, 0x39645b, 0.5); tile.moveTo(cx, cy - tileHeight / 2); tile.lineTo(cx + tileWidth / 2, cy); tile.lineTo(cx, cy + tileHeight / 2); tile.lineTo(cx - tileWidth / 2, cy); tile.closePath(); tile.endFill(); terrainLayer.addChild(tile);
+      field.beginFill(color);
+      field.lineStyle(1, 0x39645b, 0.5);
+      diamond(field, wx - bounds.x + terrainPad, wy - bounds.y + terrainPad);
+      field.endFill();
+    }
+    if (!terrainTexture) terrainTexture = RenderTexture.create({ width: bounds.width + terrainPad * 2, height: bounds.height + terrainPad * 2, resolution: terrainResolution });
+    app.renderer.render(field, { renderTexture: terrainTexture, clear: true });
+    field.destroy();
+    if (!terrainSprite) {
+      terrainSprite = new Sprite(terrainTexture);
+      terrainSprite.position.set(bounds.x - terrainPad, bounds.y - terrainPad);
+      world.addChildAt(terrainSprite, 0);
     }
   };
 
-  // --- Events: overlay tints on top of the terrain, rebuilt when the set changes ---
-  let eventSig = "";
+  // --- World events: tinted tiles, one Graphics for the whole set -----------
+  let bakedEvents = "";
+  const eventField = new Graphics();
+  eventLayer.addChild(eventField);
   const syncEvents = (state: WorldSnapshot) => {
     const events = state.worldEvents ?? [];
-    const sig = JSON.stringify(events.map(event => `${event.id}:${event.eventType}:${event.severity}:${JSON.stringify(event.affectedTiles)}`));
-    if (sig === eventSig) return;
-    eventSig = sig;
-    clearLayer(eventLayer);
-    const origin = originAt(); const originX = origin.x; const originY = origin.y;
+    const sig = eventSig(events);
+    if (sig === bakedEvents) return;
+    bakedEvents = sig;
+    eventField.clear();
     for (const event of events) {
       const color = event.eventType === "gold_rush" ? 0x736b24 : event.eventType === "plague" ? 0x542d5c : 0x6b3030;
       const border = event.eventType === "gold_rush" ? 0x7dff72 : event.eventType === "plague" ? 0xc26cff : 0xff5c57;
       for (const tile of event.affectedTiles) {
-        const [cx, cy] = point(tile.x, tile.y, originX, originY); const overlay = new Graphics();
-        overlay.beginFill(color, 0.55); overlay.lineStyle(3, border, 0.95); overlay.moveTo(cx, cy - tileHeight / 2); overlay.lineTo(cx + tileWidth / 2, cy); overlay.lineTo(cx, cy + tileHeight / 2); overlay.lineTo(cx - tileWidth / 2, cy); overlay.closePath(); overlay.endFill(); eventLayer.addChild(overlay);
+        const [wx, wy] = worldPoint(tile.x, tile.y);
+        eventField.beginFill(color, 0.55);
+        eventField.lineStyle(3, border, 0.95);
+        diamond(eventField, wx, wy);
+        eventField.endFill();
       }
     }
   };
 
-  // --- Static entity layers: add/remove by id, never a full clear ---
-  const drawResourceNode = (target: Graphics, node: { x: number; y: number; resourceType: string }) => {
-    const [nx, ny] = point(node.x, node.y, originAt().x, originAt().y);
-    target.clear(); target.beginFill(node.resourceType === "iron" ? 0xb8c0d9 : node.resourceType === "stone" ? 0xa9a9a9 : 0x6fbd72); target.drawCircle(nx, ny - 8, 7); target.endFill();
-  };
-  const resources = new Map<string, Graphics>();
+  // --- Resource nodes -------------------------------------------------------
+  const resources = new Map<string, { root: Graphics; geometry: string }>();
   const syncResources = (state: WorldSnapshot) => {
     const seen = new Set<string>();
     for (const node of state.logistics.resourceNodes) {
       seen.add(node.id);
-      let graphic = resources.get(node.id);
-      if (!graphic) { graphic = new Graphics(); resources.set(node.id, graphic); resourceLayer.addChild(graphic); }
-      drawResourceNode(graphic, node);
+      let view = resources.get(node.id);
+      if (!view) {
+        const root = new Graphics();
+        root.cullable = true;
+        view = { root, geometry: "" };
+        resources.set(node.id, view);
+        resourceLayer.addChild(root);
+      }
+      if (view.geometry !== node.resourceType) {
+        view.geometry = node.resourceType;
+        view.root.clear();
+        view.root.beginFill(node.resourceType === "iron" ? 0xb8c0d9 : node.resourceType === "stone" ? 0xa9a9a9 : 0x6fbd72);
+        view.root.drawCircle(0, -8, 7);
+        view.root.endFill();
+      }
+      const [wx, wy] = worldPoint(node.x, node.y);
+      view.root.position.set(wx, wy);
+      view.root.zIndex = isoDepth(node.x, node.y);
     }
-    for (const [id, graphic] of resources) if (!seen.has(id)) { resourceLayer.removeChild(graphic); graphic.destroy(); resources.delete(id); }
+    for (const [id, view] of resources) if (!seen.has(id)) { view.root.destroy(); resources.delete(id); }
   };
 
-  const drawHub = (target: Container, hub: { x: number; y: number; name: string }) => {
-    target.removeChildren().forEach(child => child.destroy());
-    const [hx, hy] = point(hub.x, hub.y, originAt().x, originAt().y);
-    const marker = new Graphics();
-    marker.beginFill(0xf0d15a); marker.drawRoundedRect(hx - 12, hy - 12, 24, 24, 4); marker.endFill();
-    marker.lineStyle(2, 0x8a6d1a); marker.moveTo(hx + 5, hy - 5); marker.lineTo(hx - 5, hy + 5); target.addChild(marker); // anchor cross
-    const label = new Text(hub.name, { fontFamily: "Arial", fontSize: 11, fill: 0xffe9a3, stroke: 0x102238, strokeThickness: 3 }); label.anchor.set(0.5); label.position.set(hx, hy + 21); target.addChild(label);
+  /** Adds a label once and reuses it afterwards. Only swaps the backing object
+   *  when a name moves in or out of the bitmap atlas' charset. */
+  const addLabel = (parent: Container, text: string, fontSize: number, color: number, x: number, y: number): MapLabel => {
+    const label = createLabel(text, fontSize, color);
+    label.view.position.set(x, y);
+    parent.addChild(label.view);
+    return label;
   };
-  const hubs = new Map<string, Container>();
+  const setLabel = (parent: Container, current: MapLabel, text: string, fontSize: number, color: number, x: number, y: number): MapLabel => {
+    if (current.setText(text)) return current;
+    current.view.destroy();
+    return addLabel(parent, text, fontSize, color, x, y);
+  };
+
+  // --- Market hubs ----------------------------------------------------------
+  const hubs = new Map<string, { root: Container; label: MapLabel; text: string }>();
   const syncHubs = (state: WorldSnapshot) => {
     const seen = new Set<string>();
     for (const hub of state.logistics.marketHubs) {
       seen.add(hub.id);
-      let group = hubs.get(hub.id);
-      if (!group) { group = new Container(); hubs.set(hub.id, group); hubLayer.addChild(group); }
-      drawHub(group, hub);
+      let view = hubs.get(hub.id);
+      if (!view) {
+        const root = new Container();
+        root.cullable = true;
+        const marker = new Graphics();
+        marker.beginFill(0xf0d15a); marker.drawRoundedRect(-12, -12, 24, 24, 4); marker.endFill();
+        marker.lineStyle(2, 0x8a6d1a); marker.moveTo(5, -5); marker.lineTo(-5, 5); // anchor cross
+        root.addChild(marker);
+        view = { root, label: addLabel(root, hub.name, 11, 0xffe9a3, 0, 21), text: hub.name };
+        hubs.set(hub.id, view);
+        hubLayer.addChild(root);
+      }
+      if (view.text !== hub.name) { view.text = hub.name; view.label = setLabel(view.root, view.label, hub.name, 11, 0xffe9a3, 0, 21); }
+      const [wx, wy] = worldPoint(hub.x, hub.y);
+      view.root.position.set(wx, wy);
+      view.root.zIndex = isoDepth(hub.x, hub.y);
     }
-    for (const [id, group] of hubs) if (!seen.has(id)) { hubLayer.removeChild(group); group.destroy(); hubs.delete(id); }
+    for (const [id, view] of hubs) if (!seen.has(id)) { view.root.destroy({ children: true }); hubs.delete(id); }
   };
 
-  const citySigs = new Map<string, string>();
-  const drawCity = (target: Container, city: { x: number; y: number; name: string; frozen?: boolean }) => {
-    target.removeChildren().forEach(child => child.destroy());
-    const [cx, cy] = point(city.x, city.y, originAt().x, originAt().y);
-    const marker = new Graphics();
-    if (city.frozen) { marker.beginFill(0x6b3030); marker.drawPolygon([cx, cy - 25, cx + 22, cy - 8, cx + 22, cy + 7, cx, cy + 24, cx - 22, cy + 7, cx - 22, cy - 8]); marker.endFill(); marker.alpha = 0.35; }
-    else { marker.beginFill(0x63c5da); marker.drawPolygon([cx, cy - 25, cx + 22, cy - 8, cx + 22, cy + 7, cx, cy + 24, cx - 22, cy + 7, cx - 22, cy - 8]); marker.endFill(); }
-    target.addChild(marker);
-    const label = new Text(city.name, { fontFamily: "Arial", fontSize: 12, fill: 0xffffff, stroke: 0x102238, strokeThickness: 3 }); label.anchor.set(0.5); label.position.set(cx, cy - 42); target.addChild(label);
-    if (city.frozen) { const lock = new Text("KHÓA", { fontFamily: "Arial", fontSize: 9, fontWeight: "bold", fill: 0xff7676, stroke: 0x101010, strokeThickness: 3 }); lock.anchor.set(0.5); lock.position.set(cx, cy + 32); target.addChild(lock); }
-  };
-  const cities = new Map<string, Container>();
+  // --- Cities ---------------------------------------------------------------
+  const cityHex = [0, -25, 22, -8, 22, 7, 0, 24, -22, 7, -22, -8];
+  const cities = new Map<string, { root: Container; body: Graphics; label: MapLabel; lock?: MapLabel; geometry: string; text: string }>();
   const syncCities = (state: WorldSnapshot) => {
     const seen = new Set<string>();
     for (const city of state.cities) {
       seen.add(city.id);
-      let group = cities.get(city.id);
-      if (!group) { group = new Container(); cities.set(city.id, group); cityLayer.addChild(group); }
-      const sig = `${city.x},${city.y}|${city.name}|${city.frozen ? 1 : 0}|${city.playerId === ownPlayerId ? "own" : "other"}`;
-      if (citySigs.get(city.id) !== sig) { citySigs.set(city.id, sig); drawCity(group, city); }
+      let view = cities.get(city.id);
+      if (!view) {
+        const root = new Container();
+        root.cullable = true;
+        const body = new Graphics();
+        root.addChild(body);
+        view = { root, body, label: addLabel(root, city.name, 12, 0xffffff, 0, -42), geometry: "", text: city.name };
+        cities.set(city.id, view);
+        cityLayer.addChild(root);
+      }
+      const geometry = cityGeometrySig(city, ownPlayerId);
+      if (view.geometry !== geometry) {
+        view.geometry = geometry;
+        view.body.clear();
+        view.body.beginFill(city.frozen ? 0x6b3030 : 0x63c5da);
+        view.body.drawPolygon(cityHex);
+        view.body.endFill();
+        view.body.alpha = city.frozen ? 0.35 : 1;
+        if (city.frozen && !view.lock) view.lock = addLabel(view.root, "KHÓA", 9, 0xff7676, 0, 32);
+        else if (!city.frozen && view.lock) { view.lock.view.destroy(); view.lock = undefined; }
+      }
+      if (view.text !== city.name) { view.text = city.name; view.label = setLabel(view.root, view.label, city.name, 12, 0xffffff, 0, -42); }
+      const [wx, wy] = worldPoint(city.x, city.y);
+      view.root.position.set(wx, wy);
+      view.root.zIndex = isoDepth(city.x, city.y);
     }
-    for (const [id, group] of cities) if (!seen.has(id)) { cityLayer.removeChild(group); group.destroy(); cities.delete(id); citySigs.delete(id); }
+    for (const [id, view] of cities) if (!seen.has(id)) { view.root.destroy({ children: true }); cities.delete(id); }
   };
 
-  const caravanSigs = new Map<string, string>();
-  const drawCaravan = (target: Graphics, state: WorldSnapshot, caravan: WorldSnapshot["caravans"][number]) => {
-    const from = state.cities.find(city => city.id === caravan.sourceCityId);
-    const to = caravan.destinationCityId ? state.cities.find(city => city.id === caravan.destinationCityId) : state.logistics.marketHubs.find(hub => hub.id === caravan.destinationMarketId);
-    if (!from || !to) { target.clear(); return; }
-    const [fx, fy] = point(from.x, from.y, originAt().x, originAt().y); const [tx, ty] = point(to.x, to.y, originAt().x, originAt().y);
-    target.clear(); target.beginFill(0xf0d15a); target.drawCircle(fx + (tx - fx) * caravan.progress, fy + (ty - fy) * caravan.progress, 8); target.endFill();
-    if (caravan.frozen) { target.alpha = 0.35; target.lineStyle(2, 0xff7676); } else { target.alpha = 1; target.lineStyle(0); }
-  };
-  const caravans = new Map<string, Graphics>();
+  // --- Caravans -------------------------------------------------------------
+  // Progress changes every tick, so this is the hottest entity on the map. The
+  // marker geometry is built once; a tick is now a position write. Grid
+  // coordinates are interpolated rather than screen coordinates — the projection
+  // is affine, so the drawn point is identical to the old screen-space lerp.
+  const caravans = new Map<string, { root: Graphics }>();
   const syncCaravans = (state: WorldSnapshot) => {
-    const moving = state.caravans.filter(item => item.status === "moving");
     const seen = new Set<string>();
-    for (const caravan of moving) {
+    for (const caravan of state.caravans) {
+      if (caravan.status !== "moving") continue;
       seen.add(caravan.id);
-      let graphic = caravans.get(caravan.id);
-      if (!graphic) { graphic = new Graphics(); caravans.set(caravan.id, graphic); caravanLayer.addChild(graphic); }
-      const sig = `${caravan.progress}|${caravan.frozen ? 1 : 0}|${caravan.destinationCityId ?? caravan.destinationMarketId ?? ""}`;
-      if (caravanSigs.get(caravan.id) !== sig) { caravanSigs.set(caravan.id, sig); drawCaravan(graphic, state, caravan); }
+      let view = caravans.get(caravan.id);
+      if (!view) {
+        const root = new Graphics();
+        root.cullable = true;
+        root.beginFill(0xf0d15a); root.drawCircle(0, 0, 8); root.endFill();
+        view = { root };
+        caravans.set(caravan.id, view);
+        caravanLayer.addChild(root);
+      }
+      const from = state.cities.find(city => city.id === caravan.sourceCityId);
+      const to = caravan.destinationCityId
+        ? state.cities.find(city => city.id === caravan.destinationCityId)
+        : state.logistics.marketHubs.find(hub => hub.id === caravan.destinationMarketId);
+      if (!from || !to) { view.root.visible = false; continue; }
+      const gx = from.x + (to.x - from.x) * caravan.progress;
+      const gy = from.y + (to.y - from.y) * caravan.progress;
+      const [wx, wy] = worldPoint(gx, gy);
+      view.root.visible = true;
+      view.root.position.set(wx, wy);
+      view.root.zIndex = isoDepth(gx, gy);
+      view.root.alpha = caravan.frozen ? 0.35 : 1;
     }
-    for (const [id, graphic] of caravans) if (!seen.has(id)) { caravanLayer.removeChild(graphic); graphic.destroy(); caravans.delete(id); caravanSigs.delete(id); }
+    for (const [id, view] of caravans) if (!seen.has(id)) { view.root.destroy(); caravans.delete(id); }
   };
 
-  const armySigs = new Map<string, string>();
-  const drawArmy = (target: Container, army: WorldSnapshot["armies"][number]) => {
-    target.removeChildren().forEach(child => child.destroy());
-    const [cx, cy] = point(army.x, army.y, originAt().x, originAt().y);
-    const unit = new Graphics();
-    if (army.ownerType === "npc") {
-      unit.beginFill(army.npcKind === "migration" ? 0xd8963f : 0xd85656);
-      if (army.npcKind === "migration") unit.drawPolygon([cx, cy - 19, cx + 13, cy + 4, cx - 13, cy + 4]);
-      else unit.drawPolygon([cx, cy + 16, cx + 13, cy - 4, cx - 13, cy - 4]);
-      unit.endFill();
-      unit.lineStyle(1, army.npcKind === "migration" ? 0xffc37d : 0xff8a8a);
-      unit.moveTo(cx, cy); unit.lineTo(cx, cy + 12);
-    } else {
-      unit.beginFill(army.unitType === "archer" ? 0x91d36b : army.unitType === "cavalry" ? 0xe58c9d : 0x8fb4e8);
-      unit.drawCircle(cx, cy - 8, 8);
-      unit.endFill();
-      unit.lineStyle(2, army.ownerPlayerId === ownPlayerId ? 0x63c5da : 0xe8ad67);
-      unit.moveTo(cx, cy); unit.lineTo(cx, cy + 12);
-    }
-    target.addChild(unit);
-    const label = new Text(army.strength.toString(), { fontFamily: "Arial", fontSize: 10, fill: 0xffffff, stroke: 0x000000, strokeThickness: 2 });
-    label.anchor.set(0.5); label.position.set(cx, cy - 24);
-    target.addChild(label);
-    if (army.frozen) {
-      unit.alpha = 0.35;
-      const lock = new Text("KHÓA", { fontFamily: "Arial", fontSize: 8, fill: 0xff7676, stroke: 0x000000, strokeThickness: 2 }); lock.anchor.set(0.5); lock.position.set(cx, cy + 24); target.addChild(lock);
-    }
-  };
-  const armies = new Map<string, Container>();
+  // --- Armies ---------------------------------------------------------------
+  const armies = new Map<string, { root: Container; body: Graphics; label: MapLabel; lock?: MapLabel; geometry: string; text: string }>();
   const syncArmies = (state: WorldSnapshot) => {
     const seen = new Set<string>();
     for (const army of state.armies) {
       if (army.strength <= 0) continue;
       seen.add(army.id);
-      let group = armies.get(army.id);
-      if (!group) { group = new Container(); armies.set(army.id, group); armyLayer.addChild(group); }
-      const sig = `${army.x},${army.y}|${army.strength}|${army.frozen ? 1 : 0}|${army.morale}|${army.npcKind ?? ""}|${army.unitType}|${army.ownerPlayerId === ownPlayerId ? "own" : "other"}`;
-      if (armySigs.get(army.id) !== sig) { armySigs.set(army.id, sig); drawArmy(group, army); }
+      const strength = army.strength.toString();
+      let view = armies.get(army.id);
+      if (!view) {
+        const root = new Container();
+        root.cullable = true;
+        const body = new Graphics();
+        root.addChild(body);
+        view = { root, body, label: addLabel(root, strength, 10, 0xffffff, 0, -24), geometry: "", text: strength };
+        armies.set(army.id, view);
+        armyLayer.addChild(root);
+      }
+      const geometry = armyGeometrySig(army, ownPlayerId);
+      if (view.geometry !== geometry) {
+        view.geometry = geometry;
+        const body = view.body;
+        body.clear();
+        if (army.ownerType === "npc") {
+          body.beginFill(army.npcKind === "migration" ? 0xd8963f : 0xd85656);
+          if (army.npcKind === "migration") body.drawPolygon([0, -19, 13, 4, -13, 4]);
+          else body.drawPolygon([0, 16, 13, -4, -13, -4]);
+          body.endFill();
+          body.lineStyle(1, army.npcKind === "migration" ? 0xffc37d : 0xff8a8a);
+        } else {
+          body.beginFill(army.unitType === "archer" ? 0x91d36b : army.unitType === "cavalry" ? 0xe58c9d : 0x8fb4e8);
+          body.drawCircle(0, -8, 8);
+          body.endFill();
+          body.lineStyle(2, army.ownerPlayerId === ownPlayerId ? 0x63c5da : 0xe8ad67);
+        }
+        body.moveTo(0, 0); body.lineTo(0, 12);
+        body.alpha = army.frozen ? 0.35 : 1;
+        if (army.frozen && !view.lock) view.lock = addLabel(view.root, "KHÓA", 8, 0xff7676, 0, 24);
+        else if (!army.frozen && view.lock) { view.lock.view.destroy(); view.lock = undefined; }
+      }
+      if (view.text !== strength) { view.text = strength; view.label = setLabel(view.root, view.label, strength, 10, 0xffffff, 0, -24); }
+      const [wx, wy] = worldPoint(army.x, army.y);
+      view.root.position.set(wx, wy);
+      view.root.zIndex = isoDepth(army.x, army.y);
     }
-    for (const [id, group] of armies) if (!seen.has(id)) { armyLayer.removeChild(group); group.destroy(); armies.delete(id); armySigs.delete(id); }
+    for (const [id, view] of armies) if (!seen.has(id)) { view.root.destroy({ children: true }); armies.delete(id); }
   };
 
-  // --- Overlay: selection ring + attack/move order lines, keyed by army id ---
-  const overlaySigs = new Map<string, string>();
-  const drawOverlay = (target: Container, state: WorldSnapshot, armyId: string) => {
-    target.removeChildren().forEach(child => child.destroy());
-    const army = state.armies.find(item => item.id === armyId);
-    if (!army || army.strength <= 0) { overlaySigs.delete(armyId); return; }
-    const [cx, cy] = point(army.x, army.y, originAt().x, originAt().y);
-    if (selection?.kind === "army" && selection.id === armyId) {
-      const ring = new Graphics();
-      ring.lineStyle(2, 0x63ff7d, 0.95);
-      ring.drawCircle(cx, army.ownerType === "npc" ? cy : cy - 8, 12);
-      target.addChild(ring);
-    }
-    if (army.attackOrder && !army.frozen) {
-      const [tx, ty] = point(army.attackOrder.targetX, army.attackOrder.targetY, originAt().x, originAt().y);
-      const line = new Graphics();
-      line.lineStyle(2, 0xff4d4d, 0.65);
-      line.moveTo(cx, cy + 12); line.lineTo(tx, ty);
-      line.lineStyle(1, 0xff4d4d, 0.9);
-      line.moveTo(tx - 5, ty - 5); line.lineTo(tx + 5, ty + 5);
-      line.moveTo(tx + 5, ty - 5); line.lineTo(tx - 5, ty + 5);
-      target.addChild(line);
-    } else if (army.targetX !== undefined && army.targetY !== undefined && !army.frozen) {
-      const [tx, ty] = point(army.targetX, army.targetY, originAt().x, originAt().y);
-      const line = new Graphics();
-      line.lineStyle(1, 0xffffff, 0.5);
-      line.moveTo(cx, cy + 12); line.lineTo(tx, ty);
-      target.addChild(line);
-    }
-  };
-  const overlays = new Map<string, Container>();
+  // --- Overlay: selection ring + attack/move order lines --------------------
+  // Signature-driven for real now. The previous version recomputed a signature
+  // it never compared, so every ring and every order line was destroyed and
+  // re-tessellated on each snapshot. Geometry is local to the army, so an army
+  // marching toward a fixed target keeps its ring for free and only rebuilds the
+  // line because the *relative* vector to the target actually changed.
+  const overlays = new Map<string, { root: Graphics; geometry: string }>();
   const syncOverlay = (state: WorldSnapshot, armyIds: string[]) => {
-    const seen = new Set<string>();
-    // Always refresh the selected army's ring and every ordered army's line.
-    const needs = new Set([...armyIds]);
+    const needs = new Set(armyIds);
     if (selection?.kind === "army") needs.add(selection.id);
     for (const armyId of needs) {
-      seen.add(armyId);
-      let group = overlays.get(armyId);
-      if (!group) { group = new Container(); overlays.set(armyId, group); overlayLayer.addChild(group); }
-      drawOverlay(group, state, armyId);
+      let view = overlays.get(armyId);
+      if (!view) {
+        const root = new Graphics();
+        root.cullable = true;
+        view = { root, geometry: "" };
+        overlays.set(armyId, view);
+        overlayLayer.addChild(root);
+      }
+      const army = state.armies.find(item => item.id === armyId);
+      if (!army || army.strength <= 0) {
+        if (view.geometry !== "gone") { view.geometry = "gone"; view.root.clear(); }
+        view.root.visible = false;
+        continue;
+      }
+      view.root.visible = true;
+      const geometry = overlayGeometrySig(army, selection?.kind === "army" && selection.id === armyId);
+      if (view.geometry !== geometry) {
+        view.geometry = geometry;
+        const line = view.root;
+        line.clear();
+        if (selection?.kind === "army" && selection.id === armyId) {
+          line.lineStyle(2, 0x63ff7d, 0.95);
+          line.drawCircle(0, army.ownerType === "npc" ? 0 : -8, 12);
+        }
+        const order = army.attackOrder && !army.frozen
+          ? { kind: "attack" as const, x: army.attackOrder.targetX, y: army.attackOrder.targetY }
+          : army.targetX !== undefined && army.targetY !== undefined && !army.frozen
+            ? { kind: "move" as const, x: army.targetX, y: army.targetY }
+            : undefined;
+        if (order) {
+          const [rx, ry] = worldPoint(order.x - army.x, order.y - army.y);
+          if (order.kind === "attack") {
+            line.lineStyle(2, 0xff4d4d, 0.65);
+            line.moveTo(0, 12); line.lineTo(rx, ry);
+            line.lineStyle(1, 0xff4d4d, 0.9);
+            line.moveTo(rx - 5, ry - 5); line.lineTo(rx + 5, ry + 5);
+            line.moveTo(rx + 5, ry - 5); line.lineTo(rx - 5, ry + 5);
+          } else {
+            line.lineStyle(1, 0xffffff, 0.5);
+            line.moveTo(0, 12); line.lineTo(rx, ry);
+          }
+        }
+      }
+      const [wx, wy] = worldPoint(army.x, army.y);
+      view.root.position.set(wx, wy);
     }
-    for (const [id, group] of overlays) if (!seen.has(id)) { overlayLayer.removeChild(group); group.destroy(); overlays.delete(id); }
+    for (const [id, view] of overlays) if (!needs.has(id)) { view.root.destroy(); overlays.delete(id); }
   };
 
   const update = (next: WorldSnapshot, nextSelection?: MapSelection) => {
     selection = nextSelection;
     latestState = next;
-    syncTerrain(next);
+    bakeTerrain(next);
     syncEvents(next);
     syncResources(next);
     syncHubs(next);
@@ -327,10 +462,6 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
   };
   const setInteraction = (mode: InteractionMode) => { interactionMode = mode; canvas.style.cursor = interactionMode.kind === "idle" ? "" : "crosshair"; };
 
-  // Persistent layer transform shared by all layers: pan/zoom preserved across snapshots.
-  const layer = new Container(); app.stage.addChild(layer);
-  for (const child of [terrainLayer, eventLayer, resourceLayer, hubLayer, cityLayer, caravanLayer, armyLayer, overlayLayer]) layer.addChild(child);
-
   update(snapshot);
   const ownCity = snapshot.cities.find(city => city.playerId === ownPlayerId);
   if (ownCity) focusCity(ownCity.x, ownCity.y);
@@ -339,6 +470,19 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
     update: (next, nextSelection) => { if (destroyed) return; update(next, nextSelection); },
     focusCity,
     setInteraction: (mode) => { if (!destroyed) setInteraction(mode); },
-    destroy: () => { if (destroyed) return; destroyed = true; app.destroy(true, { children: true }); },
+    destroy: () => {
+      if (destroyed) return;
+      destroyed = true;
+      resizeObserver?.disconnect();
+      // `app.destroy` tears down the stage and the terrain Sprite but leaves the
+      // Sprite's texture alone, so the RenderTexture is released explicitly —
+      // it is the one large GPU allocation this module owns. The bitmap label
+      // atlas is deliberately kept: Pixi caches it globally and the next
+      // createWorldMap reuses it instead of rasterising a second copy.
+      app.destroy(true, { children: true });
+      terrainTexture?.destroy(true);
+      terrainTexture = undefined;
+      terrainSprite = undefined;
+    },
   };
 }

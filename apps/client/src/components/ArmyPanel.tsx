@@ -2,6 +2,7 @@ import { useState } from "react";
 import { gameRules, recruitmentCost } from "@kingdoms/shared";
 import type { Army, UnitType } from "@kingdoms/shared";
 import { useGame } from "../state.js";
+import { usePanelAnchor } from "../panel-anchors.js";
 
 type RecruitUnitId = keyof typeof gameRules.recruitment;
 
@@ -20,14 +21,15 @@ export function ArmyPanel() {
   const unitCost = recruitmentCost(recruitUnit, count);
   const canAfford = city.resources.wood >= unitCost.wood && city.resources.stone >= unitCost.stone && city.resources.iron >= unitCost.iron;
   const targetName = (army: Army) => army.ownerPlayerId ? (snapshot.cities.find(item => item.playerId === army.ownerPlayerId)?.playerName ?? "?") : army.npcKind ?? "NPC";
+  const anchor = usePanelAnchor<HTMLElement>("army");
 
-  return <section className="army-panel">
+  return <section ref={anchor} className="army-panel" aria-label="Quân đội">
     <h2>Quân đội</h2>
     <p className="hint">Tiếp tế rút xuống dưới {gameRules.supply.attritionBelowSupply}% gây hao mòn (mất sức mạnh & nhuệ khí). Quân đứng gần thành phố (bán kính {gameRules.supply.insideCityRadius}) hoặc trạm tiếp tế hồi phục tiếp tế.</p>
     {myArmies.length === 0 && <p className="hint">Bạn chưa có quân đội. Xây Doanh trại rồi tuyển mộ.</p>}
     {myArmies.map(army => {
       const target = army.attackOrder ? snapshot.armies.find(item => item.id === army.attackOrder!.targetArmyId) : undefined;
-      return <div className="army-row" key={army.id}>
+      return <div className="army-row" data-testid="army-row" key={army.id}>
         <div className="army-title">
           <strong>{gameRules.recruitment[army.unitType as RecruitUnitId]?.name ?? army.unitType} · {army.strength}</strong>
           <span className="hint">{army.attackOrder ? `Đang tấn công ${target ? targetName(target) : "?"}` : army.targetX !== undefined ? `Di chuyển đến (${army.targetX},${army.targetY})` : "Chờ lệnh"}</span>
@@ -39,7 +41,7 @@ export function ArmyPanel() {
           <span title="Vị trí">({army.x},{army.y})</span>
         </div>
         <div className="army-actions">
-          <select title="Đội hình" value={army.formation} onChange={event => runCommand({ kind: "set_formation", label: "Đổi đội hình", path: "/api/commands/formation", body: { armyId: army.id, formation: event.target.value } }).catch(() => undefined)}>
+          <select title="Đội hình" aria-label="Đội hình" value={army.formation} onChange={event => runCommand({ kind: "set_formation", label: "Đổi đội hình", path: "/api/commands/formation", body: { armyId: army.id, formation: event.target.value } }).catch(() => undefined)}>
             <option value="line">Hàng ngang</option>
             <option value="wedge">Nêm</option>
             <option value="square">Vuông</option>
@@ -83,7 +85,7 @@ export function ArmyPanel() {
         <div className="modal-card" role="dialog" aria-label="Tấn công" onClick={event => event.stopPropagation()}>
           <h3>Tấn công</h3>
           <p className="hint">Chọn mục tiêu gần nhất. Quân đội sẽ truy đuổi mục tiêu đang chạy; lệnh có thể bị hủy bất kỳ lúc nào.</p>
-          <select value={targetId} onChange={event => setTargetId(event.target.value)}>
+          <select value={targetId} onChange={event => setTargetId(event.target.value)} aria-label="Mục tiêu tấn công">
             <option value="">Chọn mục tiêu…</option>
             {enemyArmies
               .map(target => ({ target, distance: Math.abs(target.x - city.x) + Math.abs(target.y - city.y) }))

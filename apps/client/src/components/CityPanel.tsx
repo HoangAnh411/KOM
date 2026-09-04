@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { gameRules } from "@kingdoms/shared";
 import { useGame } from "../state.js";
+import { usePanelAnchor } from "../panel-anchors.js";
 
 type BuildingId = keyof typeof gameRules.buildings;
 
@@ -12,8 +13,9 @@ export function CityPanel() {
   useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
   const depot = snapshot.logistics.depots.find(item => item.cityId === city.id);
   const queuesFull = city.queues.filter(queue => queue.type === "build").length >= 2;
+  const anchor = usePanelAnchor<HTMLElement>("city");
 
-  return <section className="city-panel">
+  return <section ref={anchor} className="city-panel" aria-label={"Thành phố & công trình"}>
     <h2>Thành phố & công trình</h2>
     <div className="actions">
       <button disabled={city.frozen || queuesFull} onClick={() => runCommand({ kind: "build", label: "Xây kho", path: "/api/commands/build", body: { cityId: city.id, buildingId: "warehouse", queueType: "build" } }).catch(() => undefined)}>Xây kho</button>

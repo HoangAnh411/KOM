@@ -1,0 +1,72 @@
+import { lazy, Suspense } from "react";
+import { revealPanel, usePanelAnchor, type PanelAnchorId } from "../panel-anchors.js";
+import { surfaceElementIds } from "../layout.js";
+import { useGame, type PanelId } from "../state.js";
+import { ArmyPanel } from "./ArmyPanel.js";
+import { CityPanel } from "./CityPanel.js";
+import { LogisticsPanel } from "./LogisticsPanel.js";
+import { OnboardingPanel } from "./OnboardingPanel.js";
+
+// The advanced drawer (alliance/espionage/archive/diplomacy) loads on first open.
+const AdvancedDrawer = lazy(() => import("./AdvancedDrawer.js"));
+
+const navEntries: Array<{ id: PanelId & PanelAnchorId; label: string; icon: string }> = [
+  { id: "city", label: "Thành phố", icon: "🏰" },
+  { id: "army", label: "Quân đội", icon: "⚔" },
+  { id: "logistics", label: "Logistics", icon: "🚚" },
+  { id: "diplomacy", label: "Ngoại giao", icon: "🕊" },
+];
+
+/** The left column: the same panels the right-hand HUD carried before the
+ *  redesign, moved to the side the eye reads first and given a sticky head so the
+ *  city you are looking at and the jump controls never scroll away.
+ *
+ *  The old 64px navigation rail is folded into that head rather than kept as a
+ *  separate column. It was only ever a set of jump links into these panels, and a
+ *  rail plus a column is two navigation systems for one list. Its `<nav>`, its
+ *  labels and its `activePanel` behaviour are unchanged — only its geometry is. */
+export function KingdomColumn({ open }: { open: boolean }) {
+  const {
+    state, pending, connection, retryPending, advancedOpen, setAdvancedOpen, activePanel, setActivePanel,
+  } = useGame();
+  const session = state.session!;
+  const anchor = usePanelAnchor<HTMLElement>("hud");
+  const myCity = state.snapshot?.cities.find(item => item.playerId === session.player.id);
+
+  const scrollToPanel = (id: PanelId & PanelAnchorId) => {
+    setActivePanel(id);
+    if (id === "diplomacy") setAdvancedOpen(true);
+    setTimeout(() => revealPanel(id), 60);
+  };
+
+  return <aside
+    ref={anchor}
+    id={surfaceElementIds.kingdom}
+    className={`kingdom-column hud${myCity?.frozen ? " hud-frozen" : ""}`}
+    aria-label="Bảng điều khiển"
+    data-frozen={myCity?.frozen ? "true" : "false"}
+    hidden={!open}
+  >
+    <div className="kingdom-column__head">
+      <div className="hud-title"><h2 data-testid="city-name">{(myCity ?? state.snapshot?.cities[0])?.name ?? "Thành phố"}</h2><span className="hint">Bảng điều khiển</span></div>
+      <nav className="kingdom-nav" aria-label="Điều hướng">
+        {navEntries.map(entry => <button key={entry.id} className={activePanel === entry.id ? "nav-active" : ""} onClick={() => scrollToPanel(entry.id)} title={entry.label}><span className="nav-icon">{entry.icon}</span><span className="nav-label">{entry.label}</span></button>)}
+      </nav>
+    </div>
+    <OnboardingPanel />
+    <CityPanel />
+    <LogisticsPanel />
+    <ArmyPanel />
+    <details className="drawer" open={advancedOpen} onToggle={event => setAdvancedOpen((event.target as HTMLDetailsElement).open)}>
+      <summary data-testid="advanced-drawer-toggle">Nâng cao (liên minh · tình báo · sự kiện · ngoại giao)</summary>
+      {advancedOpen && <Suspense fallback={<p className="hint">Đang tải…</p>}><AdvancedDrawer /></Suspense>}
+    </details>
+    {pending.length > 0 && <section className="pending-strip" aria-label="Lệnh đang chờ">
+      <h3>Lệnh đang chờ</h3>
+      {pending.map(command => <div className="pending-row" data-testid="pending-command" key={command.commandId}>
+        <span>{command.label} {command.status === "sending" ? "…đang gửi" : "— chưa xác nhận"}</span>
+        {command.status === "uncertain" && <button disabled={connection !== "online"} onClick={() => retryPending(command.commandId)}>Thử lại</button>}
+      </div>)}
+    </section>}
+  </aside>;
+}
