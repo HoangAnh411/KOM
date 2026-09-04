@@ -132,8 +132,10 @@ lãnh thổ rẻ đi hay đắt lên.
 Trước vòng này, 300 điểm lãnh thổ **không có ai ghi**: hàng `military_throughput` chỉ sinh ra khi
 một người đánh nhau lần đầu (`combat.ts`), nên người chưa từng đánh nhau không thể có điểm lãnh thổ,
 còn người từng đánh thì mang một `tilesControlled` vĩnh viễn bằng 0. Ba phần mười trục quân sự là
-chỗ chết, và bảng `regions` cùng `map_tiles.region_id` là di tích trỏ vào nó. Giờ hàng được tạo ở
-lần đầu **giữ đất**, không cần trận nào.
+chỗ chết. Giờ hàng được tạo ở lần đầu **giữ đất**, không cần trận nào — nhưng vẫn chỉ khi thật có
+đất: `combat.persist` ghi một upsert cho *mỗi* hàng, nên tạo sẵn hàng cho cả 122 người sẽ thêm 122
+upsert mỗi lần lưu cho những người không làm gì. Bảng `regions` và cột `map_tiles.region_id` vẫn là
+di tích — không dòng nào ghi vào chúng; id tỉnh mà luật đọc nằm ở `resource_nodes.region_id`.
 
 ## Faction identity
 

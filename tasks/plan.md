@@ -54,11 +54,11 @@ Không mở nhóm D/E/F/G lúc này.
 | **11** | **UI-3 + UI-4** — lắp cột kingdom rồi drawer từ primitives, **xoá rule bridge** | Bridge `.hud .kom-panel` chỉ xoá được khi **cả** cột và drawer đã lắp từ panel — đúng điều kiện comment của nó ghi từ vòng trước. Đóng luôn nợ kỹ thuật lớn nhất của redesign | **Xong** — `b7ee0a4` + `a7434b6`, Checkpoint B xanh (13/13 bề mặt, client unit 101) |
 | **12** | **UI-5 → UI-7** — lấp hai slot đặt chỗ (`ActivityColumn`, nửa phải `CommandTray`) + chrome/a11y pass | Hai slot đó là hai comment "PR4"/"PR5" mà vòng trước tự để lại; UI-7 đi sau cùng vì nó chạm phần còn lại (toast, frozen, heading, `AuthScreen`, map toolbar) | **Xong** — `c8a4f84` + `0895bd1` + `d19cd0e`, Checkpoint C xanh (client unit 101 → **146**, e2e 21 → **28/28** một lần chạy) |
 | **13** | **M-1 → M-2 → M-4** — một nguồn sự thật cho kích thước, thế giới 36×36 vẽ tay, rồi sức chứa | Owner nhờ "thiết kế map", tức chính **P0.4** đang chặn P0.5 và `[141]`. M-1 đứng trước vì M-2 đổi extent — làm ngược lại là sửa 8 chỗ rồi sửa tiếp, và một trong 8 chỗ (`moveArmyCommandSchema .max(19)`) sẽ ship thành bug im lặng. M-4 đi sớm trong ba task sau M-2 vì nó là cái đang chặn roadmap | **Xong** — `143a0dc` + `f62d64a` + `fa6fd0d`; sức chứa **14 → 135**, P0.4 đóng |
-| **14** | **M-3 + M-5 + M-6** — protocol version, chiếm vùng bằng quân đóng, vùng hiện ra trên màn hình | Ba task còn lại của nhóm M, độc lập với nhau sau M-2. M-6 chờ M-5 vì không có gì để vẽ trước khi có chủ vùng; M-5 đổi **luật tính điểm** nên chờ owner xác nhận `fullScoreTiles` (OQ #15) | **M-3 xong** — `9603f1b`, terrain rời dây, `PROTOCOL_VERSION = 2`; M-5 + M-6 chưa làm |
+| **14** | **M-3 + M-5 + M-6** — protocol version, chiếm vùng bằng quân đóng, vùng hiện ra trên màn hình | Ba task còn lại của nhóm M, độc lập với nhau sau M-2. M-6 chờ M-5 vì không có gì để vẽ trước khi có chủ vùng; M-5 đổi **luật tính điểm** nên owner phải thấy (OQ #15) | **M-3 + M-5 xong** — `9603f1b` terrain rời dây + `PROTOCOL_VERSION = 2`; `f3e9b1a` lãnh thổ có người ghi, một tỉnh 73–76 điểm thay vì 300. M-6 chưa làm |
 
 Bảng trên không có hàng cho **C.1** (misinformation, `fb27af7`): nó chạy giữa Bước 12 và Bước 13 như một mục của nhóm C, không phải một bước của vòng nào.
 
-Còn chặn thật, đã báo thay vì làm dở: **P0.5 + B.3** `[141]` (không `k6`; deps P0.4 **đã hết** — sức chứa 135 ≥ profile 120), **B.2b** + hai job CI Docker (không Docker ở máy này — sau PR.1 thì `recovery-drill` trên CI là chỗ quan sát đầu tiên, cần `workflow_dispatch`), **A.1** phần phiên tay 30–60 phút (người phải chạy), **S-7 / S-8 / S-9** (gộp PR admin kế tiếp / owner chốt con số / owner quyết guard boot), **M-5** (đổi luật tính điểm lãnh thổ — OQ #15), nhóm **D** (owner chốt hướng persistence), phần lớn **Phase 8** và **G.2–G.5** (bundle ID, signing, license).
+Còn chặn thật, đã báo thay vì làm dở: **P0.5 + B.3** `[141]` (không `k6`; deps P0.4 **đã hết** — sức chứa 135 ≥ profile 120), **B.2b** + hai job CI Docker (không Docker ở máy này — sau PR.1 thì `recovery-drill` trên CI là chỗ quan sát đầu tiên, cần `workflow_dispatch`), **A.1** phần phiên tay 30–60 phút (người phải chạy), **S-7 / S-8 / S-9** (gộp PR admin kế tiếp / owner chốt con số / owner quyết guard boot), nhóm **D** (owner chốt hướng persistence), phần lớn **Phase 8** và **G.2–G.5** (bundle ID, signing, license). **M-5 đã làm và đã đo** (`f3e9b1a`), nhưng thang điểm mới là **đổi luật**, nên OQ #15 vẫn mở: owner giữ hoặc đổi `fullScoreTiles`, một hằng số và một fixture.
 
 Lý do **không** đảo Bước 1 lên trước Bước 0: mọi verification của Bước 1 (số test, band layout) đọc từ code trong working tree; nếu tree mất thì tài liệu vừa viết cũng sai theo.
 
@@ -897,7 +897,7 @@ câu prose vừa sửa; `gameRules` không được serve qua HTTP nên không b
 
 **Files:** `apps/server/src/app.ts` ⚠️, `packages/shared/src/index.ts` ⚠️, `apps/client/src/{map,map-geometry}.ts`, `apps/client/src/components/LogisticsPanel.tsx`, các test tương ứng · **Deps:** M-2 · **Scope:** M
 
-### M-5 — Chiếm vùng bằng quân đóng: 300 điểm chết sống lại
+### M-5 — Chiếm vùng bằng quân đóng: 300 điểm chết sống lại ✅ `f3e9b1a`
 
 **Luật** (`apps/server/src/territory.ts`, mới, hàm thuần): vùng thuộc về P nếu P có **quân sống**
 (`strength > 0`, không `frozen`, `ownerType === "player"`) trong bán kính Manhattan `captureRadius = 1`
@@ -907,21 +907,23 @@ quanh **seat** của vùng, và không ai có quân gần seat hơn hoặc bằn
 khác `victories` là số cộng dồn).
 
 **Đổi thang điểm — cần owner thấy (OQ #15).** Thang cũ (`tiles × 5`, max ở 60 ô) nghĩa là **giữ một
-tỉnh 81 ô ăn trọn 300 điểm**, tức biến 30% trục quân sự thành một cái công tắc. Đề xuất
-`fullScoreTiles = 324` (25% của 1296 ô ≈ **4 trong 16 tỉnh**).
+tỉnh 81 ô ăn trọn 300 điểm**, tức biến 30% trục quân sự thành một cái công tắc. Đã làm:
+`fullScoreTiles = (mapExtent²)/4 = 324`, viết thành **tỷ lệ của bản đồ** nên đổi kích thước thế giới
+không âm thầm làm lãnh thổ rẻ đi hay đắt lên.
 
 **Acceptance criteria:**
-- [ ] Đóng quân cạnh seat → tick sau `tilesControlled` tăng đúng số ô của vùng; rút quân → về 0
-- [ ] Hai người cùng khoảng cách tới seat → vùng **vô chủ**, không ai được điểm
-- [ ] Raider đứng trên seat không chiếm được vùng và **không chặn** người chơi
-- [ ] Người **chưa từng đánh nhau** vẫn có điểm lãnh thổ — hôm nay entry `militaryThroughput` chỉ sinh ra khi có battle (`combat.ts:294`), nên cần `??=` khởi tạo
-- [ ] Giữ 4 tỉnh = 300 điểm; giữ 1 tỉnh ≈ 75 điểm, **không** phải 300; `militaryScore` vẫn trần 1000
-- [ ] Không migration mới — `military_throughput.tiles_controlled` **đã có cột**, đã đọc/ghi
+- [X] Đóng quân cạnh seat → tick sau `tilesControlled` tăng đúng số ô của vùng; rút quân → về 0
+- [X] Hai người cùng khoảng cách tới seat → vùng **vô chủ**, không ai được điểm
+- [X] Raider đứng trên seat không chiếm được vùng và **không chặn** người chơi
+- [X] Người **chưa từng đánh nhau** vẫn có điểm lãnh thổ — entry sinh ở lần đầu **giữ đất**, nhưng vẫn **sinh muộn**: `combat.persist` ghi một upsert cho *mỗi* entry, nên tạo sẵn hàng cho cả 122 người sẽ thêm 122 upsert mỗi lần save cho những người không làm gì. Đo: 122 người / 122 thành → **0 hàng**; hai quân cạnh hai seat → **2 hàng**
+- [X] Giữ 1 tỉnh ≈ 75 điểm, **không** phải 300; `militaryScore` vẫn trần 1000 — **đo thật: một tỉnh 79–83 ô cho 73–76 điểm**, bốn tỉnh cho **292–300** tuỳ chọn bốn tỉnh nào. Phát biểu trung thực là *một phần tư bản đồ* cho 300, không phải "đúng bốn tỉnh"
+- [X] Không migration mới — `military_throughput.tiles_controlled` **đã có cột**, đã đọc/ghi
 
 **Verification:**
-- [ ] `territory.test.ts` (mới, thuần): bảng tình huống — một chủ, tranh chấp, hoà, NPC, quân chết, quân `frozen`, quân ngoài bán kính
-- [ ] `packages/shared/src/index.test.ts` — **2 assertion đổi fixture** (`tilesControlled: 100` → `324`), giữ nguyên ý "tất cả max → 1000"; nói rõ trong commit **vì sao** fixture đổi
-- [ ] e2e `production-loop.spec.ts` xanh (một lần đỏ cuối full run là flake đã biết → chạy lại riêng lẻ)
+- [X] `territory.test.ts` (mới, thuần, 6 test): một chủ, tranh chấp, hoà, **hai quân cùng chủ không tự hoà với mình**, NPC, quân chết, quân `frozen`, người bị ban, ngoài bán kính
+- [X] `packages/shared/src/index.test.ts` — **2 assertion đổi fixture**, giữ nguyên ý: `tilesControlled: 100` → `gameRules.territory.fullScoreTiles` cho ca "tất cả max → 1000" (100 ô max được thang cũ, thang mới thì không), và `5` → `81` cho ca giữa, giờ kỳ vọng 225 = 110 + 75 + 40. Thêm một test quét cả 16 tỉnh, khẳng định mỗi tỉnh trả 70–80 điểm. `store.test.ts` giữ phần wiring: điểm đi theo chỗ quân đứng và không cần trận nào để tồn tại
+- [X] `typecheck` sạch; `npm test` shared **20/20**, server **159** (144 pass + 15 skip), client **151/151**; `build` + `check:bundle` **6/6** ≤ 500 KiB
+- [X] e2e `production-loop.spec.ts` + `situation-room.spec.ts` — **8/8 xanh** (cổng 3100/5174, config tạm đã xoá), gồm cả `season close` vốn là chỗ flake. Không spec nào assert số điểm quân sự (đã grep), nên thang mới không thể làm đỏ một assertion e2e
 
 **Files:** `apps/server/src/territory.ts` (mới), `territory.test.ts` (mới), `apps/server/src/store.ts` ⚠️, `packages/shared/src/index.ts` ⚠️, `packages/shared/src/index.test.ts`, `docs/GAME-DESIGN.md` · **Deps:** M-2 · **Scope:** M
 
@@ -964,9 +966,9 @@ nhóm UI**, không thêm panel nào.
 
 ### Checkpoint C — sau M-3 + M-5 + M-6 (lãnh thổ có nghĩa)
 - [X] `PROTOCOL_VERSION = 2`, client cũ bị khoá kèm câu tiếng Việt (`9603f1b`)
-- [ ] `tilesControlled` sống, thang điểm mới có test; `regions`/`region_id` hết là di tích
-- [ ] Giữ 4/16 tỉnh = 300 điểm; 2 assertion shared đã đổi fixture, ghi rõ vì sao
-- [ ] Vùng thấy được trên map + feed; không placeholder nào còn lại
+- [X] `tilesControlled` sống, thang điểm mới có test (`f3e9b1a`); **16 tỉnh giờ là dữ liệu thật** — `resource_nodes.region_id` mang id tỉnh thật từ M-2, và luật vùng đọc chính nó. Hai thứ **vẫn là di tích**: bảng `regions` (không dòng nào INSERT) và cột `map_tiles.region_id` (không dòng nào ghi `map_tiles` — nó chỉ được *đọc* làm override terrain). Xoá chúng là một migration, không phải một phần của M-5
+- [X] 2 assertion shared đã đổi fixture, ghi rõ vì sao. Đo lại phát biểu: **một phần tư bản đồ** cho 300 điểm — bốn tỉnh cho 292–300 tuỳ chọn bốn tỉnh nào, một tỉnh cho 73–76
+- [ ] Vùng thấy được trên map + feed; không placeholder nào còn lại — **M-6, chưa làm**
 - [ ] Đo lại ma trận test ở `docs/ROADMAP.md:207` — **đo trước, sửa sau** (đã bị đúng lỗi này một lần)
 
 **Không làm vòng này, và vì sao:** terrain ảnh hưởng di chuyển / thu hoạch / tầm nhìn (là luật

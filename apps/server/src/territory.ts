@@ -4,8 +4,10 @@ import { gameRules, regionTileCounts, regions, type Army } from "@kingdoms/share
  *
  *  `militaryScore` has always paid up to 300 of its 1000 points for `tilesControlled`, and
  *  until now no line of code ever moved that number: three tenths of the military axis was
- *  dead, and the `regions` table plus `map_tiles.region_id` were relics pointing at it. This
- *  module is the rule that makes the field mean something.
+ *  dead. This module is the rule that makes the field mean something. The sixteen provinces
+ *  themselves are real data — `resource_nodes.region_id` carries the province id the rule reads
+ *  below. The `regions` table and `map_tiles.region_id` are still relics: nothing inserts either
+ *  one, and clearing them out is a migration rather than part of this rule.
  *
  *  Control is a snapshot of where armies stand, not a running total: it is recomputed every
  *  tick, so a province changes hands the moment someone marches in, and marching away gives
