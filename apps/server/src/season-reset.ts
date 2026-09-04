@@ -23,7 +23,7 @@ export function hardReset(state: GameState, nextSeason: GameState["season"]): vo
   for (const city of state.cities) { city.resources = { food: 0, wood: 500, stone: 500, iron: 500 }; city.buildings = { town_hall: 1 }; city.queues = []; city.starterGranted = true; }
   for (const alliance of state.alliances) for (const member of alliance.members) member.contribution = 0;
   state.season = nextSeason; state.armies = []; state.heroes = []; state.caravans = []; state.scores = Object.fromEntries(state.players.map(player => [player.id, zeroScores()]));
-  state.processedCommands = []; state.battleReports = []; state.militaryThroughput = {}; state.treaties = []; state.diplomacyThroughput = {};
+  state.battleReports = []; state.militaryThroughput = {}; state.treaties = []; state.diplomacyThroughput = {};
   state.spyMissions = []; state.worldEvents = []; state.counterIntelActive = {}; state.allianceVotes = []; state.seasonMetrics = { resourcesProduced: {} };
 }
 

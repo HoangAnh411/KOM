@@ -129,13 +129,17 @@ test("command rate-limit buckets are independent per command group", async () =>
   // The spy bucket is spent; a build is a different bucket and must still be accepted.
   const build = await post("/api/commands/build", { commandId: "bucket-build-1", cityId, buildingId: "warehouse", queueType: "build" });
   assert.equal(build.statusCode, 200, "an exhausted spy bucket must not reject a build command");
-  // attack and formation share the combat bucket (10/min), so the eleventh combat command is the
-  // first to be rejected — and it must not touch what is left of the write bucket.
+  // attack, formation and ambush share the combat bucket (10/min), so the eleventh combat command
+  // is the first to be rejected — and it must not touch what is left of the write bucket.
+  const combatUrls = ["/api/commands/attack", "/api/commands/formation", "/api/commands/ambush"];
   for (let index = 1; index <= 10; index++) {
-    const url = index % 2 === 0 ? "/api/commands/attack" : "/api/commands/formation";
+    const url = combatUrls[index % combatUrls.length];
     assert.notEqual((await post(url, { commandId: `bucket-combat-${index}` })).statusCode, 429, `combat ${index} stays inside the combat bucket`);
   }
   assert.equal((await post("/api/commands/attack", { commandId: "bucket-combat-11" })).statusCode, 429);
+  // ambush used to sit in the write bucket at 20/min, which made a caravan raid twice as cheap as
+  // the attack it stands in for; it now shares the combat counter it just helped exhaust.
+  assert.equal((await post("/api/commands/ambush", { commandId: "bucket-combat-12" })).statusCode, 429);
   assert.notEqual((await post("/api/commands/harvest", { commandId: "bucket-write-2" })).statusCode, 429, "an exhausted combat bucket must not reject a logistics command");
   await server.app.close();
 });

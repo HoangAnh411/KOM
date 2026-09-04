@@ -3,6 +3,7 @@ import type { Alliance, AllianceVote, Treaty, DiplomacyStats } from "@kingdoms/s
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import { config } from "./config.js";
+import { CommandRegistry } from "./command-registry.js";
 
 function assertActivePlayer(state: GameState, playerId: string): void {
   if (state.players.find(player => player.id === playerId)?.status === "banned") throw new Error("ACCOUNT_BANNED");
@@ -13,7 +14,10 @@ function assertActiveTarget(state: GameState, playerId: string): void {
 }
 
 export class DiplomacyRepository {
-  constructor(private readonly pool?: Pool) {}
+  // Dedupe used to live in `state.processedCommands`, i.e. inside the `game_state` JSONB row, so it
+  // grew on disk as well as in RAM. The shared registry is bounded and is rolled back by the store
+  // when a command throws, which the old array never was: it pushed only on success instead.
+  constructor(private readonly pool?: Pool, private readonly commands: CommandRegistry = new CommandRegistry()) {}
 
   seed(state: GameState) {
     if (!state.alliances) state.alliances = [];
@@ -38,7 +42,7 @@ export class DiplomacyRepository {
 
   createAlliance(commandId: string, name: string, tag: string, playerId: string, state: GameState): string {
     assertActivePlayer(state, playerId);
-    if (state.processedCommands.includes(commandId)) return "already_processed";
+    if (!this.commands.claim(commandId)) return "already_processed";
     if (state.alliances.some(a => a.members.some(m => m.playerId === playerId))) throw new Error("ALREADY_IN_ALLIANCE");
     if (state.alliances.some(a => a.name === name || a.tag === tag)) throw new Error("NAME_OR_TAG_TAKEN");
 
@@ -53,13 +57,12 @@ export class DiplomacyRepository {
       createdAt: new Date().toISOString(),
     };
     state.alliances.push(alliance);
-    state.processedCommands.push(commandId);
     return "accepted";
   }
 
   joinAlliance(commandId: string, allianceId: string, playerId: string, state: GameState): string {
     assertActivePlayer(state, playerId);
-    if (state.processedCommands.includes(commandId)) return "already_processed";
+    if (!this.commands.claim(commandId)) return "already_processed";
     if (state.alliances.some(a => a.members.some(m => m.playerId === playerId))) throw new Error("ALREADY_IN_ALLIANCE");
     
     const alliance = state.alliances.find(a => a.id === allianceId);
@@ -67,13 +70,12 @@ export class DiplomacyRepository {
     if (alliance.members.length >= 10) throw new Error("ALLIANCE_FULL");
 
     alliance.members.push({ playerId, role: "member", contribution: 0, joinedAt: new Date().toISOString() });
-    state.processedCommands.push(commandId);
     return "accepted";
   }
 
   leaveAlliance(commandId: string, playerId: string, state: GameState): string {
     assertActivePlayer(state, playerId);
-    if (state.processedCommands.includes(commandId)) return "already_processed";
+    if (!this.commands.claim(commandId)) return "already_processed";
     
     const alliance = state.alliances.find(a => a.members.some(m => m.playerId === playerId));
     if (!alliance) throw new Error("NOT_IN_ALLIANCE");
@@ -89,7 +91,6 @@ export class DiplomacyRepository {
       alliance.leaderTermStartedAt = new Date().toISOString();
     }
 
-    state.processedCommands.push(commandId);
     return "accepted";
   }
 
@@ -100,43 +101,43 @@ export class DiplomacyRepository {
   manageMember(commandId: string, targetPlayerId: string, action: "promote" | "demote" | "kick", playerId: string, state: GameState): string {
     assertActivePlayer(state, playerId);
     if (action !== "kick") assertActiveTarget(state, targetPlayerId);
-    if (state.processedCommands.includes(commandId)) return "already_processed";
+    if (!this.commands.claim(commandId)) return "already_processed";
     const alliance = state.alliances.find(item => item.leaderPlayerId === playerId); if (!alliance) throw new Error("LEADER_REQUIRED");
     const target = alliance.members.find(member => member.playerId === targetPlayerId); if (!target) throw new Error("MEMBER_NOT_FOUND");
     if (target.role === "leader") throw new Error("CANNOT_MANAGE_LEADER");
     if (action === "kick") alliance.members = alliance.members.filter(member => member.playerId !== targetPlayerId);
     else target.role = action === "promote" ? "officer" : "member";
-    state.processedCommands.push(commandId); return "accepted";
+    return "accepted";
   }
 
   setNotice(commandId: string, notice: string, playerId: string, state: GameState): string {
     assertActivePlayer(state, playerId);
-    if (state.processedCommands.includes(commandId)) return "already_processed";
+    if (!this.commands.claim(commandId)) return "already_processed";
     const alliance = state.alliances.find(item => item.members.some(member => member.playerId === playerId));
     const member = alliance?.members.find(item => item.playerId === playerId); if (!alliance || !member || member.role === "member") throw new Error("OFFICER_REQUIRED");
-    alliance.notice = notice; state.processedCommands.push(commandId); return "accepted";
+    alliance.notice = notice; return "accepted";
   }
 
   openVote(commandId: string, candidatePlayerId: string, playerId: string, state: GameState): AllianceVote {
     assertActivePlayer(state, playerId);
     assertActiveTarget(state, candidatePlayerId);
-    if (state.processedCommands.includes(commandId)) throw new Error("already_processed");
+    if (!this.commands.claim(commandId)) throw new Error("already_processed");
     const alliance = state.alliances.find(item => item.members.some(member => member.playerId === playerId));
     const opener = alliance?.members.find(member => member.playerId === playerId); if (!alliance || !opener || opener.role === "member") throw new Error("OFFICER_REQUIRED");
     if (!alliance.members.some(member => member.playerId === candidatePlayerId)) throw new Error("CANDIDATE_NOT_MEMBER");
     if (state.allianceVotes.some(vote => vote.allianceId === alliance.id && vote.status === "open")) throw new Error("VOTE_ALREADY_OPEN");
     const now = Date.now(); const vote: AllianceVote = { id: randomUUID(), allianceId: alliance.id, candidatePlayerId, openedByPlayerId: playerId, votes: [], status: "open", openedAt: new Date(now).toISOString(), expiresAt: new Date(now + 24 * 60 * 60 * 1000).toISOString() };
-    state.allianceVotes.push(vote); state.processedCommands.push(commandId); return vote;
+    state.allianceVotes.push(vote); return vote;
   }
 
   castVote(commandId: string, voteId: string, choice: boolean, playerId: string, state: GameState): AllianceVote {
     assertActivePlayer(state, playerId);
-    if (state.processedCommands.includes(commandId)) throw new Error("already_processed");
+    if (!this.commands.claim(commandId)) throw new Error("already_processed");
     const vote = state.allianceVotes.find(item => item.id === voteId); if (!vote || vote.status !== "open") throw new Error("VOTE_NOT_OPEN");
     assertActiveTarget(state, vote.candidatePlayerId);
     const alliance = state.alliances.find(item => item.id === vote.allianceId); if (!alliance?.members.some(member => member.playerId === playerId)) throw new Error("NOT_IN_ALLIANCE");
     if (vote.votes.some(ballot => ballot.playerId === playerId)) throw new Error("ALREADY_VOTED");
-    vote.votes.push({ playerId, vote: choice, castAt: new Date().toISOString() }); this.evaluateVote(vote, alliance); state.processedCommands.push(commandId); return vote;
+    vote.votes.push({ playerId, vote: choice, castAt: new Date().toISOString() }); this.evaluateVote(vote, alliance); return vote;
   }
 
   private evaluateVote(vote: AllianceVote, alliance: Alliance, expired = false): void {
@@ -149,7 +150,7 @@ export class DiplomacyRepository {
 
   contributeAlliance(commandId: string, cityId: string, resources: { wood: number; stone: number; iron: number }, playerId: string, state: GameState): string {
     assertActivePlayer(state, playerId);
-    if (state.processedCommands.includes(commandId)) return "already_processed";
+    if (!this.commands.claim(commandId)) return "already_processed";
     
     const alliance = state.alliances.find(a => a.members.some(m => m.playerId === playerId));
     if (!alliance) throw new Error("NOT_IN_ALLIANCE");
@@ -178,14 +179,13 @@ export class DiplomacyRepository {
       stats.reputation += 10;
     }
 
-    state.processedCommands.push(commandId);
     return "accepted";
   }
 
   proposeTreaty(commandId: string, targetPlayerId: string, treatyType: Treaty["treatyType"], durationSeconds: number = 3 * 24 * 3600, playerId: string, state: GameState): string {
     assertActivePlayer(state, playerId);
     assertActiveTarget(state, targetPlayerId);
-    if (state.processedCommands.includes(commandId)) return "already_processed";
+    if (!this.commands.claim(commandId)) return "already_processed";
     if (targetPlayerId === playerId) throw new Error("INVALID_TARGET");
 
     const existingPending = state.treaties.find(t => 
@@ -206,13 +206,12 @@ export class DiplomacyRepository {
       proposedAt: new Date().toISOString(),
     };
     state.treaties.push(treaty);
-    state.processedCommands.push(commandId);
     return "accepted";
   }
 
   respondTreaty(commandId: string, treatyId: string, accept: boolean, playerId: string, state: GameState): string {
     assertActivePlayer(state, playerId);
-    if (state.processedCommands.includes(commandId)) return "already_processed";
+    if (!this.commands.claim(commandId)) return "already_processed";
     
     const treaty = state.treaties.find(t => t.id === treatyId);
     if (!treaty) throw new Error("TREATY_NOT_FOUND");
@@ -233,13 +232,12 @@ export class DiplomacyRepository {
       treaty.status = "rejected";
     }
 
-    state.processedCommands.push(commandId);
     return "accepted";
   }
 
   breakTreaty(commandId: string, treatyId: string, playerId: string, state: GameState): string {
     assertActivePlayer(state, playerId);
-    if (state.processedCommands.includes(commandId)) return "already_processed";
+    if (!this.commands.claim(commandId)) return "already_processed";
     
     const treaty = state.treaties.find(t => t.id === treatyId);
     if (!treaty) throw new Error("TREATY_NOT_FOUND");
@@ -257,7 +255,6 @@ export class DiplomacyRepository {
     const otherStats = this.getStats(otherPlayerId, state);
     otherStats.activeTreaties--;
 
-    state.processedCommands.push(commandId);
     return "accepted";
   }
 

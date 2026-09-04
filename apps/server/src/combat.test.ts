@@ -249,5 +249,6 @@ test("a treaty is re-checked when the pursuit actually resolves", () => {
   assert.ok(resolved, "pursuit battle happened");
   assert.equal(treaty.status, "violated", "treaty broken at actual combat time");
   assert.ok(store.ledger.all().some(event => event.eventType === "combat.resolved" && (event.payload as { attackerArmyId: string }).attackerArmyId === army1.id), "tick-resolved player battle recorded in the ledger");
-  assert.ok(store.snapshot.processedCommands.includes("purs-8-violate"), "treaty break recorded with the resolution");
+  // The derived id used to land in `state.processedCommands`; P0.3b moved it to the shared registry.
+  assert.ok(store.commands.has("purs-8-violate"), "treaty break recorded with the resolution");
 });

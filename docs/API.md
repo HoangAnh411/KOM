@@ -87,6 +87,8 @@ Lỗi có dạng `ERROR` với code ổn định như `RATE_LIMITED`, `QUEUE_LIM
 ## Quy tắc protocol
 
 - Mọi write command phải có `commandId` duy nhất.
+- Gửi lại đúng một `commandId` đã được chấp nhận không bao giờ áp dụng hiệu ứng hai lần: server trả lại kết quả `already_processed` thay vì thực thi lại. An toàn để client retry sau timeout mạng — nhưng phải retry với **cùng** id, id mới là một command mới.
+- Nguồn sự thật của idempotency là partial unique index `event_ledger_command_idx` cộng point query `SELECT 1 FROM event_ledger WHERE command_id=$1` chạy **trong** transaction của command. Process còn giữ một cache dương gồm `IDEMPOTENCY_WINDOW` command id gần nhất (mặc định 20 000) để trả lời nhanh mà không cần round trip; id rơi ra ngoài window chỉ tốn thêm một truy vấn, không mất bảo đảm. Ở in-memory mode (không có PostgreSQL) cache chính là bảo đảm, và nó chỉ tồn tại theo process.
 - Client không gửi authoritative cost, score, battle result hoặc server timestamp.
 - Event ledger, outbox và state của mỗi REST command được commit trong cùng transaction khi PostgreSQL được bật.
 - Thay đổi breaking phải tăng protocol version và cập nhật shared package cùng API docs.
@@ -97,8 +99,8 @@ Mỗi hạn mức là một bucket theo `key` trong `apps/server/src/app.ts`; v�
 
 Nguyên tắc: **một bucket = một hạn mức**. Nhóm command được khai báo ở bảng `commandBuckets` trong `app.ts`, không truyền ở từng route, nên hạn mức không thể lệch với counter mà nó tiêu.
 
-- Write command REST: 20/phút/player — key `write:<playerId>`. Gồm build, harvest, route, caravan, escort, ambush, toàn bộ alliance/treaty và `onboarding/ack`.
-- Combat: 10/phút/player — key `combat:<playerId>`. Gồm `recruit`, `move-army`, `attack`, `cancel-army-order`, `formation`, `merge-army`.
+- Write command REST: 20/phút/player — key `write:<playerId>`. Gồm build, harvest, route, caravan, escort, toàn bộ alliance/treaty và `onboarding/ack`.
+- Combat: 10/phút/player — key `combat:<playerId>`. Gồm `recruit`, `move-army`, `attack`, `cancel-army-order`, `formation`, `merge-army`, `ambush`.
 - Espionage: 5/phút/player — key `spy:<playerId>`. Gồm `spy/launch` và `spy/counter-intel`.
 - Read REST (`/api/bootstrap`, `/api/season-history`, `/api/battles`): 60/phút/player — key `read:<playerId>`, dùng chung cho cả ba route. Một vòng reconnect (bootstrap + battle history + archive) tiêu 3 lần nên client bình thường không tới gần hạn mức.
 - Register: 3/giờ/IP — `register:<ip>`.
@@ -117,7 +119,7 @@ Nguyên tắc: **một bucket = một hạn mức**. Nhóm command được khai
 - `POST /api/commands/routes` tạo route giữa hai city cùng player; distance và travel time do server tính.
 - `POST /api/commands/caravans` trừ cargo tại source, giới hạn bởi depot capacity, rồi delivery tại destination.
 - `POST /api/commands/escort` gắn army của player vào caravan đang di chuyển.
-- `POST /api/commands/ambush` resolve deterministic; seed được lưu trong caravan và event ledger.
+- `POST /api/commands/ambush` resolve deterministic; seed được lưu trong caravan và event ledger. Người tấn công phải có ít nhất một army còn sống (`strength > 0`, không `frozen`) trong bán kính Manhattan **3 ô** quanh **ô hiện tại của caravan** — ô này là lerp `source → destination` theo `progress`, đúng ô client vẽ (`apps/client/src/map.ts:326-332`). Không đủ điều kiện → 400 `AMBUSH_OUT_OF_RANGE`, và `commandId` **chưa** bị tiêu nên gửi lại được sau khi quân tới.
 
 ### Alliance và treaty commands
 

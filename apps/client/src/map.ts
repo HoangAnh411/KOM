@@ -323,6 +323,8 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
         caravans.set(caravan.id, view);
         caravanLayer.addChild(root);
       }
+      // The server mirrors this lerp in `caravanTile()` (apps/server/src/logistics.ts) to judge
+      // ambush range, so a player is never refused for a tile they cannot see. Keep both in step.
       const from = state.cities.find(city => city.id === caravan.sourceCityId);
       const to = caravan.destinationCityId
         ? state.cities.find(city => city.id === caravan.destinationCityId)

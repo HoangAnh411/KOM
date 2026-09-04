@@ -3,14 +3,20 @@ import type { Pool, PoolClient } from "pg";
 import type { Caravan, Depot, DestinationKind, LogisticsSnapshot, MarketHub, ResourceNode, Resources, TradeRoute } from "@kingdoms/shared";
 import { gameRules } from "@kingdoms/shared";
 import type { CityState, GameState } from "./types.js";
+import { CommandRegistry } from "./command-registry.js";
 
 type Throughput = { wood: number; stone: number; iron: number };
 type LogisticsData = LogisticsSnapshot & { caravans: Caravan[] };
-type LogisticsCapture = { data: LogisticsData; commands: string[] };
+// Claimed command ids used to be copied in here too, twice per command. They live in the shared
+// `CommandRegistry` now, which the store rolls back in one call; this capture is the real state.
+type LogisticsCapture = { data: LogisticsData };
 const resourceKeys = ["wood", "stone", "iron"] as const;
 const emptyThroughput = (): Throughput => ({ wood: 0, stone: 0, iron: 0 });
 const depotCapacity = (level: number) => level * 100;
 const mapExtent = 20;
+// Manhattan reach an ambusher needs to the caravan's current tile. Owner-set: 3 tiles, so a
+// raid costs a real march and the escort system has something to defend against.
+const ambushRange = 3;
 const assertActivePlayer = (state: GameState, playerId: string) => { if (state.players.find(player => player.id === playerId)?.status === "banned") throw new Error("ACCOUNT_BANNED"); };
 const assertActiveTarget = (state: GameState, playerId: string, frozen?: boolean) => { if (frozen || state.players.find(player => player.id === playerId)?.status === "banned") throw new Error("TARGET_FROZEN"); };
 
@@ -31,10 +37,21 @@ function findHubTile(anchorX: number, anchorY: number, occupied: Set<string>): {
   throw new Error("MAP_FULL");
 }
 
+// A caravan has no x/y of its own: it is a point on the line between its source city and its
+// destination (city or market hub), placed by `progress`. This mirrors the client lerp at
+// apps/client/src/map.ts:326-332 so the server judges range against the tile the player can
+// actually see the caravan on. Keep the two in step; `undefined` here matches the client
+// hiding a caravan whose endpoints no longer resolve.
+export function caravanTile(caravan: Caravan, state: GameState, hubs: MarketHub[]): { x: number; y: number } | undefined {
+  const from = state.cities.find(city => city.id === caravan.sourceCityId);
+  const to = caravan.destinationCityId ? state.cities.find(city => city.id === caravan.destinationCityId) : hubs.find(hub => hub.id === caravan.destinationMarketId);
+  if (!from || !to) return undefined;
+  return { x: Math.round(from.x + (to.x - from.x) * caravan.progress), y: Math.round(from.y + (to.y - from.y) * caravan.progress) };
+}
+
 export class LogisticsRepository {
   private data: LogisticsData = { resourceNodes: [], depots: [], tradeRoutes: [], marketHubs: [], throughput: {}, caravans: [] };
-  private commands = new Set<string>();
-  constructor(private readonly pool?: Pool) {}
+  constructor(private readonly pool?: Pool, private readonly commands: CommandRegistry = new CommandRegistry()) {}
 
   seed(state: GameState): void {
     if (!this.data.resourceNodes.length) this.data.resourceNodes = [
@@ -97,10 +114,10 @@ export class LogisticsRepository {
   snapshot(): LogisticsSnapshot { return { resourceNodes: this.data.resourceNodes, depots: this.data.depots, tradeRoutes: this.data.tradeRoutes, marketHubs: this.data.marketHubs, throughput: this.data.throughput }; }
   caravans(): Caravan[] { return this.data.caravans; }
   setPlayerFrozen(playerId: string, frozen: boolean, frozenAt: string | undefined, deltaMs: number, state: GameState): void { for (const caravan of this.data.caravans) { const owned = caravan.ownerPlayerId === playerId; const targetsPlayer = state.cities.find(city => city.id === caravan.destinationCityId)?.playerId === playerId; if (!owned && !targetsPlayer) continue; if (!frozen && deltaMs > 0) { if (caravan.departureAt) caravan.departureAt = new Date(Date.parse(caravan.departureAt) + deltaMs).toISOString(); if (caravan.arrivesAt) caravan.arrivesAt = new Date(Date.parse(caravan.arrivesAt) + deltaMs).toISOString(); } if (owned) { caravan.frozen = frozen; caravan.frozenAt = frozenAt; } } }
-  capture(): LogisticsCapture { return { data: structuredClone(this.data), commands: [...this.commands] }; }
-  restore(capture: LogisticsCapture): void { this.data = structuredClone(capture.data); this.commands = new Set(capture.commands); }
+  capture(): LogisticsCapture { return { data: structuredClone(this.data) }; }
+  restore(capture: LogisticsCapture): void { this.data = structuredClone(capture.data); }
   resetForSeason(state: GameState): void { this.data.caravans = []; this.data.tradeRoutes = []; this.data.throughput = {}; for (const node of this.data.resourceNodes) node.remaining = node.capacity; this.syncDepots(state); /* market hub survives season reset */ }
-  private claim(commandId: string): boolean { if (this.commands.has(commandId)) return false; this.commands.add(commandId); return true; }
+  private claim(commandId: string): boolean { return this.commands.claim(commandId); }
 
   harvest(commandId: string, nodeId: string, cityId: string, playerId: string, amount: number, state: GameState): string {
     assertActivePlayer(state, playerId);
@@ -169,6 +186,12 @@ export class LogisticsRepository {
     if (caravan) assertActiveTarget(state, caravan.ownerPlayerId, caravan.frozen);
     if (!caravan || caravan.status !== "moving") throw new Error("CARAVAN_NOT_MOVING");
     if (caravan.ownerPlayerId === attackerPlayerId) throw new Error("INVALID_ATTACKER");
+    // An ambush used to cost nothing but a command: no army, no distance, so any active player
+    // could strip 60% of any cargo anywhere on the map and escorts protected nothing. Require a
+    // live army of the attacker's within `ambushRange` of where the caravan is right now. The
+    // Manhattan test is inline to match the HARVEST_OUT_OF_RANGE check above.
+    const tile = caravanTile(caravan, state, this.data.marketHubs);
+    if (!tile || !state.armies.some(army => army.ownerPlayerId === attackerPlayerId && !army.frozen && army.strength > 0 && Math.abs(army.x - tile.x) + Math.abs(army.y - tile.y) <= ambushRange)) throw new Error("AMBUSH_OUT_OF_RANGE");
     const seed = Array.from(commandId).reduce((value, char) => (value * 31 + char.charCodeAt(0)) >>> 0, 7);
     if (!this.claim(commandId)) throw new Error("already_processed");
     if (diplomacy) {

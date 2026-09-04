@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { GameStore } from "./store.js";
+import { caravanTile } from "./logistics.js";
 
 test("logistics harvest, route and delivery are server-authoritative", () => {
   const store = new GameStore();
@@ -39,7 +40,10 @@ test("resource nodes recover on server tick", () => {
   store.tick();
   assert.equal(node.remaining, 105);
 });
-test("ambush is deterministic and stores its seed", () => {
+// Seeded world: player Lan owns the city at (8,8) and an army at (9,8); enemy Minh owns the city
+// at (13,11) and an army at (14,11). The caravan runs (8,8) → (13,11), so at progress 0 it sits on
+// (8,8) — nine tiles from Minh's army, i.e. out of ambush range until the test moves it.
+function ambushScenario() {
   const store = new GameStore();
   const player = store.snapshot.players[0];
   const enemy = store.snapshot.players[1];
@@ -50,10 +54,67 @@ test("ambush is deterministic and stores its seed", () => {
   store.logistics.syncDepots(store.snapshot);
   const route = store.logistics.createRoute("route-ambush", source.id, { kind: "city", id: destination.id }, player.id, store.snapshot);
   const caravan = store.logistics.startCaravan("caravan-ambush", route.id, { food: 0, wood: 20, stone: 0, iron: 0 }, player.id, store.snapshot);
+  const enemyArmy = store.snapshot.armies.find(army => army.ownerPlayerId === enemy.id)!;
+  return { store, player, enemy, caravan, enemyArmy, source, destination };
+}
+
+test("ambush is deterministic and stores its seed", () => {
+  const { store, enemy, caravan, enemyArmy } = ambushScenario();
+  enemyArmy.x = 8; enemyArmy.y = 9; // one tile from the caravan at (8,8)
   const result = store.logistics.ambush("ambush-001", caravan.id, enemy.id, store.snapshot);
   assert.equal(caravan.ambushSeed, result.seed);
   assert.equal(typeof result.seed, "number");
   assert.ok(result.seed >= 0);
+});
+
+test("ambush without an army in range is rejected and does not consume the command", () => {
+  const { store, enemy, caravan, enemyArmy } = ambushScenario();
+  assert.equal(Math.abs(enemyArmy.x - 8) + Math.abs(enemyArmy.y - 8), 9, "seeded army starts out of range");
+  assert.throws(() => store.logistics.ambush("ambush-range", caravan.id, enemy.id, store.snapshot), /AMBUSH_OUT_OF_RANGE/);
+  assert.equal(caravan.status, "moving", "a rejected ambush leaves the caravan alone");
+  assert.equal(caravan.ambushSeed, undefined);
+  assert.deepEqual(caravan.cargo, { food: 0, wood: 20, stone: 0, iron: 0 });
+  // The guard runs before claim(), so the same commandId is still usable once an army arrives.
+  enemyArmy.x = 8; enemyArmy.y = 8;
+  const result = store.logistics.ambush("ambush-range", caravan.id, enemy.id, store.snapshot);
+  assert.ok(result.seed >= 0);
+});
+
+test("ambush range is 3 tiles measured on the caravan's current tile", () => {
+  const atDistance = (distance: number) => {
+    const { store, enemy, caravan, enemyArmy } = ambushScenario();
+    enemyArmy.x = 8 + distance; enemyArmy.y = 8;
+    return () => store.logistics.ambush("ambush-boundary", caravan.id, enemy.id, store.snapshot);
+  };
+  atDistance(3)(); // exactly at the limit is allowed
+  assert.throws(atDistance(4), /AMBUSH_OUT_OF_RANGE/);
+  // Progress moves the target tile: the caravan is 60% along (8,8) → (13,11), so (11,10) is the
+  // tile that counts and the source city is now too far away.
+  const { store, enemy, caravan, enemyArmy } = ambushScenario();
+  caravan.progress = 0.6;
+  enemyArmy.x = 8; enemyArmy.y = 8;
+  assert.throws(() => store.logistics.ambush("ambush-progress", caravan.id, enemy.id, store.snapshot), /AMBUSH_OUT_OF_RANGE/);
+  enemyArmy.x = 11; enemyArmy.y = 10;
+  assert.equal(typeof store.logistics.ambush("ambush-progress", caravan.id, enemy.id, store.snapshot).seed, "number");
+});
+
+test("frozen and destroyed armies cannot ambush", () => {
+  const frozen = ambushScenario();
+  frozen.enemyArmy.x = 8; frozen.enemyArmy.y = 8; frozen.enemyArmy.frozen = true;
+  assert.throws(() => frozen.store.logistics.ambush("ambush-frozen", frozen.caravan.id, frozen.enemy.id, frozen.store.snapshot), /AMBUSH_OUT_OF_RANGE/);
+  const destroyed = ambushScenario();
+  destroyed.enemyArmy.x = 8; destroyed.enemyArmy.y = 8; destroyed.enemyArmy.strength = 0;
+  assert.throws(() => destroyed.store.logistics.ambush("ambush-dead", destroyed.caravan.id, destroyed.enemy.id, destroyed.store.snapshot), /AMBUSH_OUT_OF_RANGE/);
+});
+
+test("caravanTile mirrors the client lerp and fails closed on a missing endpoint", () => {
+  const { store, caravan, source } = ambushScenario();
+  const hubs = store.logistics.snapshot().marketHubs;
+  assert.deepEqual(caravanTile(caravan, store.snapshot, hubs), { x: 8, y: 8 });
+  caravan.progress = 1;
+  assert.deepEqual(caravanTile(caravan, store.snapshot, hubs), { x: 13, y: 11 });
+  source.id = "gone";
+  assert.equal(caravanTile(caravan, store.snapshot, hubs), undefined);
 });
 
 test("low army supply causes attrition in the supply zone cycle", () => {

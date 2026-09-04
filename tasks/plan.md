@@ -1,12 +1,14 @@
 # Implementation Plan: backlog `docs/ROADMAP.md` + thứ tự thực thi
 
-> Lập ngày 2026-09-02, cập nhật cùng ngày sau khi Phase 7D landing. Checklist thực thi: [`tasks/todo.md`](./todo.md).
+> Lập ngày 2026-09-02, cập nhật cùng ngày sau khi Phase 7D landing, cập nhật lần cuối **2026-09-03** (vòng PR.1 → P0.3b). Checklist thực thi: [`tasks/todo.md`](./todo.md).
 
 ## Overview
 
 **Kingdoms of Meridian** — game chiến thuật realtime, server-authoritative (React + PixiJS client, Fastify + `ws` server, `packages/shared` giữ Zod contract).
 
 Người lập kế hoạch này là **contributor**, không phải owner. **Phase 7D đã landing** ở `f6085a4` (2026-09-02, local `main` == `origin/main`): production/beta hardening — `verify:web-beta`, `scripts/smoke-prod.mjs`, `scripts/drill-web-beta.mjs`, rate limiter fail-closed (503 `DEPENDENCY_UNAVAILABLE`), Caddy security headers, auth-failure metrics, broadcast coalesce. Chi tiết ở mục "Phase 7D đã landing" của `tasks/todo.md`. 7D **không** chạm gameplay, không chạm nhóm P0 và **không sửa dòng nào của `docs/ROADMAP.md`**.
+
+**Cập nhật 2026-09-03 — công việc đã ra khỏi một máy.** Toàn bộ commit sau `f6085a4` đã được push và nằm ở **năm PR chưa merge**: #1 `feat/situation-room` (base `main`, 4 commit) → #2 `docs/truth-pass` (base #1, 4 commit) → #3 `feat/rate-limit-buckets` (base #2, 8 commit) → **#5 `perf/command-path`** (base #3, 6 commit: Z.5 + B.1a + P0.2 + P0.3a + P0.3b + docs), cộng #4 `fix/postgres-test-isolation` (base `main`, 1 commit) sửa race làm CI gate 5 đỏ ngẫu nhiên. `main` vẫn đứng ở `f6085a4`; không nhánh nào được merge. Hai gate CI hiện đỏ **không theo quy luật** và cả hai đã chứng minh là flake **có sẵn trên `main`**, không phải regression của stack: gate 5 (`test:postgres` — các file integration chạy song song trên cùng một database, một file `TRUNCATE` giữa assertion của file khác) → PR #4 là bản sửa; gate 7 (Playwright — `map-command.spec.ts` click phải NPC `mob_migration` đứng cùng ô nên inspector hiện NPC thay vì "Bộ binh · 10") **chưa có PR**. Hai job Docker `prod-smoke` / `recovery-drill` không chạy từ push nhánh PR nên vẫn **chưa quan sát được lần nào**; cần `workflow_dispatch`.
 
 Mục tiêu ban đầu của tài liệu: mỗi mục `- [ ]` còn lại có một task với acceptance criteria, cách verify và dependency. Bản cập nhật này thêm phần còn thiếu: **thứ tự thực thi** (mục ngay dưới) và nhóm Z — việc phát sinh từ trạng thái thật của repo chứ không từ roadmap.
 
@@ -26,9 +28,11 @@ Các nhãn `[NNN]` dưới đây là **ID task ổn định**, lấy theo số d
 
 Ngoài roadmap, bản audit trước tìm được **5 blocker trong code** khiến mục 141 (load test) không chạy được. Chúng thành nhóm **P0** vì thiếu chúng thì 141 fail ngay ở bước seed, không phải fail vì hiệu năng.
 
-## Thứ tự thực thi (chốt 2026-09-02)
+## Thứ tự thực thi (chốt 2026-09-02, mở rộng 2026-09-03)
 
-Năm bước, ba bước đầu là kế hoạch gốc và hai bước sau là phần owner mở phạm vi. Không mở nhóm C/D/E/F/G lúc này.
+Năm bước đầu là vòng 2026-09-02 (kế hoạch gốc + phần owner mở phạm vi). Năm bước sau là vòng
+2026-09-03: owner hỏi "tiếp theo làm gì" và chốt hai quyết định (push + mở PR; luật `ambush`).
+Không mở nhóm C/D/E/F/G lúc này.
 
 | Bước | Nội dung | Vì sao đứng ở đây | Trạng thái |
 |---|---|---|---|
@@ -37,8 +41,13 @@ Năm bước, ba bước đầu là kế hoạch gốc và hai bước sau là p
 | **2** | **P0.1** — tách rate-limit bucket | Task server duy nhất nên làm ngay: 7D vừa chạm `rate-limit.ts` nên khả năng xung đột thấp nhất, và limiter fail-closed làm 429-sai-bucket dễ nổ hơn trước. Mở đường cho B.1 `[145]` | **Xong** — nhánh `feat/rate-limit-buckets`, `d1212b4` |
 | **3** | Mở rộng theo yêu cầu owner ("làm hết tất cả"): **N.1**, **N.2**, nửa tự động của **A.1**, **E.3-pre**, ba việc dọn nhỏ | Đều là việc đã có đủ dữ kiện để làm đúng, không cần quyết định thiết kế mới. Những mục còn lại bị chặn bởi Docker/`k6`/quyết định gameplay thì **không** làm dở dang | **Xong** — cùng nhánh, `acf454a` `10c153d` `afa072b` `4817d1a` |
 | **4** | **B.1** `[145]` — security review auth / permissions / input / secrets | Dependency duy nhất của nó (P0.1) vừa xong ở Bước 2, và P0.1 đã dời hai finding cũ (bucket dùng chung, GET không hạn mức) ra khỏi phạm vi review nên review có baseline đúng. Đọc code phát hiện thêm **hai lỗ High chưa từng được ghi ở đâu** | **Xong** — cùng nhánh, `docs/SECURITY-REVIEW.md` + hai bản sửa High kèm test |
+| **5** | **PR.1** — push 3 nhánh + mở PR xếp tầng | 16 commit đã verify nhưng chỉ tồn tại trên một máy là rủi ro lớn hơn mọi mục roadmap còn lại; và hai gate Docker chỉ CI quan sát được. **Owner đã chốt** | **Xong** — **5 PR** (phát sinh PR #4 vì CI gate 5 đỏ; PR #5 mở sau khi vòng command-path xong). PR.1b cũng xong: `workflow_dispatch` run `33707793916` cho `prod-smoke` + `recovery-drill` lần quan sát đầu tiên, cả hai xanh |
+| **6** | **Z.5** — ROADMAP/docs truth pass vòng 2 | Chính yêu cầu của owner ("nhớ cập nhật lại roadmap"); doc-only nên chạy song song được với phần code | **Xong** — `dbf5c6f` + Z.5b đóng cùng B.1a |
+| **7** | **B.1a (S-5)** — `ambush` đòi quân trong bán kính 3 + bucket `combat` | Đứng **trước** P0.3 vì P0.3 viết lại chính `claim()` của `logistics.ts`; làm sau thì phải rebase file đó hai lần. **Owner đã chốt luật** | **Xong** — server unit 124 → **128** |
+| **8** | **P0.2** (= S-4) — bỏ full-table ledger reload khỏi command path | Rẻ nhất trong ba task command-path và không phụ thuộc gì; nó cũng định nghĩa *idempotency window* mà P0.3a dùng lại làm trần | **Xong** — server unit 128 → **132**, S-4 đóng |
+| **9** | **P0.3a → P0.3b** (= S-3) — gộp 5 cơ chế dedupe về một registry có trần | Phải sau P0.2 để dùng chung một con số window; tách 2 task để mỗi task ≤ 5 file và verify riêng được | **Xong** — server unit 132 → **139** (P0.3a `97822af`) → **141** (P0.3b `f94ac22`), S-3 đóng |
 
-Còn chặn thật, đã báo thay vì làm dở: **P0.4** (sức chứa thế giới — quyết định gameplay, OQ #2), **P0.5 + B.3** `[141]` (không `k6`), **B.2b** + hai job CI mới (không Docker), **A.1** phần phiên tay 30–60 phút (người phải chạy), nhóm **D** (owner chốt hướng persistence), phần lớn **Phase 8** và **G.2–G.5** (bundle ID, signing, license).
+Còn chặn thật, đã báo thay vì làm dở: **P0.4** (sức chứa thế giới — quyết định gameplay, OQ #2), **P0.5 + B.3** `[141]` (không `k6`, và deps P0.2–P0.4), **B.2b** + hai job CI Docker (không Docker ở máy này — sau PR.1 thì `recovery-drill` trên CI là chỗ quan sát đầu tiên, cần `workflow_dispatch`), **A.1** phần phiên tay 30–60 phút (người phải chạy), **S-7 / S-8 / S-9** (gộp PR admin kế tiếp / owner chốt con số / owner quyết guard boot), flake gate 7 `map-command.spec.ts` (đã ghi, chưa có PR), nhóm **D** (owner chốt hướng persistence), phần lớn **Phase 8** và **G.2–G.5** (bundle ID, signing, license).
 
 Lý do **không** đảo Bước 1 lên trước Bước 0: mọi verification của Bước 1 (số test, band layout) đọc từ code trong working tree; nếu tree mất thì tài liệu vừa viết cũng sai theo.
 
@@ -103,6 +112,65 @@ Bốn khẳng định sai đã kiểm từng dòng trên `apps/server/src/app.ts
 - [X] Không chạm `store.ts` / `app.ts` / `packages/shared` → chưa cần owner review
 - [ ] Owner xem lại hai nhánh và quyết N.1 / N.2 / OQ #2
 
+### PR.1 — Đưa 16 commit ra khỏi một máy ✅ (2026-09-03)
+
+Nhãn của plan 2026-09-03 cho task này là "D.1"; ở đây gọi **PR.1** để không lẫn với
+**D.1 `[130]`** (repository theo domain, nhóm scale). Owner đã chốt: push cả ba nhánh
+**nguyên trạng** — không rebase, không squash, không merge — rồi mở PR xếp tầng.
+
+| PR | Nhánh | Base | Commit | Nội dung |
+|---|---|---|---|---|
+| #1 | `feat/situation-room` | `main` | 4 | design tokens/primitives, Pixi resize, shell Situation Room, e2e theo role |
+| #2 | `docs/truth-pass` | `feat/situation-room` | 4 | drill result vào runbook, ROADMAP + API truth pass, tasks |
+| #3 | `feat/rate-limit-buckets` | `docs/truth-pass` | 8 | P0.1 bucket, CI 7D, test client/e2e, `buildingCosts`, B.1 security review |
+| #4 | `fix/postgres-test-isolation` | `main` | 1 | **phát sinh** — `--test-concurrency=1` + assertion theo id cho outbox integration |
+
+- [X] Ba nhánh có trên `origin` với tracking; **không** push `main`, **không** merge PR nào
+- [X] Base của #2/#3 trỏ đúng nhánh cha (kiểm bằng `gh pr view --json baseRefName`) → diff mỗi PR đúng 4/4/8 commit, không nuốt commit của PR dưới
+- [X] Mỗi PR body ghi rõ gate nào xanh ở máy contributor và `test:postgres` / `test:prod-smoke` / `drill:web-beta` **chưa từng quan sát được ở đây** (không Docker) — CI là chỗ chứng minh
+- [X] PR #3 nêu hai High của B.1 và việc còn treo cho owner
+- [X] Title ≤ 70 ký tự
+
+**Hai gate CI đỏ, và bằng chứng chúng là flake có sẵn trên `main`:**
+- **gate 5** (`test:postgres`) — `main` run `33479184803` đỏ ở `not ok 10`, PR #1 run `33660496854` đỏ ở `not ok 9`: khác test, cùng nguyên nhân. `git diff --stat main..feat/situation-room` chỉ chạm `apps/client/**` + `e2e/**` nên PR #1 không thể là nguyên nhân. Nguyên nhân thật: `node --test *.integration.test.js` chạy một tiến trình cho mỗi file với concurrency mặc định, mọi file dùng **cùng một database**, và các assertion cũ nói về *cả batch* (`report.failed`) chứ không về row đang test → hàng của file khác lọt vào. Sửa ở PR #4: `--test-concurrency=1` + helper `only(ids, id)` thu hẹp 8 assertion về đúng id của test đó. Base `main` là cố ý — merge #4 trước thì cả stack xanh mà không phải rebase nhánh đã push
+- **gate 7** (Playwright) — `main` run `33505482280`, PR #2 `33660751567`, PR #3 `33660516946` đều đỏ ở gate 7; mỗi PR có hai run (`push` + `pull_request`) và chúng chia nhau một pass một fail, đúng dấu hiệu flake. Nguyên nhân: NPC `mob_migration` ("Đám di cư · 90") đứng đúng ô mà `map-command.spec.ts:42` click, nên inspector hiện NPC thay vì `Bộ binh · 10`. Đã ghi vào roadmap là flake đã biết, **chưa sửa** — sửa nó bây giờ sẽ đẩy Bước 7–9 ra khỏi vòng này
+
+**Giới hạn:** hai job Docker (`prod-smoke`, `recovery-drill`) có `if:` giới hạn ở
+`main` / `workflow_dispatch` / `schedule`, nên **push nhánh PR không bao giờ chạy chúng**.
+Muốn có lần quan sát đầu tiên thì phải `gh workflow run` bằng tay — lần thử trong phiên này bị
+chặn bởi lỗi hạ tầng phân loại lệnh, **vẫn còn nợ**.
+
+**Scope:** S · **Deps:** none · **Owner đã chốt**
+
+### Z.5 — ROADMAP/docs truth pass vòng 2 (2026-09-03)
+
+Z.3 đã làm truth pass một lần, nhưng bốn thứ đã đổi sau đó: B.1 thêm test (server 117 → 124),
+E.3-pre thêm một e2e (18 → 19), P0.1 đã landing nên checkbox rate-limit tick được, và 16 commit
+giờ nằm ở PR chứ không còn là nhánh local. Nguyên tắc như Z.3: **chỉ sửa chỗ đang khẳng định
+sai hoặc thiếu**, không viết lại lịch sử, không tự tick mục cần người chạy.
+
+- [X] Ngày cập nhật `2026-09-02` → `2026-09-03`
+- [X] Thêm đoạn trạng thái: công việc sau `f6085a4` nằm ở **bốn PR chưa merge**, `main` vẫn ở `f6085a4`, và hai gate CI đỏ là flake có sẵn (gate 5 → PR #4, gate 7 chưa có PR)
+- [X] Test matrix: server `117 (102 pass + 15 skip)` → **`124 (109 pass + 15 skip)`**; Playwright `18 test / 10 file` → **`19 test / 10 file`** với `3` (không phải 2) test layout Situation Room; client giữ **78** — đã đo lại trên nhánh, con số `76` cũ là sai
+- [X] **Tick** mục rate-limit bucket: P0.1 landing ở `d1212b4` (PR #3), ghi bốn bucket `write 20 / combat 10 / spy 5 / read 60` và `commandBuckets` khai báo tập trung trong `apps/server/src/app.ts`
+- [X] Mục load test `[141]`: ghi rõ đang bị chặn bởi command path (P0.2 + P0.3) và sức chứa map (P0.4), `k6` chưa cài ở máy contributor, trỏ tới section mới
+- [X] Mục security review: ghi **S-5 đã được owner chốt 2026-09-03** (bán kính Manhattan 3 + bucket `combat`), giữ S-9 / S-1-trên-stack-thật / S-7 / S-8 là việc của owner
+- [X] **Section mới** `## Command path và sức chứa (chặn load test [143])` đặt sau Phase 7D, 5 mục chưa tick: S-5, P0.2 (= S-4), P0.3 (= S-3, ghi đủ **năm** cơ chế dedupe), P0.4 (owner chốt sức chứa, trần ~16 city), P0.5 (rerun load test) + tiêu chí đóng. **Không** đặt tên "Phase 7E" — số phase là của owner
+- [X] `tasks/plan.md` + `tasks/todo.md` cập nhật tại chỗ (cùng phạm vi công việc nên không tách file mới)
+- [ ] `docs/SECURITY-REVIEW.md`: hàng S-5 từ `⚠️ owner quyết` → `✅ đã sửa + test` — **chờ Bước 7 xanh**, không tick trước
+
+**Verification:**
+- [X] Mỗi con số trong test matrix đối chiếu output thật trên nhánh: `ℹ tests 3` (shared), `ℹ tests 124 / pass 109 / skipped 15` (server), `ℹ tests 78 / pass 78` (client), `playwright test --list` = 19
+- [X] **Không** tick manual acceptance `[204]`, load test `[141]`, `backup.sh`/`restore.sh` (B.2b)
+- [X] `git diff --check` sạch
+
+**Bẫy đã gặp:** `npm test` trên code của `main` báo đỏ giả (`ENOENT tokens.css`, `.situation-room`
+không có rule) vì `apps/*/dist/*.test.js` còn sót từ nhánh feature — `tsc` không xoá output mồ
+côi. Phải `rm -rf apps/client/dist apps/server/dist packages/shared/dist` trước khi đo, nếu
+không thì con số ghi vào roadmap là số của nhánh khác.
+
+**Scope:** S · **Deps:** phần S-5 chờ Bước 7 · **Files:** `docs/ROADMAP.md`, `tasks/plan.md`, `tasks/todo.md`, `docs/SECURITY-REVIEW.md` (sau Bước 7)
+
 ## Architecture Decisions
 
 - **Nhóm Z đi trước nhóm P0.** Việc đã hoàn thành nhưng chưa vào git (43 file redesign) là rủi ro cao hơn mọi mục roadmap còn lại, và tài liệu lệch code làm mọi ước lượng sau đó sai theo. Cả hai đều rẻ và không chạm file nóng.
@@ -126,11 +194,19 @@ Z.2 [144] drill vào runbook ──> tick [144] (thay B.2, B.2b)
 Z.3 ROADMAP truth pass ──┐
 Z.4 API.md truth pass ───┴──> baseline đúng cho B.1 [145]
 
+PR.1 push + 4 PR ──> CI chạy prod-smoke + recovery-drill (cần workflow_dispatch) ──> B.2b có
+                     quan sát đầu tiên
+                └──> Z.5 ROADMAP truth pass vòng 2 (doc-only, chạy song song được)
+
+B.1a S-5 ambush ──> (đứng trước P0.3 vì P0.3 viết lại claim() của logistics.ts)
+P0.2 ledger window ──> P0.3a registry có trần ──> P0.3b bỏ state.processedCommands
+       └──────────────┴──> dùng chung một con số idempotency window
+
 P0.4 world capacity ──┐
 P0.5 harness fix ─────┤
 P0.2 ledger reload ───┼──> B.3 [141] load test run + report
 P0.3 processedCommands┘
-P0.1 rate-limit ──────────> B.1 [145] security review
+P0.1 rate-limit ──────────> B.1 [145] security review ──> B.1a S-5
 
 A.1 [204] manual acceptance ──> đóng Phase 7C
 
@@ -173,39 +249,99 @@ F.4 [230] audit process (độc lập)
 **Dependencies:** None (⚠️ chạm `app.ts`; owner đã cho phép mở phạm vi) · **Scope:** S
 **Files:** `apps/server/src/app.ts`, `apps/server/src/rate-limit.test.ts`, `apps/server/src/app.test.ts`, `docs/API.md`
 
-### P0.2 — Bỏ full-table reload của event ledger khỏi command path
+### P0.2 — Bỏ full-table reload của event ledger khỏi command path (= S-4) ✅ `e22cde5`
 
-`event-ledger.ts` `load()` chạy `SELECT ... FROM event_ledger ORDER BY created_at` không `WHERE`/`LIMIT`, và `store.ts:94` gọi `await this.load()` **trong mỗi transaction command**. Mảng `history` mà nó nạp **không có consumer production nào** — `ledger.all()` chỉ xuất hiện ở 6 chỗ trong test. Idempotency chỉ cần `hasCommand()`, và DB đã có partial unique index `event_ledger_command_idx` (`003_event_ledger.sql:11`).
+**Đo lại từ code 2026-09-03.** `store.ts:99` (command) và `store.ts:122` (moderation) gọi
+`await this.load()` **bên trong** transaction; `Store.load()` (`store.ts:72`) kết thúc bằng
+`await this.ledger.load()`, và `EventLedger.load()` chạy
+`SELECT id, event_type, …, payload, created_at FROM event_ledger ORDER BY created_at` —
+**không `WHERE`, không `LIMIT`, và kéo cả `payload` JSONB** (payload chứa battle report). Nghĩa
+là mỗi command trả tiền cho toàn bộ lịch sử season, không phải chỉ cho dedupe.
+
+Nó nạp vào đúng hai chỗ: `history` — chỉ đọc qua `ledger.all()`, **6 call site và toàn bộ là
+test**, production không đọc lịch sử ledger — và `commandIds`, đọc bởi `hasCommand()`
+(`store.ts:95`) làm fast path **trước** transaction. Authority thật ở PG mode là point query
+`SELECT 1 FROM event_ledger WHERE command_id=$1` trong transaction, dựa trên partial unique
+index `event_ledger_command_idx` (`003_event_ledger.sql:11`, đã có sẵn).
+
+**Thiết kế:**
+1. `EventLedger.load()` chỉ `SELECT command_id … WHERE command_id IS NOT NULL ORDER BY created_at DESC LIMIT <window>` — một cột, có trần, mặc định 20 000, gọi thẳng là *idempotency window*. Không nạp `history` từ DB nữa.
+2. `load()` **thôi xoá `this.events`** (event chưa persist). Hôm nay vô hại vì mọi appender chạy trong cùng slot `runExclusive` và `save()` được gọi ngay trong slot đó (`app.ts:216`), nhưng đó là mìn: appender mới nằm ngoài slot sẽ mất event im lặng.
+3. Command/moderation path gọi `this.load({ skipLedger: true })` → command path phát **0** truy vấn ledger ngoài point query. Boot path giữ `load()` đầy đủ.
+4. `hasCommand()` giữ chữ ký sync, đổi ngữ nghĩa thành **cache dương trong window**: miss thì rơi xuống transaction và point query bắt. Ở in-memory mode (không pool) Set vẫn đầy đủ theo process — ghi comment nói rõ ràng buộc này.
 
 **Acceptance criteria:**
-- [ ] `load()` không còn nạp toàn bộ `event_ledger` vào `history`
-- [ ] `hasCommand()` đúng qua point query dùng `event_ledger_command_idx`, hoặc Set giới hạn theo season với DB index làm authority
-- [ ] Retry cùng `commandId` vẫn trả `already_processed` và không trừ resource lần hai
-- [ ] `ledger.all()` vẫn dùng được cho test, hoặc test đổi sang query DB trực tiếp
+- [X] Command path không phát truy vấn nào lên `event_ledger` ngoài `WHERE command_id=$1` — `store.ts:99` và `:122` gọi `load({ skipLedger: true })`
+- [X] Boot chỉ đọc một cột, có `LIMIT`, không đọc `payload` — `event-ledger.ts:53`; test khẳng định bằng `doesNotMatch /payload/` và `doesNotMatch /event_type|aggregate_type|aggregate_id|actor_player_id/`
+- [X] Event pending sống sót qua `load()` — test append → `load()` → `persist()` thấy đúng id pending được INSERT
+- [X] Dedupe không yếu đi: id ngoài window vẫn bị chặn bởi unique index (PG) / Set (in-memory) — `postgres.integration.test.ts:27`, `:37` assert trên DB (`count(*) … WHERE command_id=$1`), không đọc history in-memory, nên gate PG vẫn đúng bài
+- [X] Retry cùng `commandId` vẫn trả `already_processed` và không trừ resource lần hai — `app.test.ts:77` xanh không sửa
+- [X] `ledger.all()` vẫn dùng được cho test — `history` vẫn là buffer trong process (thêm trim theo window), chỉ không nạp từ DB; 6 call site test xanh không sửa
 
 **Verification:**
-- [ ] `npm test -w @kingdoms/server`
-- [ ] `RUN_POSTGRES_INTEGRATION=1 npm run test:postgres` — case retry sau persist fail sẵn có vẫn xanh
-- [ ] Đo `command_duration` p95 qua `/metrics` trước/sau, ghi số vào PR
+- [X] `apps/server/src/event-ledger.test.ts` **mới**, pool giả ghi lại query, **không cần Docker**: 4 test — một query duy nhất chỉ `command_id` + `LIMIT $1` + `WHERE command_id IS NOT NULL` + `ORDER BY created_at DESC`; pending event không bị `load()` xoá; `hasCommand` miss ngoài window; history có trần + `discard()` nhả lại command id
+- [X] `store.test.ts` (`hasCommand` ở `:37`, `:88`) và `moderation.test.ts:44` xanh không sửa assertion
+- [X] `npm test -w @kingdoms/server` = **132 test / 117 pass / 0 fail / 15 skip** (128 → 132); `npm run typecheck` exit 0
+- [X] **Không** khẳng định con số p95 PostgreSQL: máy này không chạy được `test:postgres` → đo trên CI hoặc stack owner sau
 
-**Dependencies:** None (nhưng chạm `store.ts` → hỏi owner) · **Scope:** M
-**Files:** `apps/server/src/event-ledger.ts`, `apps/server/src/store.ts`, `apps/server/src/store.test.ts`, `apps/server/src/postgres.integration.test.ts`
+**Ghi chú thực thi (khác plan gốc ở ba điểm):**
+1. Trần không hardcode: thêm env `IDEMPOTENCY_WINDOW` (Zod, `min 1000`, default `20000`) → `config.idempotencyWindow`, và `EventLedger` nhận nó qua tham số constructor thứ hai nên test đặt window nhỏ được (window 3 trong test history). Ghi vào `.env.example`, `infra/.env.prod.example`, `docs/OPERATIONS.md`, `docs/API.md` mục protocol.
+2. `history` cũng bị trim theo cùng window (`event-ledger.ts:19`). Plan chỉ nói "không nạp từ DB", nhưng buffer append-only vẫn phình được trong một season dài chạy liên tục; trim là một dòng và `all()` chỉ có test đọc. Trim **không** phải quyết định dedupe: `commandIds` vẫn giữ id đã bị trim khỏi history.
+3. `app.ts:151` (register) cố tình **giữ** `load()` đầy đủ: route này rate-limit 3/giờ/IP và sau bản sửa thì full load cũng chỉ còn một cột có trần.
 
-### P0.3 — Chặn `processedCommands` phình vô hạn
+**Một thay đổi hành vi, nói rõ ra:** id trùng do **process khác** ghi, hoặc cũ hơn window, không còn bị `hasCommand()` bắt ở fast path nên sẽ mở một transaction rồi bị point query từ chối. Đắt hơn một chút cho retry cũ, không mất bảo đảm — và fast path cũ vốn cũng không bắt được id của process khác trừ khi vừa boot.
 
-`state.processedCommands: string[]` nằm trong JSONB `game_state`, mỗi command push thêm một id, kiểm tra bằng `.includes()` O(n), chỉ xoá ở `season-reset.ts`. Sau một season nó là mảng rất lớn được đọc và ghi lại **mỗi command**.
+**Dependencies:** None (⚠️ chạm `store.ts`) · **Scope:** M
+**Files:** `apps/server/src/event-ledger.ts`, `apps/server/src/store.ts`, `apps/server/src/config.ts`, `apps/server/src/event-ledger.test.ts` (mới), `.env.example`, `infra/.env.prod.example`, `docs/OPERATIONS.md`, `docs/API.md`, `docs/ROADMAP.md`, `docs/SECURITY-REVIEW.md`
 
-**Acceptance criteria:**
-- [ ] Dedupe không còn phụ thuộc mảng không giới hạn (dùng `hasCommand` từ P0.2, hoặc cửa sổ trượt có giới hạn ghi rõ)
-- [ ] Mọi domain đang tự check `processedCommands.includes()` đi qua một đường dedupe duy nhất
-- [ ] Test idempotency sẵn có vẫn xanh; thêm test ranh giới nếu chọn cửa sổ trượt
+### P0.3 — Gộp dedupe về một đường có trần (= S-3) ✅ `97822af` + `f94ac22`
+
+**Đọc code 2026-09-03 thì S-3 rộng hơn bản ghi cũ:** không phải một mảng phình, mà **năm** cơ
+chế dedupe song song, và **ba** trong số đó bị sao chép **hai lần mỗi command** ở `store.ts:96`
+(capture cho rollback) + `store.ts:99` (`load()` dựng lại):
+
+| # | Cơ chế | Ở đâu | Trần | Copy mỗi command |
+|---|---|---|---|---|
+| 1 | `EventLedger.commandIds` Set | fast path `store.ts:95` | không | không |
+| 2 | unique index + point query | `store.ts:99` — **authority duy nhất ở PG mode** | — | không |
+| 3 | `state.processedCommands: string[]` trong JSONB | build `store.ts:134`, `espionage.ts:52,53`, **11 cặp** `diplomacy.ts` | không | 2× `structuredClone` |
+| 4 | `CombatRepository.commands` Set | `combat.ts:104`, 6 call site | không | 2× `capture()` (`combat.ts:23`) |
+| 5 | `LogisticsRepository.commands` + `OnboardingRepository.commands` | `logistics.ts:103` (5 call site), `onboarding.ts:92` (1) | không | 2× `capture()` |
+
+Vì `state.processedCommands` nằm trong `game_state` JSONB nên nó phình cả **trên đĩa**; ba Set
+kia phình trong RAM và bị sao chép hai lần mỗi command — cùng một triệu chứng, khác chỗ ở. Trần
+dùng chung *idempotency window* của P0.2 để không có hai con số cần giữ đồng bộ.
+
+#### P0.3a — Một registry có trần, thay ba Set `claim()` của repo ✅ `97822af`
+
+- [X] `command-registry.ts` mới: Set có trần FIFO (`has`, `claim`, `begin`, `commit`, `rollback`, `forget(ids)`, `clear`, `size`), trần dùng chung `config.idempotencyWindow` của P0.2
+- [X] `CombatRepository` / `LogisticsRepository` / `OnboardingRepository` nhận registry qua constructor, `private claim()` chỉ còn delegate — **không đổi call site nào** (6 + 5 + 1 chỗ giữ nguyên chữ ký)
+- [X] Rollback: `Store` mở journal `begin()` trước `action()` và `rollback()` quên đúng id command này đã claim, thay cho `capture()`/`restore()` copy cả Set. `logistics.capture()` bỏ field `commands` (giữ `structuredClone(this.data)`), `onboarding.capture()` chỉ còn `progress`, `combat.capture()`/`restore()` **xoá hẳn** vì Set đó là toàn bộ state ngoài `GameState` của nó
+- [X] Journal thay vì truyền danh sách id như plan viết ban đầu: `claim()` nằm sâu trong method của repository nên store không quan sát được id nào vừa bị claim. `begin()` cố tình huỷ journal mồ côi — `runExclusive` serialize transaction nên tới được `begin()` nghĩa là command trước đã xong. `moderatePlayerUnlocked` không bọc journal (nó không claim command id nào)
 
 **Verification:**
-- [ ] `npm test -w @kingdoms/server`
-- [ ] `npm run test:postgres`
+- [X] `command-registry.test.ts` mới, 7 test: claim hai lần, eviction FIFO (id cũ nhất ra trước, id mới nhất còn), rollback quên đúng id của command lỗi kể cả id dẫn xuất, commit đóng journal, claim ngoài transaction là vĩnh viễn (path tick), `begin()` huỷ journal mồ côi, `clear()`
+- [X] `logistics.test.ts` / `combat.test.ts` / `onboarding.test.ts` xanh **không sửa assertion**
+- [X] Test rollback sẵn có ở `store.test.ts` vẫn khẳng định đúng "no ledger residue"
+- [X] `npm run typecheck` sạch; server unit **139** (124 pass + 15 skip vì gate PostgreSQL)
 
-**Dependencies:** P0.2 · **Scope:** M — chạm 5 file, nếu vượt thì tách theo domain
-**Files:** `apps/server/src/store.ts`, `espionage.ts`, `logistics.ts`, `combat.ts`, `onboarding.ts`
+**Dependencies:** P0.2 (dùng chung window) · **Scope:** M · ⚠️ hot file
+**Files:** `apps/server/src/command-registry.ts` (mới), `store.ts`, `combat.ts`, `logistics.ts`, `onboarding.ts` + 1 test mới
+
+#### P0.3b — Bỏ `state.processedCommands` ✅ `f94ac22`
+
+- [X] `startBuild` ở `store.ts`, `espionage.ts` (`launchMission` + `activateCounterIntel`), **11 cặp** check/push trong `diplomacy.ts` chuyển sang registry; `DiplomacyRepository`/`EspionageRepository` nhận registry qua constructor như ba repo kia
+- [X] Bỏ field ở `types.ts`, bỏ dòng reset ở `season-reset.ts` — store gọi `commands.clear()` **sau khi reset đã bền** (sau COMMIT ở path PostgreSQL, ngay sau `hardReset` ở path in-memory) nên một season close bị rollback không xoá dedupe; **strip key cũ khi load** bằng destructure trong `Store.load()` để hàng JSONB đang tồn tại co lại ở lần `persistState` kế tiếp — một key không cần migration riêng
+- [X] Ghi vào commit body **ba** thay đổi hành vi, không phải một: (1) dedupe giờ **claim tại chỗ check** thay vì push khi thành công — an toàn vì mọi command REST đi qua `command()` → `executeCommand` và rollback `forget()` đúng id đó; (2) id dẫn xuất `commandId + "-violate"` (tick `combat.ts`, ambush `logistics.ts`) mất dedupe **bền qua restart** — an toàn vì `breakTreaty` có guard cứng `TREATY_NOT_ACTIVE` và pursuit order bị tiêu ngay khi resolve; (3) `commands.clear()` khi đóng season giờ quên cả id combat/logistics/onboarding (trước đây ba Set đó sống qua ranh giới season) — PG mode vẫn được `event_ledger` + unique index chặn, in-memory mode yếu hơn sau một season close
+
+**Verification:**
+- [X] `combat.test.ts` chuyển sang `store.commands.has("purs-8-violate")`
+- [X] Test diplomacy cũ xanh không sửa assertion; test mới "a retried break treaty is idempotent, not a second penalty": cùng `commandId` hai lần → `already_processed`, reputation vẫn −150 (không phải −300), và một `commandId` **khác** vẫn bị `TREATY_NOT_ACTIVE`
+- [X] Test mới `store.test.ts` "a build that fails on cost leaves its commandId claimable" — ca hay gặp nhất của claim-tại-chỗ-check: build thiếu tài nguyên → throw nhưng `commandId` không bị tiêu, retry cùng id được nhận rồi lần ba trả `already_processed`
+- [X] `npm test -w @kingdoms/server` **141** (126 pass + 15 skip) + `npm run typecheck` sạch
+
+**Dependencies:** P0.3a · **Scope:** M · ⚠️ hot file
+**Files:** `apps/server/src/store.ts`, `diplomacy.ts`, `espionage.ts`, `types.ts`, `season-reset.ts` + tests
 
 ### P0.4 — Nâng sức chứa thành phố của thế giới
 
@@ -247,6 +383,18 @@ Scenario `commands` trong `e2e/loadtest/loadtest.js` chạy `constant-arrival-ra
 - [ ] Có số đo p95 command trước/sau P0.2+P0.3
 - [ ] Seed `LOADTEST_USERS` mục tiêu không throw `KINGDOM_FULL`
 - [ ] **Owner review** — nhóm này chạm `store.ts` / `app.ts`
+
+### Checkpoint 1b — sau Bước 5–9 (vòng 2026-09-03)
+
+- [X] **5** PR mở, base đúng, CI đã chạy; kết quả từng gate báo nguyên trạng kể cả đỏ
+- [X] `docs/ROADMAP.md` không còn dòng khẳng định sai; checkbox rate-limit tick; section command path tồn tại
+- [X] Chưa merge gì, chưa chạm `main`
+- [X] Nhánh `perf/command-path` (cắt từ `feat/rate-limit-buckets`) đã push và mở **PR #5** base `feat/rate-limit-buckets` — thực tế **6 commit** chứ không 4: Z.5 `dbf5c6f` cũng nằm trên nhánh này, cộng commit doc đóng P0.3 `fa676c7`. CI của PR (`33707700712`) **10/10 gate xanh**, gồm gate 5 `test:postgres` và gate 7 Playwright — lần đầu một PR trong chồng có đủ 10 gate xanh; nhưng cả hai gate đó đỏ *ngẫu nhiên* nên một lần xanh không phải bằng chứng race đã hết
+- [X] typecheck sạch; server unit **141** (126 pass + 15 skip); client **78/78**; shared **3/3**; **19/19** e2e trên port 3100/5174 (config tạm, đã xoá — không chạm stack 3000/5173)
+- [X] `check:bundle` ≤ 500 KiB/chunk — 6/6 chunk trong hạn, lớn nhất `pixi` **465.0 KiB**
+- [X] `test:postgres` báo cáo là **skipped ở máy này** (không có Docker / `DATABASE_URL`) → **không** khẳng định `verify:web-alpha` xanh dựa trên máy contributor; 15 test server skip chính là gate đó. Nó **đã xanh trên CI** (gate 5, run `33707700712` + `33707793916`) — đó là chỗ duy nhất quan sát được, và cũng là phần phủ đúng `store.ts`/`event-ledger.ts` mà P0.2/P0.3 sửa
+- [X] `gh workflow run` để `prod-smoke` + `recovery-drill` có lần quan sát đầu tiên — **xong 2026-09-03**, run `33707793916` (`workflow_dispatch`, ref `perf/command-path`): `verify` 10/10 gate, `prod-smoke` **xanh** (compose prod build thật, `password-auth` 1/1), `recovery-drill` **xanh** (3/3 drill, RPO 0 ms, RTO **4439 ms**, artifact `drill-report`). Kết quả đã vào `docs/OPERATIONS.md` mục "Kết quả drill" và `docs/ROADMAP.md` section 7D
+- [ ] Còn lại cho owner: P0.4 (sức chứa map), S-9, xác nhận S-1 trên stack Caddy thật, S-7, S-8, flake gate 7, thứ tự merge 5 PR, và `infra/backup/backup.sh`/`restore.sh` vẫn chưa được kiểm chứng lần nào (drill đi qua `pg_dump` trực tiếp)
 
 ## Nhóm A — Đóng Phase 7C
 
@@ -294,7 +442,45 @@ Owner đang ở 7D nên **rất có thể mục này thuộc phần owner tự c
 **Dependencies:** P0.1 (xong) · **Scope:** M
 **Files:** `docs/SECURITY-REVIEW.md` (mới), `docs/API.md` (mục `## World snapshot`), `docs/ROADMAP.md` (tick `[145]`, ghi chú `TRUST_PROXY` ở dòng security baseline), `apps/server/src/{app,config}.ts`, `apps/server/src/{app,config,security}.test.ts`, `.env.example`
 
-**Việc còn treo cho owner** (đã vào Open questions #10, #11): tiền đề không gian của `ambush` (S-5, là luật chơi), có bắt buộc `TRUST_PROXY` ở production không (S-9, guard đó có thể chặn boot một deployment tôi không kiểm chứng được), xác nhận S-1 trên stack thật có Docker. Ba Low còn lại (S-7 admin route không Zod, S-8 trần WS connection, S-10 status `ADMIN_DISABLED` lệch) đã vào mục "việc dọn nhỏ".
+**Việc còn treo cho owner** (đã vào Open questions #10, #11): ~~tiền đề không gian của `ambush`~~ → **S-5 đã được owner chốt 2026-09-03**, thành task B.1a ngay dưới; còn lại là có bắt buộc `TRUST_PROXY` ở production không (S-9, guard đó có thể chặn boot một deployment tôi không kiểm chứng được) và xác nhận S-1 trên stack thật có Docker. Ba Low còn lại (S-7 admin route không Zod, S-8 trần WS connection, S-10 status `ADMIN_DISABLED` lệch) đã vào mục "việc dọn nhỏ".
+
+### B.1a — S-5: `ambush` phải có tiền đề không gian ✅ `b90fb59`
+
+`logistics.ts:166-186` hôm nay chỉ kiểm ba thứ: player active, caravan đang `moving`, và không
+phải caravan của mình. **Không** đòi có quân, không đòi ở gần, không tốn tài nguyên, không
+cooldown, và chạy ở bucket `write` 20/phút (`ambush` không có trong `commandBuckets` ở
+`app.ts:125`). Một người chơi xoá được 60% hàng của **mọi** caravan trên map, từ bất kỳ đâu,
+miễn phí — và hệ thống hộ tống thành vô nghĩa. `attack` thì đòi sở hữu army và chỉ resolve khi
+cùng ô.
+
+**Luật owner chốt 2026-09-03:** người tấn công phải có quân trong bán kính Manhattan **3 ô**
+quanh vị trí caravan hiện tại, và `ambush` chuyển sang bucket **`combat`** (10/phút).
+
+**Thiết kế:**
+- Helper thuần `caravanTile(caravan, state, hubs)` trong `logistics.ts`: lerp `source city → destination (city | market hub)` theo `progress` rồi `Math.round`. Caravan **không có** `x`/`y` — vị trí là thứ client tính ở `apps/client/src/map.ts:322-335`, nên đây là **bản mirror** của đoạn đó: server kiểm đúng ô mà người chơi nhìn thấy. Ghi comment trỏ chéo hai chỗ. (Gộp về `packages/shared` là follow-up: chạm shared cần owner review, và lerp phía client nằm trong vòng Pixi nên không unit-test được ở máy này.)
+- Guard mới trong `ambush()`, đặt **sau** `INVALID_ATTACKER` và **trước** `claim()`/seed: phải có ít nhất một army `ownerPlayerId === attackerPlayerId`, không `frozen`, với `Math.abs(army.x - tile.x) + Math.abs(army.y - tile.y) <= 3`; sai thì `throw new Error("AMBUSH_OUT_OF_RANGE")` → 400. Viết cùng idiom với `HARVEST_OUT_OF_RANGE` (`logistics.ts:111`): Manhattan inline, **không** thêm util mới (repo đang inline ở 9 chỗ).
+- `app.ts:125`: thêm `ambush: "combat"` vào `commandBuckets`. Không đổi mã lỗi, không đổi schema, không đổi `PROTOCOL_VERSION`.
+
+**Acceptance criteria:**
+- [X] Ambush không có quân trong bán kính 3 → 400 `AMBUSH_OUT_OF_RANGE`, caravan **không** đổi trạng thái và **không** tiêu `commandId`
+- [X] Quân ở đúng khoảng cách 3 → chấp nhận; khoảng cách 4 → từ chối (test biên hai phía)
+- [X] Army đang `frozen` không tính là hợp lệ
+- [X] `ambush` tiêu bucket `combat`: cạn 10 lệnh combat thì ambush bị 429, và ambush **không** làm 429 lệnh build
+- [X] Ô kiểm là ô lerp theo `progress`, không phải city nguồn — caravan giữa đường vẫn ambush được nếu quân ở gần *nó*
+
+**Verification:**
+- [X] `logistics.test.ts:42` (test ambush sẵn có) cập nhật: helper `ambushScenario()` dựng cảnh, test cũ đặt army của `enemy` cạnh caravan (8,9); thêm 4 test — out-of-range + `commandId` chưa bị tiêu, biên 3/4 + ô theo `progress` 0.6 → (11,10), `frozen`/`strength 0`, và `caravanTile` mirror + fail closed
+- [X] Test bucket cho `ambush` → `combat`: mở rộng `app.test.ts` "command rate-limit buckets are independent per command group" — vòng 10 lệnh combat luân phiên attack/formation/**ambush**, lệnh 11 (attack) 429, ambush cũng 429, harvest vẫn không 429
+- [X] `npm test -w @kingdoms/server` xanh: **128 test → 113 pass / 0 fail / 15 skip** (từ 124/109); `npm run typecheck` sạch
+- [X] E2E không bị ảnh hưởng — đã grep `e2e/`, không spec nào gọi `ambush`
+
+**Ghi chú thực thi (khác plan gốc ở ba điểm, đều là chặt hơn):**
+1. Guard đòi thêm `army.strength > 0`. Army `strength 0` bị xoá khỏi `state.armies` ở `combat.ts:320-321` và tick bỏ qua ở `:329-330`, `attack` chặn bằng `ARMY_DESTROYED` (`combat.ts:151`) — nếu không kiểm, một army chết vẫn "canh đường" cho tới tick sau. Định nghĩa "army còn sống" của repo là `strength > 0 && !frozen`.
+2. `caravanTile()` trả `undefined` khi không resolve được hai đầu route → guard **fail closed** (`AMBUSH_OUT_OF_RANGE`). Client cũng ẩn caravan đó (`visible = false`), nên không có ô nào người chơi có thể đứng cạnh một cách hợp lệ.
+3. `caravanTile` được `export` để test lerp trực tiếp (biên rounding), không chỉ test qua `ambush()`. `ambushRange = 3` là hằng module cạnh `mapExtent`, có comment vì sao là 3.
+
+**Dependencies:** None — nhưng **đứng trước P0.3** để P0.3 không phải rebase `logistics.ts` hai lần · **Scope:** S · ⚠️ chạm `app.ts` một dòng
+**Files:** `apps/server/src/logistics.ts` (`ambushRange` :16, `caravanTile` :42, guard :192), `apps/server/src/app.ts` (:125), `apps/server/src/logistics.test.ts`, `apps/server/src/app.test.ts`, `docs/API.md`, `docs/SECURITY-REVIEW.md`, `docs/ROADMAP.md`
 
 ### B.2 — [144] Restore drill + log vào runbook ✅ → **đóng ở Z.2**
 
@@ -557,6 +743,7 @@ Ba mục đầu xong trong `4817d1a`; kết luận của mục 1 khác đề bà
 - [X] `infra/migrations/README.md` dừng ở `011` → phát hiện thêm: hướng dẫn `psql -f` từng file **bỏ qua runner của 7A**, để `schema_migrations` rỗng và khiến `db:migrate:check` báo toàn bộ pending. README giờ chỉ sang `npm run db:migrate`, giữ manifest `001`–`014`
 - [ ] Suite Chromium mặc định vẫn chạy in-memory (`AUTH_MODE=dev`); `e2e/password-auth.spec.ts` của 7D chạy thật với PostgreSQL nhưng chỉ khi `E2E_PROD_SMOKE=1` và không nằm trong CI
 - [ ] **Mới:** `.map canvas` timeout 5 s một lần ở cuối full-suite run (19 test) → đã nới riêng wait đó lên 15 s. Nếu tái diễn thì nghi vấn tiếp theo là số WebGL context sống đồng thời của Chromium, không phải layout
+- [ ] **Mới (2026-09-03, CI gate 7):** `map-command.spec.ts:42` assert `Bộ binh · 10` nhưng NPC `mob_migration` ("Đám di cư · 90") có thể đứng đúng ô spec click, nên inspector hiện NPC → đỏ. Đỏ **trên cả `main`**, không phải regression của stack. Sửa: chọn ô không có NPC, hoặc assert theo `data-testid` của army thay vì text inspector — cả hai là quyết định về ý nghĩa spec nên đang là OQ #11, **chưa có PR**
 
 ## Risks and Mitigations
 
@@ -571,6 +758,12 @@ Ba mục đầu xong trong `4817d1a`; kết luận của mục 1 khác đề bà
 | Báo cáo gate mạnh hơn thực tế (`test:postgres` chỉ skip) | Medium | Luôn báo từng gate riêng; không dùng chữ "`verify:web-alpha` xanh" ở máy này |
 | Chạy e2e trúng port stack dev của owner | Low | Xác định chủ port bằng `netstat -ano` trước; nếu đang chạy thì dùng config tạm 3100/5174 |
 | Một spec cuối run đỏ bị coi là regression | Low | `production-loop` season close và `phase7c` treaty break là flake đã biết — chạy lại riêng lẻ trước khi kết luận |
+| Base PR sai → PR trên nuốt cả commit của PR dưới, review vô nghĩa | ~~High~~ | **Đã xử ở PR.1:** set base tường minh khi `gh pr create`, rồi kiểm bằng `gh pr view --json baseRefName` + đếm commit từng PR (4 / 4 / 8, không phải 4 / 8 / 16) |
+| Không có quyền push (account `gh` khác owner) | ~~Medium~~ | **Đã xử:** thử một nhánh trước; push thành công nên ba nhánh còn lại đi theo. Nếu bị từ chối thì đã dừng và báo owner, không tự đổi remote |
+| CI đỏ vì flake bị hiểu là stack của contributor làm hỏng | Medium | Chứng minh bằng run của `main` (gate 5 `33479184803`, gate 7 `33505482280`) + `git diff --stat` cho thấy PR #1 không chạm server; ghi cả hai vào body PR và roadmap |
+| P0.3b làm yếu dedupe id dẫn xuất (`-violate`) qua restart | Medium | Guard cứng `TREATY_NOT_ACTIVE` (`diplomacy.ts:246`) đã chặn; pursuit order tiêu ngay khi resolve; ghi rõ trong commit body + test gọi `breakTreaty` hai lần cùng id |
+| P0.2 làm `hasCommand` miss ngoài window bị hiểu là mất dedupe | Medium | Comment tại chỗ + test khẳng định point query / unique index vẫn bắt; ghi con số window vào `docs/API.md` mục protocol |
+| S5 mirror phép lerp của client rồi hai bên lệch nhau | Medium | Comment trỏ chéo `logistics.ts` ↔ `apps/client/src/map.ts:322-335`; test biên 3/4 khoá đúng công thức. Gộp về `packages/shared` là follow-up cần owner review |
 
 ## Open Questions
 
@@ -581,5 +774,7 @@ Ba mục đầu xong trong `4817d1a`; kết luận của mục 1 khác đề bà
 5. Misinformation baseline do owner chốt hay contributor đề xuất trong PR (C.1)?
 6. `verify:web-beta` có vào CI không (N.2), hay cố ý giữ là gate chạy tay vì cần Docker-in-Docker?
 7. ~~Có thêm rate-limit cho GET route không?~~ → **đóng trong P0.1**: ba GET có auth dùng chung bucket `read` 60/phút/player. Một vòng reconnect chỉ tốn 3 call nên client bình thường không tới gần trần; đổi số chỉ là sửa một dòng trong `rateBuckets`.
-8. **Mới (S-5):** tiền đề không gian của `ambush` — bán kính bao nhiêu ô? tốn gì? cooldown bao lâu? có sang bucket `combat` 10/phút không? Hiện `ambush` chỉ đòi "không phải caravan của mình", nên một người chơi xoá được 60% hàng của mọi caravan trên map, từ bất kỳ đâu, miễn phí, 20 lần/phút — và hệ thống hộ tống thành vô nghĩa. Đây là luật chơi (`docs/GAME-DESIGN.md`) nên review **không tự đặt**.
+8. ~~**(S-5)** tiền đề không gian của `ambush`~~ → **đóng 2026-09-03, owner chốt**: phải có quân trong bán kính Manhattan **3 ô** quanh vị trí caravan hiện tại, và `ambush` sang bucket **`combat`** (10/phút). Không thêm cost tài nguyên, không thêm cooldown ở vòng này. Bản thực thi là B.1a; vì caravan không có `x`/`y` nên guard phải mirror phép lerp của client (`apps/client/src/map.ts:322-335`).
 9. **Mới (S-9):** có thêm guard "production phải khai `TRUST_PROXY`" không? Để `false` sau Caddy thì `register:<ip>` 3/giờ thành hạn mức toàn cầu. Không tự thêm vì guard sẽ chặn boot của deployment phơi server trực tiếp mà tôi không kiểm chứng được. Kèm: S-1 cần owner xác nhận một lần trên stack thật Caddy → Fastify (máy này không có Docker nên chỉ chứng minh được nửa Fastify bằng `app.inject`).
+10. **Mới (2026-09-03):** thứ tự merge **5** PR. Đề xuất: **#4 trước** (nó sửa gate 5 nên cả stack xanh theo, và base là `main` nên không phải rebase gì), rồi #1 → #2 → #3 → **#5** theo đúng thứ tự tầng. Owner có muốn squash từng PR hay giữ nguyên commit theo lớp?
+11. **Mới (2026-09-03):** flake gate 7 (`map-command.spec.ts` click phải NPC `mob_migration` cùng ô) — sửa bằng cách chọn ô không có NPC, hay bằng cách assert theo `data-testid` của army thay vì text inspector? Tôi chưa mở PR vì cả hai đều là quyết định về ý nghĩa của spec, và nó đang đỏ **trên cả `main`** nên không chặn PR nào thêm.

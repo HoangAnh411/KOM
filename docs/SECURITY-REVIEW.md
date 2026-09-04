@@ -27,9 +27,9 @@ Không chạy pentest động, không fuzz, không kiểm tra dependency ngoài 
 |---|---|---|---|
 | S-1 | **High** | auth / rate limit | ✅ đã sửa + test hồi quy |
 | S-2 | **High** | permissions / rò rỉ dữ liệu | ✅ đã sửa + test hồi quy |
-| S-3 | Medium | availability | ⏳ P0.3 (đã có task) |
-| S-4 | Medium | availability | ⏳ P0.2 (đã có task) |
-| S-5 | Medium | permissions / abuse | ⚠️ **owner quyết** (là luật gameplay) |
+| S-3 | Medium | availability | ✅ đã sửa + test (P0.3, 2026-09-03) |
+| S-4 | Medium | availability | ✅ đã sửa + test (P0.2, 2026-09-03) |
+| S-5 | Medium | permissions / abuse | ✅ đã sửa + test (owner chốt luật 2026-09-03) |
 | S-6 | Low | secrets / log | ✅ đã sửa (hardening) |
 | S-7 | Low | input | 📝 ghi nhận, không sửa |
 | S-8 | Low | availability | 📝 ghi nhận, không sửa |
@@ -118,18 +118,63 @@ người chơi thêm ~28 800 phần tử/ngày; mọi command sau đó chạy `i
 nó, và cả array được `structuredClone` trong mỗi transaction (`store.ts:118`, `:122`).
 
 Đây là DoS chi phí thấp (tăng bộ nhớ + độ trễ, một hàng JSONB phình) hơn là lỗ hổng bảo mật
-theo nghĩa hẹp. **Không sửa ở đây**: đã có task **P0.3** ("chặn `processedCommands` phình vô
-hạn; gộp mọi dedupe về một đường duy nhất") và nó chạm `store.ts` sâu.
+theo nghĩa hẹp.
+
+**Đã sửa (P0.3, 2026-09-03).** Đọc kỹ thì vấn đề rộng hơn báo cáo ban đầu: có **năm** cơ chế
+dedupe song song, và ba trong số đó (`CombatRepository.commands`,
+`LogisticsRepository.commands`, `OnboardingRepository.commands`) là `Set` không trần bị sao
+chép **hai lần mỗi command** cho rollback. Gộp về một đường, chia hai bước:
+
+- **P0.3a** (`97822af`) — `apps/server/src/command-registry.ts` mới: một `Set` có trần FIFO
+  dùng chung `config.idempotencyWindow` với `EventLedger` (P0.2), cộng journal
+  `begin()`/`commit()`/`rollback()` mà `Store` mở quanh `action()`. Ba repository nhận registry
+  qua constructor; rollback quên đúng id của command lỗi thay vì phục hồi ba bản copy Set.
+- **P0.3b** (`f94ac22`) — bỏ `processedCommands` khỏi `GameState`: 11 cặp check/push ở
+  `diplomacy.ts`, `launchMission` + `activateCounterIntel` ở `espionage.ts`, `startBuild` ở
+  `store.ts` chuyển sang registry; `hardReset()` không còn xoá array (store gọi
+  `commands.clear()` sau khi reset đã bền); `Store.load()` destructure key cũ ra khỏi hàng JSONB
+  nên hàng cũ tự co, không cần migration cho một key.
+
+Dedupe không yếu đi: trần là **cache dương**, id rơi ra ngoài window vẫn bị unique partial index
+`event_ledger_command_idx` + point query trong transaction từ chối. Hai thay đổi hành vi đã ghi
+trong commit body: claim xảy ra **tại chỗ check** (rollback của transaction `forget()` đúng id
+đó) và id dẫn xuất `commandId + "-violate"` mất dedupe bền qua restart (`breakTreaty` có guard
+cứng `TREATY_NOT_ACTIVE` chặn phạt lần hai).
+
+**Test hồi quy:** `command-registry.test.ts` (7 test: claim một lần, eviction FIFO, rollback
+quên đúng id của command lỗi, commit đóng journal, claim ngoài transaction là vĩnh viễn,
+`begin()` huỷ journal mồ côi, `clear()`); `store.test.ts` "a build that fails on cost leaves its
+commandId claimable"; `diplomacy.test.ts` "a retried break treaty is idempotent, not a second
+penalty". Server unit: 141 test / 126 pass / 0 fail / 15 skip (gate PostgreSQL).
 
 ## S-4 (Medium) — reload toàn bảng `event_ledger` trên command path
 
 Cùng họ với S-3: `hasCommand()` nạp lại toàn bộ ledger thay vì point query trên
-`event_ledger_command_idx`, nên mỗi command trả tiền cho toàn bộ lịch sử season. **Không sửa
-ở đây**: task **P0.2**.
+`event_ledger_command_idx`, nên mỗi command trả tiền cho toàn bộ lịch sử season.
+
+**Đã sửa (P0.2, 2026-09-03).** Ba thay đổi, không đổi bảo đảm dedupe:
+
+- Command path và moderation path gọi `Store.load({ skipLedger: true })` (`store.ts:99`,
+  `:122`), nên trong transaction không còn truy vấn ledger nào ngoài point query
+  `SELECT 1 FROM event_ledger WHERE command_id=$1`.
+- Boot path đọc **một cột, có trần**: `SELECT command_id … WHERE command_id IS NOT NULL ORDER BY
+  created_at DESC LIMIT $1` (`event-ledger.ts:53`), trần là `IDEMPOTENCY_WINDOW` (mặc định
+  20 000). `payload` JSONB — chỗ chứa battle report, phần nặng nhất của bảng — không còn được
+  đọc về; `history` cũng bị trim theo cùng window.
+- `load()` thôi xoá `this.events`: đó là event đã append chưa persist, và xoá chúng ở đây là
+  mất dữ liệu im lặng chờ caller đầu tiên nằm ngoài slot `runExclusive`.
+
+`hasCommand()` từ "nguồn sự thật" thành **cache dương trong window**: miss chỉ có nghĩa "hỏi
+Postgres", và point query + unique partial index `event_ledger_command_idx` (migration 003) vẫn
+từ chối id cũ hơn window hoặc do process khác ghi. Ở in-memory mode (không pool) Set vẫn đầy đủ
+theo process. Test `event-ledger.test.ts` (4 test) khẳng định query chỉ có `command_id` + `LIMIT`,
+không có `payload`, và event pending sống sót qua `load()` — chạy trên gate unit, **không cần
+Docker**. Số p95 trên PostgreSQL chưa đo ở máy contributor (không chạy được `test:postgres`).
 
 ## S-5 (Medium) — `ambush` không có tiền đề không gian nào
 
-**Chứng cứ:** `logistics.ts:166-186`. `ambush` kiểm: người chơi active, caravan tồn tại và
+**Chứng cứ (trạng thái lúc review, trước bản sửa bên dưới):** `logistics.ts:166-186`. `ambush`
+kiểm: người chơi active, caravan tồn tại và
 đang `moving`, không phải caravan của chính mình (`INVALID_ATTACKER`, `:171`), và phá treaty
 nếu có. Nó **không** đòi người chơi có quân, không đòi quân ở gần caravan, không tốn tài
 nguyên, không có cooldown, và `ambush` không nằm trong `commandBuckets` nên chạy ở bucket
@@ -143,10 +188,24 @@ combat có tiền đề không gian, `ambush` là ngoại lệ.
 (25% nếu có hộ tống), 20 lần/phút, từ bất kỳ đâu, miễn phí. Đó là công cụ griefing hoàn
 chỉnh và nó vô hiệu hoá toàn bộ hệ thống hộ tống/escort.
 
-**Không sửa** — tiền đề đúng là quyết định luật chơi (bán kính bao nhiêu ô? tốn gì? cooldown
-bao lâu?) thuộc `docs/GAME-DESIGN.md`, không phải thứ review tự đặt ra. Đề xuất tối thiểu để
-owner chọn: đòi một army của người tấn công trong bán kính N ô của vị trí caravan hiện tại,
-và/hoặc đưa `ambush` sang bucket `combat` (10/phút).
+**Đã sửa (owner chốt 2026-09-03):** tiền đề là luật chơi nên review không tự đặt; owner chọn
+**bán kính Manhattan 3 ô + bucket `combat`**.
+
+- `logistics.ts:192` — guard mới, đặt **sau** `INVALID_ATTACKER` và **trước** `claim()`: phải có
+  ít nhất một army `ownerPlayerId === attackerPlayerId`, không `frozen`, `strength > 0`, cách ô
+  hiện tại của caravan ≤ 3 (Manhattan, viết inline đúng idiom `HARVEST_OUT_OF_RANGE` ở `:111`).
+  Sai → `AMBUSH_OUT_OF_RANGE` → 400. Vì guard chạy trước `claim()`, lệnh bị từ chối **không**
+  tiêu `commandId`: người chơi gửi lại đúng lệnh đó sau khi quân hành quân tới.
+- `logistics.ts:42` — `caravanTile()`: caravan không có `x`/`y`, vị trí là lerp
+  `source → destination` theo `progress`. Helper này là bản mirror của `apps/client/src/map.ts:326-332`
+  nên server kiểm đúng ô người chơi nhìn thấy. Không resolve được hai đầu route → fail closed
+  (client cũng ẩn caravan đó).
+- `logistics.ts:16` — `ambushRange = 3` đứng một chỗ, có comment giải thích vì sao là 3.
+- `app.ts:125` — `ambush: "combat"`: 10/phút, dùng chung counter với `attack`, thay vì 20/phút ở
+  bucket `write`. Một cuộc cướp caravan không còn rẻ gấp đôi trận đánh mà nó thay thế.
+- Test: `logistics.test.ts` (out-of-range, biên 3 vs 4, ô theo `progress`, army `frozen`/`strength 0`,
+  `caravanTile` mirror + fail closed, và `commandId` không bị tiêu), `app.test.ts` (ambush tiêu bucket
+  `combat`, không làm 429 lệnh write). Không đổi mã lỗi cũ, schema hay `PROTOCOL_VERSION`.
 
 ## S-6 (Low) — `redact` của logger không có `password`
 
@@ -225,7 +284,7 @@ không có bề mặt CSRF cho command.
 | `routes` | chủ city nguồn **và** city đích | `logistics.ts:130`, `:131` |
 | `caravans` | chủ route | `logistics.ts:145` |
 | `escort` | chủ caravan **và** chủ army | `logistics.ts:158`, `:159` |
-| `ambush` | không phải caravan của mình — **xem S-5** | `logistics.ts:171` |
+| `ambush` | không phải caravan của mình, **và** có army còn sống trong 3 ô của caravan | `logistics.ts:186`, `:192` |
 | `spy/launch` | không tự nhắm mình, có city, hết cooldown, đủ iron | `espionage.ts:52` |
 | `spy/counter-intel` | có city | `espionage.ts:53` |
 | `alliance/create`, `join` | chưa thuộc alliance nào; join thêm trần 10 thành viên | `diplomacy.ts:42`, `:63`, `:67` |
@@ -296,12 +355,10 @@ tay quên nó sẽ mất cả khối. Xem S-9.
 
 ## Việc còn treo cho owner
 
-1. **S-5** — tiền đề của `ambush` là luật chơi, cần owner chốt (bán kính / chi phí /
-   cooldown / bucket).
-2. **S-9** — có thêm guard "production phải khai `TRUST_PROXY`" không?
-3. **S-1** — xác nhận lại một lần trên stack thật (Caddy → Fastify) sau khi merge, vì máy
+1. **S-9** — có thêm guard "production phải khai `TRUST_PROXY`" không?
+2. **S-1** — xác nhận lại một lần trên stack thật (Caddy → Fastify) sau khi merge, vì máy
    contributor không có Docker.
-4. **S-7** — schema Zod cho hai route admin, gộp vào PR admin kế tiếp.
-5. **S-8** — con số trần WebSocket connection.
-6. `npm audit --audit-level=high` exit 0 tại thời điểm review; nó là gate 10 của CI nên
+3. **S-7** — schema Zod cho hai route admin, gộp vào PR admin kế tiếp.
+4. **S-8** — con số trần WebSocket connection.
+5. `npm audit --audit-level=high` exit 0 tại thời điểm review; nó là gate 10 của CI nên
    không cần theo dõi tay.

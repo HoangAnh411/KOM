@@ -122,7 +122,7 @@ export function createServer(): { app: FastifyInstance; store: GameStore; start:
   // instead of at the call site so a limit can no longer disagree with the counter it consumes.
   const rateBuckets = { write: 20, combat: 10, spy: 5, read: 60 } as const;
   type RateBucket = keyof typeof rateBuckets;
-  const commandBuckets: Record<string, RateBucket> = { spy_launch: "spy", counter_intel: "spy", recruit: "combat", move_army: "combat", attack: "combat", cancel_army_order: "combat", set_formation: "combat", merge_army: "combat" };
+  const commandBuckets: Record<string, RateBucket> = { spy_launch: "spy", counter_intel: "spy", recruit: "combat", move_army: "combat", attack: "combat", cancel_army_order: "combat", set_formation: "combat", merge_army: "combat", ambush: "combat" };
   const limitReached = async (bucket: RateBucket, playerId: string) => rateLimited(`${bucket}:${playerId}`, rateBuckets[bucket], 60_000);
   app.addHook("onRequest", async (request, reply) => { if (config.authMode !== "password" || request.method !== "POST" || !request.raw.url?.startsWith("/api/auth/")) return; const origin = request.headers.origin; if (!origin || origin !== config.clientOrigin) return reply.code(403).send({ code: "ORIGIN_NOT_ALLOWED" }); });
   app.addHook("onSend", async (_request, reply) => { reply.header("X-Content-Type-Options", "nosniff"); reply.header("X-Frame-Options", "DENY"); reply.header("Referrer-Policy", "no-referrer"); reply.header("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'"); reply.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()"); });
