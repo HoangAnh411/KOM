@@ -28,13 +28,15 @@ Các nhãn `[NNN]` dưới đây là **ID task ổn định**, lấy theo số d
 
 Ngoài roadmap, bản audit trước tìm được **5 blocker trong code** khiến mục 141 (load test) không chạy được. Chúng thành nhóm **P0** vì thiếu chúng thì 141 fail ngay ở bước seed, không phải fail vì hiệu năng.
 
-## Thứ tự thực thi (chốt 2026-09-02, mở rộng 2026-09-03)
+## Thứ tự thực thi (chốt 2026-09-02, mở rộng 2026-09-03 và 2026-09-04)
 
 Năm bước đầu là vòng 2026-09-02 (kế hoạch gốc + phần owner mở phạm vi). Năm bước sau là vòng
 2026-09-03: owner hỏi "tiếp theo làm gì" và chốt hai quyết định (push + mở PR; luật `ambush`).
-Ba bước cuối (10–12) là vòng UI cùng ngày: owner nhờ cải thiện **toàn bộ UI/HUD** — nhóm UI ở
+Bước 10–12 là vòng UI cùng ngày: owner nhờ cải thiện **toàn bộ UI/HUD** — nhóm UI ở
 dưới, nhánh `feat/hud-overhaul` cắt từ tip `perf/command-path`.
-Không mở nhóm C/D/E/F/G lúc này.
+Bước 13–14 là vòng 2026-09-04: owner nhờ **thiết kế map**, tức chính P0.4 — nhóm M ở dưới,
+nhánh `feat/world-map-36` cắt từ tip `feat/espionage-misinformation`.
+Không mở nhóm D/E/F/G lúc này.
 
 | Bước | Nội dung | Vì sao đứng ở đây | Trạng thái |
 |---|---|---|---|
@@ -51,12 +53,16 @@ Không mở nhóm C/D/E/F/G lúc này.
 | **10** | **UI-1 + UI-2** — từ vựng/gate/pending selector, rồi một primitive modal | Owner nhờ cải thiện **toàn bộ UI/HUD**. Hai task này là nền dùng chung của năm task sau, và UI-2 đứng trước UI-3 vì `ArmyPanel` có hai modal inline — làm ngược lại là sửa cùng file hai lần | **Xong** — `bae7060` + `1d1723a`, Checkpoint A xanh |
 | **11** | **UI-3 + UI-4** — lắp cột kingdom rồi drawer từ primitives, **xoá rule bridge** | Bridge `.hud .kom-panel` chỉ xoá được khi **cả** cột và drawer đã lắp từ panel — đúng điều kiện comment của nó ghi từ vòng trước. Đóng luôn nợ kỹ thuật lớn nhất của redesign | **Xong** — `b7ee0a4` + `a7434b6`, Checkpoint B xanh (13/13 bề mặt, client unit 101) |
 | **12** | **UI-5 → UI-7** — lấp hai slot đặt chỗ (`ActivityColumn`, nửa phải `CommandTray`) + chrome/a11y pass | Hai slot đó là hai comment "PR4"/"PR5" mà vòng trước tự để lại; UI-7 đi sau cùng vì nó chạm phần còn lại (toast, frozen, heading, `AuthScreen`, map toolbar) | **Xong** — `c8a4f84` + `0895bd1` + `d19cd0e`, Checkpoint C xanh (client unit 101 → **146**, e2e 21 → **28/28** một lần chạy) |
+| **13** | **M-1 → M-2 → M-4** — một nguồn sự thật cho kích thước, thế giới 36×36 vẽ tay, rồi sức chứa | Owner nhờ "thiết kế map", tức chính **P0.4** đang chặn P0.5 và `[141]`. M-1 đứng trước vì M-2 đổi extent — làm ngược lại là sửa 8 chỗ rồi sửa tiếp, và một trong 8 chỗ (`moveArmyCommandSchema .max(19)`) sẽ ship thành bug im lặng. M-4 đi sớm trong ba task sau M-2 vì nó là cái đang chặn roadmap | **Xong** — `143a0dc` + `f62d64a` + `fa6fd0d`; sức chứa **14 → 135**, P0.4 đóng |
+| **14** | **M-3 + M-5 + M-6** — protocol version, chiếm vùng bằng quân đóng, vùng hiện ra trên màn hình | Ba task còn lại của nhóm M, độc lập với nhau sau M-2. M-6 chờ M-5 vì không có gì để vẽ trước khi có chủ vùng; M-5 đổi **luật tính điểm** nên chờ owner xác nhận `fullScoreTiles` (OQ #15) | **Chưa làm** |
 
-Còn chặn thật, đã báo thay vì làm dở: **P0.4** (sức chứa thế giới — quyết định gameplay, OQ #2), **P0.5 + B.3** `[141]` (không `k6`, và deps P0.2–P0.4), **B.2b** + hai job CI Docker (không Docker ở máy này — sau PR.1 thì `recovery-drill` trên CI là chỗ quan sát đầu tiên, cần `workflow_dispatch`), **A.1** phần phiên tay 30–60 phút (người phải chạy), **S-7 / S-8 / S-9** (gộp PR admin kế tiếp / owner chốt con số / owner quyết guard boot), flake gate 7 `map-command.spec.ts` (đã ghi, chưa có PR), nhóm **D** (owner chốt hướng persistence), phần lớn **Phase 8** và **G.2–G.5** (bundle ID, signing, license).
+Bảng trên không có hàng cho **C.1** (misinformation, `fb27af7`): nó chạy giữa Bước 12 và Bước 13 như một mục của nhóm C, không phải một bước của vòng nào.
+
+Còn chặn thật, đã báo thay vì làm dở: **P0.5 + B.3** `[141]` (không `k6`; deps P0.4 **đã hết** — sức chứa 135 ≥ profile 120), **B.2b** + hai job CI Docker (không Docker ở máy này — sau PR.1 thì `recovery-drill` trên CI là chỗ quan sát đầu tiên, cần `workflow_dispatch`), **A.1** phần phiên tay 30–60 phút (người phải chạy), **S-7 / S-8 / S-9** (gộp PR admin kế tiếp / owner chốt con số / owner quyết guard boot), **M-5** (đổi luật tính điểm lãnh thổ — OQ #15), nhóm **D** (owner chốt hướng persistence), phần lớn **Phase 8** và **G.2–G.5** (bundle ID, signing, license).
 
 Lý do **không** đảo Bước 1 lên trước Bước 0: mọi verification của Bước 1 (số test, band layout) đọc từ code trong working tree; nếu tree mất thì tài liệu vừa viết cũng sai theo.
 
-Lý do **không** đưa P0.2–P0.5 vào Bước 2: P0.2/P0.3 chạm `store.ts` sâu và cần số đo p95 trước/sau, nên nên đi sau khi P0.1 tạo tiền lệ owner-review; P0.4 chờ owner quyết (OQ #2); P0.5 phụ thuộc P0.4 và `k6` chưa cài trên máy này.
+Lý do **không** đưa P0.2–P0.5 vào Bước 2: P0.2/P0.3 chạm `store.ts` sâu và cần số đo p95 trước/sau, nên nên đi sau khi P0.1 tạo tiền lệ owner-review; P0.4 chờ owner quyết (OQ #2 — đã chốt 2026-09-04, thực thi ở Bước 13); P0.5 phụ thuộc P0.4 và `k6` chưa cài trên máy này.
 
 ## Nhóm Z — Việc phát sinh từ trạng thái repo (không có trong roadmap)
 
@@ -115,7 +121,7 @@ Bốn khẳng định sai đã kiểm từng dòng trên `apps/server/src/app.ts
 - [X] `ROADMAP.md` không còn dòng nào khẳng định sai; không tự thêm section 7D
 - [X] `API.md` không còn hạn mức không tồn tại; có 503
 - [X] Không chạm `store.ts` / `app.ts` / `packages/shared` → chưa cần owner review
-- [ ] Owner xem lại hai nhánh và quyết N.1 / N.2 / OQ #2
+- [ ] Owner xem lại hai nhánh và quyết N.1 / N.2 (OQ #2 đã chốt 2026-09-04 → nhóm M)
 
 ### PR.1 — Đưa 16 commit ra khỏi một máy ✅ (2026-09-03)
 
@@ -207,11 +213,20 @@ B.1a S-5 ambush ──> (đứng trước P0.3 vì P0.3 viết lại claim() c�
 P0.2 ledger window ──> P0.3a registry có trần ──> P0.3b bỏ state.processedCommands
        └──────────────┴──> dùng chung một con số idempotency window
 
-P0.4 world capacity ──┐
+P0.4 world capacity ──┐  ✅ đóng ở M-4 (135 ô)
 P0.5 harness fix ─────┤
 P0.2 ledger reload ───┼──> B.3 [141] load test run + report
 P0.3 processedCommands┘
 P0.1 rate-limit ──────────> B.1 [145] security review ──> B.1a S-5
+
+M-1 một nguồn sự thật cho kích thước ──> M-2 thế giới 36×36 vẽ tay ──┬──> M-3 terrain rời dây
+   (đứng trước vì M-2 đổi extent)          (client và server đọc     │     + PROTOCOL_VERSION 2
+                                            cùng một world-map.ts)   │
+                                                                     ├──> M-4 sức chứa ──> đóng
+                                                                     │     P0.4, mở P0.5
+                                                                     └──> M-5 chiếm vùng bằng
+                                                                           quân đóng ──> M-6 vùng
+                                                                           hiện ra trên màn hình
 
 A.1 [204] manual acceptance ──> đóng Phase 7C
 
@@ -348,25 +363,27 @@ dùng chung *idempotency window* của P0.2 để không có hai con số cần 
 **Dependencies:** P0.3a · **Scope:** M · ⚠️ hot file
 **Files:** `apps/server/src/store.ts`, `diplomacy.ts`, `espionage.ts`, `types.ts`, `season-reset.ts` + tests
 
-### P0.4 — Nâng sức chứa thành phố của thế giới
+### P0.4 — Nâng sức chứa thành phố của thế giới ✅ → **thực thi ở nhóm M** (2026-09-04)
 
 `cityPlacement()` (`store.ts:26-45`) quét `[2..17]²`, yêu cầu Manhattan ≥3 giữa các city và ≤2 tới anchor. Anchor chỉ có 4: 3 resource node (6,8 / 15,10 / 10,14) + 1 market hub quanh (10,10), do `logistics.ts` `seed()` và `seedMarketHub()` tạo. Mỗi đĩa Manhattan bán kính 2 nhận ~4 city → trần ~16, khớp ghi chú "trần ~16 ô đặt thành phố" ở roadmap dòng 203. `loadtest-seed.ts` từ chối `LOADTEST_USERS < 100` nên seed throw `KINGDOM_FULL` khoảng user thứ 17.
 
-**Cần owner quyết trước khi làm** (Open Question #2): mở rộng map, hay giữ 20×20 và hạ mục tiêu load test.
+**Đo lại trước khi làm:** trần thật là **14** (2 thành seed + 12), không phải ~16 — 51 ô nằm trong Manhattan 2 của anchor, luật cách ≥3 cắt còn 14. Và `LOADTEST_USERS` mặc định **120**, không phải 100.
+
+**Quyết định (OQ #2, chốt qua plan `snuggly-forging-spring.md` 2026-09-04):** mở map. Bốn quyết định và bản thực thi nằm ở **nhóm M** dưới đây (M-1 → M-4 đã xong, `143a0dc` / `f62d64a` / `fa6fd0d`). Kết quả đo: **14 → 135 ô**. Owner vẫn cần xác nhận trước khi push vì change set chạm ba hot file.
 
 **Acceptance criteria:**
-- [ ] Kích thước map thành một hằng số chia sẻ duy nhất; xoá hardcode ở `packages/shared/src/index.ts:278` (`moveArmyCommandSchema` clamp 0..19) và `apps/client/src/map.ts:9,114`
-- [ ] Số anchor scale theo sức chứa mong muốn; `cityPlacement()` đặt được ≥ N city với N là mục tiêu đã chốt
-- [ ] Test khẳng định sức chứa: đặt N city liên tiếp không throw `KINGDOM_FULL`
-- [ ] Nếu mở rộng map: ghi ảnh hưởng travel time / logistics distance vào `docs/GAME-DESIGN.md`
+- [X] Kích thước map thành một hằng số chia sẻ duy nhất; xoá hardcode ở `packages/shared/src/index.ts` (`moveArmyCommandSchema` clamp 0..19) và `apps/client/src/map.ts` — đo thật có **8** chỗ khai lại, không phải 5; xem M-1
+- [X] Số anchor scale theo sức chứa mong muốn (**36** anchor vẽ tay: 4 thương cảng + 32 mỏ); `cityPlacement()` đặt được **135** city, mục tiêu là 120
+- [X] Test khẳng định sức chứa: `logistics.test.ts` đặt city tới `KINGDOM_FULL`, assert sàn `>= 130`, và assert `citySiteCapacity()` **bằng** số store thật đạt được
+- [X] Ảnh hưởng travel time / logistics distance ghi vào `docs/GAME-DESIGN.md` — kèm cái không tự đổi: `raiders.targetCount`, `capacity`/`recoveryRate` của mỏ và bán kính supply vẫn là số của thế giới 20×20 (OQ #17)
 
 **Verification:**
-- [ ] `npm test -w @kingdoms/server` — test sức chứa mới trong `store.test.ts`
-- [ ] `npm run test:e2e` — E2E hiện dựa vào trần ~16, có thể phải sửa `reset.spec.ts`
-- [ ] Mở `npm run dev:web`, xác nhận map render đúng kích thước mới
+- [X] `npm test` — sức chứa đo trong `logistics.test.ts` (không `store.test.ts`: placement cần bộ anchor thật của logistics)
+- [ ] `npm run test:e2e` — **chưa chạy lại sau khi đổi bản đồ**; trần ~16 không còn là lý do reset per-scenario, nhưng `map.spec.ts` / `map-command.spec.ts` / `economy.spec.ts` là guard thật cho thế giới mới
+- [ ] Mở `npm run dev:web`, xác nhận map render đúng kích thước mới — kiểm mắt ở Checkpoint C của nhóm M
 
-**Dependencies:** Owner decision · **Scope:** M–L tuỳ phương án
-**Files:** `packages/shared/src/index.ts`, `apps/server/src/store.ts`, `apps/server/src/logistics.ts`, `apps/client/src/map.ts`, `apps/server/src/store.test.ts`
+**Dependencies:** Owner decision (đã có) · **Scope:** M–L tuỳ phương án
+**Files:** `packages/shared/src/index.ts`, `apps/server/src/store.ts`, `apps/server/src/logistics.ts`, `apps/client/src/map.ts`, `apps/server/src/logistics.test.ts`
 
 ### P0.5 — Sửa harness k6 cho khớp hạn mức thật
 
@@ -380,13 +397,13 @@ Scenario `commands` trong `e2e/loadtest/loadtest.js` chạy `constant-arrival-ra
 **Verification:**
 - [ ] `k6 run --duration 1m e2e/loadtest/loadtest.js` trên stack local, không có lỗi giả từ 429
 
-**Dependencies:** P0.4 (seed phải chạy xong mới có fixture) · **Scope:** S
+**Dependencies:** ~~P0.4~~ (xong ở nhóm M — fixture seed được 120 user với dư 15) · **Scope:** S
 **Files:** `e2e/loadtest/loadtest.js`, `apps/server/src/loadtest-seed.ts`
 
 ### Checkpoint 1 — sau P0.1–P0.5
 - [ ] `npm run verify:web-alpha` xanh
 - [ ] Có số đo p95 command trước/sau P0.2+P0.3
-- [ ] Seed `LOADTEST_USERS` mục tiêu không throw `KINGDOM_FULL`
+- [X] Seed `LOADTEST_USERS` mục tiêu không throw `KINGDOM_FULL` — sức chứa **135** so với profile **120**; vượt trần thì `loadtest-seed` từ chối kèm trần thật **trước khi ghi hàng đầu tiên** (`fa6fd0d`)
 - [ ] **Owner review** — nhóm này chạm `store.ts` / `app.ts`
 
 ### Checkpoint 1b — sau Bước 5–9 (vòng 2026-09-03)
@@ -399,7 +416,7 @@ Scenario `commands` trong `e2e/loadtest/loadtest.js` chạy `constant-arrival-ra
 - [X] `check:bundle` ≤ 500 KiB/chunk — 6/6 chunk trong hạn, lớn nhất `pixi` **465.0 KiB**
 - [X] `test:postgres` báo cáo là **skipped ở máy này** (không có Docker / `DATABASE_URL`) → **không** khẳng định `verify:web-alpha` xanh dựa trên máy contributor; 15 test server skip chính là gate đó. Nó **đã xanh trên CI** (gate 5, run `33707700712` + `33707793916`) — đó là chỗ duy nhất quan sát được, và cũng là phần phủ đúng `store.ts`/`event-ledger.ts` mà P0.2/P0.3 sửa
 - [X] `gh workflow run` để `prod-smoke` + `recovery-drill` có lần quan sát đầu tiên — **xong 2026-09-03**, run `33707793916` (`workflow_dispatch`, ref `perf/command-path`): `verify` 10/10 gate, `prod-smoke` **xanh** (compose prod build thật, `password-auth` 1/1), `recovery-drill` **xanh** (3/3 drill, RPO 0 ms, RTO **4439 ms**, artifact `drill-report`). Kết quả đã vào `docs/OPERATIONS.md` mục "Kết quả drill" và `docs/ROADMAP.md` section 7D
-- [ ] Còn lại cho owner: P0.4 (sức chứa map), S-9, xác nhận S-1 trên stack Caddy thật, S-7, S-8, thứ tự merge **7** PR, và `infra/backup/backup.sh`/`restore.sh` vẫn chưa được kiểm chứng lần nào (drill đi qua `pg_dump` trực tiếp). Flake gate 7 **không còn trong danh sách này** — đã sửa ở `1d9acc1`
+- [ ] Còn lại cho owner: ~~P0.4 (sức chứa map)~~ (đóng 2026-09-04 ở nhóm M — 135 ô), S-9, xác nhận S-1 trên stack Caddy thật, S-7, S-8, thứ tự merge **8** PR, và `infra/backup/backup.sh`/`restore.sh` vẫn chưa được kiểm chứng lần nào (drill đi qua `pg_dump` trực tiếp). Flake gate 7 **không còn trong danh sách này** — đã sửa ở `1d9acc1`
 
 ## Nhóm A — Đóng Phase 7C
 
@@ -691,7 +708,7 @@ Phần còn lại, mỗi mục là **một lỗi đã xác định**, không ph�
 | Đổi palette / art direction / asset thật | **G.1** cần owner chốt art style guide trước |
 | Thêm command server mới cho tray | Cố ý: UI-6 chỉ nhóm lại lệnh đã có. Command mới là gameplay, không phải UI |
 | `misinformation` trong drawer espionage | **C.1**, cần server trước — đã xong ở `fb27af7`: picker và câu chi phí suy từ `launchableSpyMissionTypes`, nên không phải sửa drawer lần nữa khi thêm mission type |
-| Sức chứa map | **P0.4** — owner quyết (OQ #2), không liên quan UI |
+| Sức chứa map | **P0.4** — không liên quan UI; chốt và thực thi ở **nhóm M** (2026-09-04) |
 | Primitive `Select` thay `<select>` thô | Làm ở đuôi UI-3 nếu rẻ; nếu phải thêm >1 rule CSS mới thì tách task riêng để `emitted.size` của `ui-primitives.test.ts` không bị nới lỏng vội |
 
 ## Nhóm C — Feature debt
@@ -745,6 +762,211 @@ L-sized → tách thành 3 PR:
 ### Checkpoint 3 — sau C.1 + C.2
 - [ ] Dòng 89 tick (C.2 chưa mở); caveat misinformation ở dòng 99 **đã xoá** ở `fb27af7`, nên nửa C.1 của checkpoint này đóng — Phase 5 hết caveat
 - [ ] `verify:web-alpha` xanh, có e2e cho chat/mail
+
+## Nhóm M — Thiết kế lại bản đồ: thế giới 36×36 vẽ tay (2026-09-04)
+
+Owner nhờ "thiết kế map". Đây **không** phải phạm vi mới: nó là **P0.4** của roadmap, và nhóm M là
+bản thực thi của P0.4 chứ không phải một mục thứ hai. Ba vấn đề đo được của bản đồ cũ: (1) đúng
+**14 ô** đặt được thành phố trong khi profile load test mặc định là **120** người — load test không
+chạy chậm, nó **không seed nổi**, throw `KINGDOM_FULL` ở người thứ 13; (2) terrain là **ba phép
+modulo** trong `combat.ts` (`(x+y)%7`, `(x*y)%11`, `(x+y)%13`) — những dải chéo, không vùng, không
+chỗ nghẽn, không gì để nhớ; (3) `militaryScore` cho tới **300/1000** điểm theo `tilesControlled` mà
+**không dòng code nào** tăng biến đó, và mỗi resource node được gán `regionId: randomUUID()` riêng
+nên bảng `regions` là di tích.
+
+Bốn quyết định trả lời OQ #2, chốt trong plan `snuggly-forging-spring.md`: phạm vi = **mở sức chứa +
+bản đồ thật** (chưa cho terrain ảnh hưởng di chuyển/thu hoạch/tầm nhìn), kích thước **36×36**,
+terrain **vẽ tay cố định** (không noise theo seed), lãnh thổ **chiếm bằng quân đóng**.
+
+Ràng buộc chung cho cả nhóm: bản đồ sống ở **một** chỗ (`packages/shared/src/world-map.ts`) vì client
+và server phải phân xử trên **cùng** mặt đất; mọi luật mới là **hàm thuần** + test trên bare
+`node --test`; **không** đổi 5 tên class e2e đang đo, không re-key `<MapSurface />`; sáu toạ độ di
+sản — thương cảng (10,10), mỏ (6,8) (15,10) (10,14), thành seed (8,8) (13,11) — **không được di
+chuyển** vì `logistics.test.ts` và `espionage.test.ts` mô tả khoảng cách giữa chúng. Nhóm này **có**
+chạm ba hot file (`packages/shared/src/index.ts`, `apps/server/src/store.ts`, `apps/server/src/app.ts`)
+→ ping owner trước khi push. Nhánh `feat/world-map-36` cắt từ tip #7, sẽ là **PR #8**.
+
+### M-1 — `gameRules.map`: một nguồn sự thật cho kích thước ✅ `143a0dc`
+
+Refactor thuần, extent vẫn 20, không assertion nào phải sửa. Mục đích: biến "đổi kích thước map" từ
+*sửa n literal và cầu may* thành *sửa một số*. Plan nói có **5** chỗ khai lại kích thước; thực tế
+có **8**. Chỗ thứ tám là `moveArmyCommandSchema` với `targetX/targetY .max(19)` — để nguyên thì bản
+đồ 36×36 ship kèm một bug im lặng: server từ chối **mọi** lệnh di chuyển qua ô 19 trong khi cả phần
+còn lại của game đồng ý ô đó tồn tại.
+
+**Acceptance criteria:**
+- [X] `mapExtent` là **chỗ duy nhất** trong repo khai kích thước bản đồ; `cityPlacement` window suy ra từ nó, không còn 4 số hằng rời
+- [X] `mapExtent` khai **gần đầu** `shared/index.ts`, không cạnh `gameRules` — schema đọc nó lúc module eval nên đặt cạnh `gameRules` là một **TDZ throw**, không phải một lựa chọn style
+- [X] Trần texture 4096 là một **test đỏ được**: `terrainTextureSize()` chuyển vào `map-geometry.ts` thuần; extent 36 cần 4036px (dư 60px), extent 40 cần 4484px và **fail allocation**
+- [X] Sàn zoom thành **hàm của extent** (`min(0.6, 900 / (extent · 56))`) → M-3 không cần chạm zoom nữa
+- [X] Không một test hiện có nào phải sửa assertion (hành vi bất biến)
+
+**Verification:** `map-size.test.ts` (mới, shared) quét repo bằng **ba regex hẹp** chỉ khớp hardcode *toạ độ ô* — quét `20` trơn là vô dụng vì `iron: 20`, `morale < 20`, `limit = 20` đều hợp lệ; shared 3 → 5, client 148 → 150, server không đổi; typecheck sạch
+
+**Files:** `packages/shared/src/index.ts` ⚠️, `packages/shared/src/map-size.test.ts` (mới), `apps/server/src/{logistics,raiders,combat,world-events}.ts`, `apps/client/src/map-geometry.ts`, `apps/client/src/map-geometry.test.ts` · **Deps:** none · **Scope:** S
+
+### M-2 — Thế giới 36×36 vẽ tay, sống trong `packages/shared` ✅ `f62d64a`
+
+Phần "thiết kế" thật: hai lưới ký tự 36 dòng (một terrain, một vùng) + 36 anchor + metadata 16 tỉnh
+trong `world-map.ts`, cộng hàm thuần `terrainAt` / `regionAt` / `worldMapDigest`. Địa hình là **cố ý**:
+rừng bao mỏ gỗ, đồi bao mỏ đá và sắt, nên mặt đất nói cho người chơi biết chỗ nào có gì trước khi họ
+click. Biên vùng bắc-nam là sống đồi, biên đông-tây là đầm — `terrainModifiers` đã ưu bên phòng thủ
+trên đồi và phạt bên tấn công trong đầm, nên một đường biên là **nơi đáng đứng**.
+
+**Acceptance criteria:**
+- [X] Không còn phép modulo nào sinh terrain; `combat.ts` không tự biết bản đồ hình gì
+- [X] Hai lưới đúng 36×36, chỉ ký tự hợp lệ; **16 tỉnh** `A`–`P` đều **liền khối** (flood fill), 79–83 ô mỗi tỉnh, seat nằm trong chính tỉnh nó
+- [X] **36 anchor** = 4 thương cảng + 32 mỏ, **đúng hai mỏ mỗi tỉnh**, 12 gỗ / 12 đá / **8 sắt** (đối xứng xoay ngặt buộc bội của bốn; sắt vẫn là thứ khan hiếm, đúng điều recovery 3/tick so với 5 đã nói); không hai anchor trùng ô
+- [X] Sáu toạ độ di sản vẫn hợp lệ và giữ vai trò cũ → `logistics.test.ts` và `espionage.test.ts` không phải viết lại
+- [X] Tỷ lệ terrain **61.7 / 18.8 / 14.9 / 4.6** — cố ý sát thế giới modulo cũ (64/16/14/5) để thay bản đồ **không âm thầm dịch cân bằng battle**; ra khỏi dải là một quyết định, và là một test đỏ
+- [X] Toàn bộ **59 ô đầm** nằm trên một đường biên vùng; mỗi ô thứ sáu của biên để trống làm **đèo** (37 đèo bắc-nam, 35 chỗ cạn đông-tây) nên không vùng nào bị bịt kín
+- [X] `resource_nodes`/`market_hubs` **hội tụ** sau reseed: id suy deterministic từ `(kingdom, ô)`, hàng lạ bị prune. `load()` **đảo chiều**: bản đồ quyết định **mỏ nào tồn tại**, database chỉ nhớ **còn lại bao nhiêu**
+
+**Hai thứ khác plan, và vì sao:** (1) `state.terrainMap` giữ lại nhưng **chỉ chứa override** (ô khác bản đồ authored) — nên payload terrain mỗi snapshot đi từ **6 323 → 2 byte** ngay ở M-2, không phải chờ M-3; một lưới dày 36×36 sẽ là 21 061 byte và **không byte nào** trong số đó lên dây. (2) Plan nói "không cần migration"; **sai**: `013` khai `market_hubs_one_per_kingdom_uq` mà một kingdom giờ có **bốn** thương cảng → `015_world_map_36.sql`.
+
+**Verification:** `world-map.test.ts` (mới, shared, bare node) — mọi bất biến trên là test, cộng **digest vàng** `worldMapDigest()` nên một thay đổi với thế giới là một dòng diff phải cố ý; shared 5 → **17**; server 149 → 150 (mỏ trả đúng tỉnh); `test:postgres` **skipped** ở máy này → phần prune/upsert và migration 015 chỉ CI hoặc owner xác nhận được. Đo được **111 ô** đặt được thành phố — vẫn dưới 120, nên M-4 là **bắt buộc**, không phải tuỳ chọn.
+
+**Files:** `packages/shared/src/world-map.ts` (mới), `world-map.test.ts` (mới), `packages/shared/src/index.ts` ⚠️, `apps/server/src/{combat,logistics}.ts`, `apps/server/src/logistics.test.ts`, `infra/migrations/015_world_map_36.sql` (mới), `docs/GAME-DESIGN.md` · **Deps:** M-1 · **Scope:** L
+
+### M-4 — Sức chứa: 14 → 135 ô ✅ `fa6fd0d` → **đóng P0.4**
+
+Làm trước M-3/M-5 vì đây là cái đang chặn roadmap. Ba luật quyết định con số, và không luật nào là
+"nới ra cho đủ": tầm với anchor 2 → **3** (giữ 2 chỉ cho 111 ô, và mua phần thiếu bằng anchor thì cần
+**49** cái, quá mức vẽ tay hợp lý), site phải với tới mỏ của **cả ba** loại tài nguyên, và đặt thành
+phố **đi vòng theo tỉnh**. `minDistanceBetweenCities` giữ **3** — không nới, vì đó là luật giữ thành
+phố không dính nhau.
+
+**Cái bẫy vô hình thành luật:** **43 trong 134** site không với tới một loại tài nguyên nào đó trong
+10 ô — sắt tệ nhất với **19** site. Công trình cần gỗ, đá **và** sắt, mỗi tỉnh chỉ có hai mỏ, nên hết
+starter package là hết đường mà không có một thông báo nào. Thế giới 20×20 không có vấn đề này vì cả
+ba mỏ đều trong tầm mọi nơi, nên luật này **chưa từng phải viết ra**.
+
+**Tầm thu hoạch là một bug scale, không phải một dial cân bằng:** số `10` viết thẳng trong
+`logistics.ts` **đúng là** `mapExtent / 2` của thế giới 20×20 nó được viết cho. Nay là
+`gameRules.logistics.harvestRange = mapExtent / 2` = **18**. Muốn thu hoạch **thành ra cục bộ** thì hạ
+nó xuống, và cái giá là sức chứa: 12 → 120 ô, 14 → 130, 18 → 135. Đó là **quyết định cân bằng** của
+owner (OQ #16), không phải một con số kỹ thuật.
+
+**Acceptance criteria:**
+- [X] `store.addDevPlayer` đặt được **135** thành phố (2 seed + 133) rồi mới `KINGDOM_FULL` — đo tận tay, so với **14** trước đó
+- [X] Mọi thành phố vẫn cách nhau ≥3 ô và ≤3 ô tới một thương cảng/mỏ; và với tới cả ba loại tài nguyên
+- [X] 120 người đầu **không** dồn vào một góc: 14 người đầu vào đúng 14 tỉnh mà hai thành seed không đứng; ở 122 thành, tỉnh đông nhất có **8**, tỉnh ít nhất có **6**. Row-major trên bản đồ rộng 36 dồn 40 người đầu vào góc tây-bắc — vừa hỏng trải nghiệm vừa làm load test đo **một cụm** thay vì một thế giới
+- [X] Đặt thành phố vẫn **deterministic**: tỉnh ít thành nhất trước (hoà thì theo mã `A`–`P`), row-major trong tỉnh
+- [X] `citySiteCapacity()` export → `loadtest-seed` từ chối **trước khi ghi hàng đầu tiên**, kèm trần thật, thay vì chết giữa lúc seed bằng `KINGDOM_FULL`; và một test assert nó **bằng** số store thật đạt được — vì nếu lệch thì guard đang nói dối
+- [X] `logistics.test.ts` thôi khai lại hằng số của luật (`2..17`, `>= 3`, `<= 2`) → đọc từ `gameRules.cityPlacement`; đúng lỗi đã xảy ra một lần
+
+**Verification:** server 150 → **151** (136 pass + 15 skip); shared 17, client 150; typecheck sạch; `test:postgres` **skipped** (không Docker/`DATABASE_URL`) và vòng này **có** đổi đường ghi `resource_nodes`/`market_hubs` nên rủi ro ở gate đó **không** bằng không; `npm run test:load:full` **chưa chạy** (`k6` chưa cài = P0.5) → chỉ phần seed được xác nhận
+- [ ] E2E **chưa chạy lại** sau M-2/M-4 — bản đồ đổi nên `map.spec.ts` / `map-command.spec.ts` / `economy.spec.ts` là guard thật
+- [ ] Kiểm bằng mắt ở 5 viewport (1920/1440/1280/1024/900): bản đồ mới có đọc được không
+
+**Files:** `apps/server/src/store.ts` ⚠️, `packages/shared/src/index.ts` ⚠️, `apps/server/src/{loadtest-seed,logistics}.ts`, `apps/server/src/{logistics,app}.test.ts`, `docs/GAME-DESIGN.md` · **Deps:** M-2 · **Scope:** M
+
+### M-3 — Đặt đúng tên cho thứ đang đi trên dây, và khoá client cũ
+
+**Phạm vi đã teo lại một nửa vì M-1 và M-2 đi trước:** sàn zoom và trần texture xong ở M-1; **6 321
+byte** tiết kiệm được đã lấy ở M-2 (`terrainMap` thành overrides-only, 6 323 → 2 byte). Còn lại là
+phần *sự thật*, không phải phần *băng thông*: một field tên `terrainMap` mà chỉ chứa override là một
+cái tên nói dối, và một client cũ gặp server mới hôm nay **vẽ sai một cách im lặng**.
+
+**Vì sao phải nâng `PROTOCOL_VERSION`.** `terrainMap` **đã** `.optional()` và client mặc định ô thiếu
+thành `plains`. Không nâng version thì: client cũ + server mới → vẽ cả thế giới thành đồng bằng;
+client mới + server cũ → vẽ bản đồ authored trong khi server phân xử battle bằng bản đồ modulo. Cả
+hai **sai im lặng** — đúng loại lỗi mà version gate (`protocol.ts`, đã có, đã có test) tồn tại để
+chặn. Đây cũng là nửa "protocol version" của mục [217]/E.6.
+
+**Acceptance criteria:**
+- [ ] Snapshot đổi `terrainMap` → **`terrainOverrides`** + thêm `worldMapDigest`; không khoá `terrainMap` nào còn trong payload
+- [ ] **`PROTOCOL_VERSION` 1 → 2**; client cũ bị khoá command kèm câu tiếng Việt "hãy tải lại trang", **không** vẽ sai im lặng
+- [ ] `terrainSig(digest, overrides)` thay `JSON.stringify` cả bản đồ — rẻ hơn và vẫn đúng tín hiệu rebuild texture
+- [ ] `LogisticsPanel.tsx:162,168` — câu "Lập tuyến đến **{hub[0]}**" **sai** khi có bốn thương cảng → nói theo hub đang chọn trong `<select>` đã có, hoặc "một thương cảng" khi chưa chọn
+- [ ] Client vẽ đúng thế giới authored, kể cả sau `/api/dev/reset`; không re-key `<MapSurface />`, không đổi API `WorldMap`
+
+**Verification:**
+- [ ] `protocol.test.ts` (đã có) xanh với version mới; thêm test snapshot **không** có khoá `terrainMap`
+- [ ] `map-geometry.test.ts`: `terrainSig` ổn định theo `(digest, overrides)`
+- [ ] Đo tận tay `curl -s /api/state | wc -c` trước/sau, ghi hai số vào commit message
+- [ ] e2e `map.spec.ts` + `map-command.spec.ts` + `situation-room.spec.ts` xanh **không sửa assertion**
+- [ ] `npm run build` + `check:bundle` ≤ 500 KiB/chunk
+
+**Files:** `apps/server/src/app.ts` ⚠️, `packages/shared/src/index.ts` ⚠️, `apps/client/src/{map,map-geometry}.ts`, `apps/client/src/components/LogisticsPanel.tsx`, các test tương ứng · **Deps:** M-2 · **Scope:** M
+
+### M-5 — Chiếm vùng bằng quân đóng: 300 điểm chết sống lại
+
+**Luật** (`apps/server/src/territory.ts`, mới, hàm thuần): vùng thuộc về P nếu P có **quân sống**
+(`strength > 0`, không `frozen`, `ownerType === "player"`) trong bán kính Manhattan `captureRadius = 1`
+quanh **seat** của vùng, và không ai có quân gần seat hơn hoặc bằng; hoà → **vô chủ**. Quân NPC
+(raider, mob) **không** tranh vùng — cố ý, để không có vùng nào không thể giữ được.
+`tilesControlled[P]` = tổng số ô của các vùng P đang giữ, tính lại **mỗi tick** (ảnh chụp hiện tại,
+khác `victories` là số cộng dồn).
+
+**Đổi thang điểm — cần owner thấy (OQ #15).** Thang cũ (`tiles × 5`, max ở 60 ô) nghĩa là **giữ một
+tỉnh 81 ô ăn trọn 300 điểm**, tức biến 30% trục quân sự thành một cái công tắc. Đề xuất
+`fullScoreTiles = 324` (25% của 1296 ô ≈ **4 trong 16 tỉnh**).
+
+**Acceptance criteria:**
+- [ ] Đóng quân cạnh seat → tick sau `tilesControlled` tăng đúng số ô của vùng; rút quân → về 0
+- [ ] Hai người cùng khoảng cách tới seat → vùng **vô chủ**, không ai được điểm
+- [ ] Raider đứng trên seat không chiếm được vùng và **không chặn** người chơi
+- [ ] Người **chưa từng đánh nhau** vẫn có điểm lãnh thổ — hôm nay entry `militaryThroughput` chỉ sinh ra khi có battle (`combat.ts:294`), nên cần `??=` khởi tạo
+- [ ] Giữ 4 tỉnh = 300 điểm; giữ 1 tỉnh ≈ 75 điểm, **không** phải 300; `militaryScore` vẫn trần 1000
+- [ ] Không migration mới — `military_throughput.tiles_controlled` **đã có cột**, đã đọc/ghi
+
+**Verification:**
+- [ ] `territory.test.ts` (mới, thuần): bảng tình huống — một chủ, tranh chấp, hoà, NPC, quân chết, quân `frozen`, quân ngoài bán kính
+- [ ] `packages/shared/src/index.test.ts` — **2 assertion đổi fixture** (`tilesControlled: 100` → `324`), giữ nguyên ý "tất cả max → 1000"; nói rõ trong commit **vì sao** fixture đổi
+- [ ] e2e `production-loop.spec.ts` xanh (một lần đỏ cuối full run là flake đã biết → chạy lại riêng lẻ)
+
+**Files:** `apps/server/src/territory.ts` (mới), `territory.test.ts` (mới), `apps/server/src/store.ts` ⚠️, `packages/shared/src/index.ts` ⚠️, `packages/shared/src/index.test.ts`, `docs/GAME-DESIGN.md` · **Deps:** M-2 · **Scope:** M
+
+### M-6 — Vùng hiện ra trên màn hình
+
+Chiếm vùng mà không thấy được thì là điểm số bí ẩn. Phần này dùng **đúng những bề mặt vừa làm xong ở
+nhóm UI**, không thêm panel nào.
+
+**Acceptance criteria:**
+- [ ] Snapshot thêm `regions: Array<{ id, name, seatX, seatY, tileCount, controllerPlayerId | null }>` — 16 hàng, phần tĩnh lấy từ `world-map.ts`, chỉ `controllerPlayerId` đổi theo tick; tăng **≤2 KB** (vẫn nhỏ hơn 6.3 KiB terrain đã bỏ)
+- [ ] Đổi chủ vùng sinh **đúng một** hàng feed, không trùng khi snapshot lặp; không hàng nào in raw ID/enum
+- [ ] `kind` mới `region-captured` / `region-lost` có đủ **một** wording tiếng Việt + **một** glyph + **một** trong 8 state UI (thiếu là test đỏ)
+- [ ] Seat và tên vùng không đè lên quân/thành ở zoom mặc định; tên vùng chỉ hiện khi zoom ≥ 1.0
+- [ ] Chọn một ô thì tray nói **vùng nào, ai giữ**, kèm lý do khoá nếu lệnh không hợp lệ (dùng `{ ok, reason }` sẵn có)
+- [ ] Cột hoạt động và tray **không đổi** chiều cao/bề rộng; map không remount (`canvas.dataset.pr3`)
+
+**Verification:**
+- [ ] `activity.test.ts` (dedupe, thứ tự, trần 50) + `ui-primitives.test.ts` (một wording + một glyph cho mỗi state mới)
+- [ ] e2e mới: đóng quân cạnh seat → feed hiện hàng "đã kiểm soát …", click hàng nhảy đúng panel
+- [ ] `situation-room.spec.ts` + `activity-feed.spec.ts` + `command-tray.spec.ts` xanh **không sửa**
+
+**Files:** `apps/server/src/app.ts` ⚠️, `packages/shared/src/index.ts` ⚠️, `apps/client/src/{map,activity,tray-groups}.ts`, `apps/client/src/ui/vocabulary.ts`, các test tương ứng · **Deps:** M-5 (và M-3 nếu muốn gộp một lần bump protocol) · **Scope:** M
+
+### Checkpoint A — sau M-1 + M-2: thế giới mới đã landing (xác minh còn hai việc)
+- [X] `mapExtent` là chỗ duy nhất khai kích thước; trần texture 4096 là test đỏ được (4036 ở extent 36)
+- [X] Bản đồ 36×36 vẽ tay chạy trên **cả** server và client; terrain trên dây còn **2 byte** (override), không phải 6 323
+- [X] `worldMapDigest()` là golden test → đổi thế giới là một diff phải cố ý
+- [X] `typecheck` + `npm test` xanh (shared 17, server 150, client 150 tại thời điểm M-2); `build` + `check:bundle` 6/6 ≤ 500 KiB
+- [ ] `PROTOCOL_VERSION = 2` — **chưa**, đó là M-3
+- [ ] Kiểm bằng mắt ở 5 viewport và e2e map/situation-room chạy lại — **chưa**
+
+### Checkpoint B — sau M-4: P0.4 đóng ✅ (còn `test:postgres` và e2e, cả hai không phải tiêu chí của P0.4)
+- [X] Sức chứa **đo tận tay 135 ô** (từ 14); `LOADTEST_USERS=120` seed hết, không `KINGDOM_FULL`; quá trần thì **báo lỗi ngay từ đầu**
+- [X] Phân bố theo tỉnh: 120 người không dồn một góc (ở 122 thành: max 8 / min 6)
+- [X] `docs/ROADMAP.md` P0.4 tick kèm số thật, P0.5 bớt blocker sức chứa (còn `k6`), `:145` còn **một** blocker, ma trận test `:207` đo lại
+- [X] `tasks/todo.md` P0.4 tick, OQ #2 đóng, OQ #14–#17 mở
+- [ ] `test:postgres` / `verify:web-alpha` **skipped ở máy này** — và vòng này **có** đổi đường ghi `resource_nodes`/`market_hubs` (+ migration 015) nên rủi ro ở gate đó **không** bằng không
+- [ ] E2E chưa chạy lại sau M-2/M-4
+
+### Checkpoint C — sau M-3 + M-5 + M-6 (lãnh thổ có nghĩa)
+- [ ] `PROTOCOL_VERSION = 2`, client cũ bị khoá kèm câu tiếng Việt
+- [ ] `tilesControlled` sống, thang điểm mới có test; `regions`/`region_id` hết là di tích
+- [ ] Giữ 4/16 tỉnh = 300 điểm; 2 assertion shared đã đổi fixture, ghi rõ vì sao
+- [ ] Vùng thấy được trên map + feed; không placeholder nào còn lại
+- [ ] Đo lại ma trận test ở `docs/ROADMAP.md:207` — **đo trước, sửa sau** (đã bị đúng lỗi này một lần)
+
+**Không làm vòng này, và vì sao:** terrain ảnh hưởng di chuyển / thu hoạch / tầm nhìn (là luật
+gameplay mới, không phải hệ quả của việc có bản đồ thật), fog of war (cần luật tình báo mới, và
+`scout` đang là cơ chế "xem" duy nhất), minimap (sàn zoom đã đủ thấy hết thế giới ở mọi band), shard
+`kingdom_id` (D.2 — 135 ô trong **một** kingdom đã đủ cho profile load test), `raiders.targetCount` và
+capacity/recovery của mỏ cho thế giới gấp ba (OQ #17 — **đo rồi sửa**, không đoán trước), art thật cho
+terrain mới (nhóm G, chờ style guide).
 
 ## Nhóm D — Kiến trúc scale (XL, cần owner chốt hướng)
 
@@ -955,7 +1177,7 @@ Ba mục đầu xong trong `4817d1a`; kết luận của mục 1 khác đề bà
 ## Open Questions
 
 1. ~~Phạm vi Phase 7D~~ → **đóng** sau `f6085a4`. Câu hỏi còn lại: owner có coi 7D là đã đóng, và có muốn thêm section 7D vào roadmap (N.1)?
-2. **Sức chứa thế giới:** mở rộng map cho 100+ người, hay giữ 20×20 và hạ mục tiêu load test? Chặn P0.4 → P0.5 → B.3 `[141]`.
+2. ~~**Sức chứa thế giới:** mở rộng map cho 100+ người, hay giữ 20×20 và hạ mục tiêu load test?~~ → **đóng 2026-09-04, chốt qua plan `snuggly-forging-spring.md`**: mở map. Bốn quyết định — phạm vi = sức chứa + bản đồ thật (chưa cho terrain ảnh hưởng di chuyển), kích thước **36×36** (lớn nhất còn giữ được renderer hiện tại: texture 4036px dưới trần 4096; 40 cần 4484 và fail allocation), terrain **vẽ tay cố định**, lãnh thổ **chiếm bằng quân đóng**. Thực thi ở **nhóm M**; sức chứa đo được **14 → 135 ô** nên P0.5/B.3 `[141]` hết blocker map (còn `k6`).
 3. Thứ tự nhóm D (scale server) vs nhóm E (đa nền tảng)?
 4. Contributor có quyền chạy prod compose / backup / k6 không? Máy này chưa có Docker và chưa có `k6`.
 5. ~~Misinformation baseline do owner chốt hay contributor đề xuất trong PR (C.1)?~~ → **contributor đề xuất, ship ở `fb27af7`**, số nằm trong "Phase 5 implementation baseline" của `docs/GAME-DESIGN.md` để owner sửa một chỗ: 120 sắt, 540s, 1800s, accuracy 0.45, hiệu lực 20 phút, méo `1 ± (0.25 + accuracy × 0.5)` hai chiều. Một ràng buộc xin đừng đổi khi cân bằng lại: **hiệu lực < cooldown**, nếu không thì cắm lại được trước khi lời cũ hết hạn và một người chơi bị bịt mắt vĩnh viễn — `espionage.test.ts` giữ luật đó.
@@ -965,3 +1187,4 @@ Ba mục đầu xong trong `4817d1a`; kết luận của mục 1 khác đề bà
 9. **Mới (S-9):** có thêm guard "production phải khai `TRUST_PROXY`" không? Để `false` sau Caddy thì `register:<ip>` 3/giờ thành hạn mức toàn cầu. Không tự thêm vì guard sẽ chặn boot của deployment phơi server trực tiếp mà tôi không kiểm chứng được. Kèm: S-1 cần owner xác nhận một lần trên stack thật Caddy → Fastify (máy này không có Docker nên chỉ chứng minh được nửa Fastify bằng `app.inject`).
 10. **Mới (2026-09-03):** thứ tự merge **6** PR (PR #7 `feat/espionage-misinformation` base `feat/hud-overhaul`). Đề xuất: **#4 trước** (nó sửa gate 5 nên cả stack xanh theo, và base là `main` nên không phải rebase gì), rồi #1 → #2 → #3 → **#5** → **#6** → **#7** theo đúng thứ tự tầng. Owner có muốn squash từng PR hay giữ nguyên commit theo lớp?
 11. ~~**Mới (2026-09-03):** flake gate 7 (`map-command.spec.ts` click phải NPC `mob_migration` cùng ô) — chọn ô không có NPC, hay assert theo `data-testid`?~~ → **đóng bằng đường thứ ba, `1d9acc1`**: hai hướng đó chỉ làm spec thôi đỏ mà vẫn để người chơi không chọn được quân mình khi mob đứng cùng ô. Nguyên nhân ở `pickAt()`: thế hoà `distSq` do thứ tự `snapshot.armies` phân xử. Spec **không đổi một dòng**; 2 test tất định ở `map-geometry.test.ts` là bằng chứng. Không cần owner quyết nữa.
+12. **Mới (2026-09-04, nhóm M):** bốn câu hỏi của vòng bản đồ — **tên 16 tỉnh** (chữ người chơi đọc, owner sửa `regions` trong `world-map.ts`; không test nào khoá chữ), **`fullScoreTiles = 324` + `captureRadius = 1`** (đổi luật tính điểm, và làm 2 assertion fixture ở shared phải đổi), **thu hoạch có nên cục bộ** (`harvestRange` 12 → 120 ô / 14 → 130 / 18 → 135, tức đánh đổi trực tiếp với sức chứa), **cân bằng cho thế giới gấp ba** (`raiders.targetCount`, capacity/recovery của mỏ, bán kính supply — đo rồi sửa). Danh sách chuẩn là `tasks/todo.md`, ở đó chúng là **#14–#17**; mọi tham chiếu "OQ #14–#17" trong file này trỏ sang đó, vì numbering hai file đã lệch từ #8.
