@@ -70,6 +70,10 @@ test("every band starts as a full-screen map and reuses one canvas", async ({ pa
 });
 
 test("desktop drawers overlay the same map and can close from either control", async ({ page }, testInfo) => {
+  // Isolated this flow runs in ~16s, but under a full-suite run the login alone
+  // takes ~6s and each of the four drawer clicks 2-5s — past the 30s default,
+  // the same headroom the treaty and economy specs take.
+  test.setTimeout(60_000);
   await page.setViewportSize({ width: 1440, height: 900 });
   await login(page, `Toggle E2E ${testInfo.project.name} ${Date.now()}`);
   const kingdom = page.getByRole("button", { name: "Vương quốc", exact: true });

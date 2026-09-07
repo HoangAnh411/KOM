@@ -32,6 +32,14 @@ export function hardReset(state: GameState, nextSeason: GameState["season"]): vo
   state.treaties = [];
   state.allianceVotes = [];
   state.spyMissions = [];
+  // Daily-quest baselines reference per-season counters (`militaryThroughput`
+  // victories, `spyMissions`) that the lines above just zeroed — a kept
+  // baseline would read as negative progress and be clamped away, quietly
+  // bricking the battles/spy quests for the rest of the boundary day. Clear
+  // the records instead; the next tick re-baselines everyone. The cost is at
+  // most one in-progress day lost at a season boundary, which is the same
+  // forfeit a midnight roll already implies.
+  state.dailyQuests = {};
   state.worldEvents = [];
   state.counterIntelActive = {};
   state.seasonMetrics = { resourcesProduced: {} };

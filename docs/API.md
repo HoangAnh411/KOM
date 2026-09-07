@@ -76,6 +76,17 @@ Lưu ý theo mùa: `campaignProgress` được giữ qua season reset, nhưng th
 
 Khi đóng mùa, thành, chỉ huy/XP, dự bị, đạo quân đang đi, thương binh, nghiên cứu, khám phá và chiến dịch được giữ lại. Chỉ điểm mùa, mục tiêu mùa, thành tích mùa và các NPC theo mùa được làm mới.
 
+## Nhiệm vụ hằng ngày
+
+- `POST /api/commands/daily-quest/claim` nhận `{ commandId, questId }` **hoặc** `{ commandId, milestone }` (đúng một trong hai, nếu thiếu cả hai hoặc thừa cả hai trả `EXACTLY_ONE_TARGET`; `milestone` chỉ nhận `5` hoặc `10`).
+- Mỗi ngày UTC (làm mới lúc **00:00 UTC**, `dayKey` dạng `YYYY-MM-DD`) mọi người chơi nhận cùng một bảng **6 nhiệm vụ** do `selectDailyQuestIds(dayKey)` rút deterministic từ catalog `dailyQuests` trong `@kingdoms/shared`: 3 nhiệm vụ dễ (1đ, rút từ 4), 2 nhiệm vụ vừa (2đ), 1 nhiệm vụ khó (3đ) — tổng 10 điểm.
+- Tiến độ **không lưu trên đường chơi**: server suy ra `max(0, hiện_tại − baseline)` từ các counter đơn điệu (số lượt thu hoạch, tổng cấp công trình, số lô huấn luyện xong, số caravan giao tới, số trận thắng, số nhiệm vụ chiến dịch/tuần tra xong, số điệp vụ gián điệp thành công) trừ baseline chụp khi đổi ngày. Vì vậy không có command nào "tăng tiến độ" — chỉ có claim.
+- Điểm tính theo nhiệm vụ **hoàn thành** (progress ≥ target), độc lập với việc nhận thưởng. Claim nhiệm vụ trả thưởng catalog (wood/stone/iron) vào thành đầu; claim mốc trả thưởng theo `dailyQuestMilestones` (5đ và 10đ).
+- Lỗi: `DAILY_QUEST_STALE_DAY` (quest không thuộc bảng hôm nay), `DAILY_QUEST_ALREADY_CLAIMED`, `DAILY_QUEST_NOT_COMPLETED`, `MILESTONE_NOT_REACHED`, `MILESTONE_ALREADY_CLAIMED`. Replay cùng `commandId` vẫn theo quy tắc idempotency chung (`already_processed`) — kể cả sau khi thưởng đã nhận.
+- **Thưởng chưa nhận mất khi qua 00:00 UTC** — không có cơ chế nhận bù. Khi đóng mùa, `dailyQuests` bị xóa sạch để chụp lại baseline (một phần `militaryThroughput`/`spyMissions` mà baseline tham chiếu đã reset theo mùa).
+
+Snapshot có thêm trường **optional** `dailyQuests` (theo người xem): `{ dayKey, refreshesAt, points, quests: [{ questId, progress, claimed }], claimedMilestones }`. Trường này không bump protocol — client cũ bỏ qua an toàn.
+
 ### `GET /health`, `/health/live`, `/health/ready` và `GET /metrics`
 
 - `/health` và `/health/live` dùng cho liveness — luôn `{ ok: true }` khi process còn sống.

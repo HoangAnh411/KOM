@@ -300,6 +300,8 @@ export class LogisticsRepository {
           }
         }
         caravan.status = "delivered";
+        // Daily-quest evidence: one delivery, one lifetime tick.
+        state.activityCounters.caravansDelivered[caravan.ownerPlayerId] = (state.activityCounters.caravansDelivered[caravan.ownerPlayerId] ?? 0) + 1;
       }
       changed = true;
     }

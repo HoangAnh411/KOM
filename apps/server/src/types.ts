@@ -12,7 +12,7 @@ export type LegacyRecord = { id: string; ownerId: string; seasonId: string; reco
 export type MilitaryStats = { victories: number; defeats: number; draws: number; strengthDestroyed: number; strengthLost: number; tilesControlled: number; successfulDefenses: number };
 export type SeasonMetrics = { resourcesProduced: Record<string, { wood: number; stone: number; iron: number }> };
 export type CosmeticAccount = { badges: number; owned: OwnedCosmetic[]; equipped: EquippedCosmetics; claimedRewardIds: string[] };
-import type { Alliance, Treaty, DiplomacyStats } from "@kingdoms/shared";
+import type { Alliance, Treaty, DiplomacyStats, DailyQuestMetric } from "@kingdoms/shared";
 
 export type GameState = {
   kingdom: { id: string; name: string };
@@ -60,4 +60,18 @@ export type GameState = {
   // canonical game_state JSON (no dedicated table needed).
   logisticsCounters: { exports: Record<string, { wood: number; stone: number; iron: number }>; harvests: Record<string, number> };
   cosmeticAccounts: Record<string, CosmeticAccount>;
+  // Daily quests, baseline-diff style: only the day a player is on, the counter
+  // baselines captured at that day's roll, and what they have claimed. Progress
+  // itself is derived on read (`max(0, current − baseline)`) — see
+  // `daily-quests.ts`. Lifetime activity counters that have no existing
+  // monotonic source; `harvests` lives in `logisticsCounters` above.
+  dailyQuests: Record<string, DailyQuestPlayerState>;
+  activityCounters: { trainingBatches: Record<string, number>; caravansDelivered: Record<string, number>; campaignsCompleted: Record<string, number> };
+};
+
+export type DailyQuestPlayerState = {
+  dayKey: string;
+  baselines: Record<DailyQuestMetric, number>;
+  claimedQuestIds: string[];
+  claimedMilestones: number[];
 };

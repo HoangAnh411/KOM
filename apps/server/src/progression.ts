@@ -103,7 +103,12 @@ export class ProgressionRepository {
     // Patrol pays resources on every win, scaled by the chapter being patrolled.
     // The combat rate bucket plus morale and recovery time is the real gate on
     // how often this can repeat; a loss or a draw pays nothing.
-    if (report.victor === "attacker") this.grantResources(gameRules.campaign.patrolRewards[mission.chapter as 1 | 2 | 3], state.cities.find(item => item.id === army.homeCityId) ?? state.cities.find(item => item.playerId === playerId));
+    if (report.victor === "attacker") {
+      this.grantResources(gameRules.campaign.patrolRewards[mission.chapter as 1 | 2 | 3], state.cities.find(item => item.id === army.homeCityId) ?? state.cities.find(item => item.playerId === playerId));
+      // Daily-quest evidence: a patrol win counts as a campaign completion,
+      // separate from `battles_won`.
+      state.activityCounters.campaignsCompleted[playerId] = (state.activityCounters.campaignsCompleted[playerId] ?? 0) + 1;
+    }
     return { status: "accepted", missionId, victor: report.victor, reportId: report.id };
   }
 
@@ -124,6 +129,9 @@ export class ProgressionRepository {
     const progress = campaignFor(state, playerId);
     progress.completedMissionIds.push(mission.id);
     progress.claimedFirstClearIds.push(mission.id);
+    // Daily-quest evidence: one campaign mission completed (either a first
+    // clear here or a patrol win above), distinct from `battles_won`.
+    state.activityCounters.campaignsCompleted[playerId] = (state.activityCounters.campaignsCompleted[playerId] ?? 0) + 1;
     if (campaignMissions.filter(item => item.chapter === mission.chapter).every(item => progress.completedMissionIds.includes(item.id))) {
       if (mission.chapter < 3) progress.unlockedChapter = Math.max(progress.unlockedChapter, mission.chapter + 1);
       this.unlockCommander(playerId, mission.chapter, state);

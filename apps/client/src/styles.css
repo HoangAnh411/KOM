@@ -781,6 +781,15 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
 .step-check { background: var(--kom-allied-deep); color: var(--kom-allied-soft); }
 .step-done .step-label { color: var(--kom-allied-muted); text-decoration: line-through; }
 .step-actions { display: inline-flex; gap: .35rem; margin-left: auto; }
+/* Quest rows carry two lines of text where onboarding steps carry one — the
+   label stacks, and only the done strike-through inherits from `.step-done`
+   above, so a finished quest reads at a glance like a finished step. */
+.daily-quest-list .step-label { display: flex; flex-direction: column; gap: .1rem; min-width: 0; }
+.daily-quest-list .step-label small { color: var(--kom-text-muted); }
+/* Milestones sit under the quest list as claim rows, not steps — a meta line
+   plus its button, the same two-column shape `.spy-mission` uses. */
+.daily-milestones { display: flex; flex-direction: column; gap: .3rem; margin-top: .5rem; }
+.daily-milestone { display: flex; align-items: center; justify-content: space-between; gap: .5rem; flex-wrap: wrap; padding-top: .3rem; border-top: 1px solid var(--kom-border-subtle); }
 .spy-launch { display: flex; gap: .4rem; flex-wrap: wrap; margin-bottom: .5rem; }
 /* Inside a panel footer the row *is* the action band, so the footer owns the
    spacing and the row takes the full width its selects were sized against. */

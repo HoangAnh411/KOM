@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { overallScore, militaryScore, gameRules, recruitmentCost, snapshotSchema, PROTOCOL_VERSION, regionTileCounts, regions, buildCommandSchema, cityGridSize, buildingDimensions, validatePlacements, migrateCityLayoutV1toV2, campaignMissions, campaignMissionKinds } from "./index.js";
+import { overallScore, militaryScore, gameRules, recruitmentCost, snapshotSchema, PROTOCOL_VERSION, regionTileCounts, regions, buildCommandSchema, cityGridSize, buildingDimensions, validatePlacements, migrateCityLayoutV1toV2, campaignMissions, campaignMissionKinds, dailyQuests, selectDailyQuestIds, dailyQuestDayKey, dailyQuestRefreshesAt, dailyQuestClaimCommandSchema } from "./index.js";
 
 test("season score uses the published weights", () => {
   assert.equal(overallScore({ military: 1000, economy: 1000, diplomacy: 1000 }), 1000);
@@ -154,4 +154,48 @@ test("patrol rewards are priced for all three chapters", () => {
       assert.ok(reward.wood > previous.wood, "later chapters patrol for more");
     }
   }
+});
+
+test("a day's quest selection is deterministic, three easy plus both medium plus the hard, 10 points", () => {
+  for (const dayKey of ["2026-09-07", "2026-09-08", "2026-12-31", "2027-01-01"]) {
+    const first = selectDailyQuestIds(dayKey);
+    const second = selectDailyQuestIds(dayKey);
+    assert.deepEqual(second, first, `${dayKey} re-rolls differently on the same input`);
+    assert.equal(first.length, 6, `${dayKey} selects six quests`);
+    const easy = first.filter(id => dailyQuests.find(quest => quest.id === id)!.difficulty === "easy");
+    assert.equal(easy.length, 3, `${dayKey} draws exactly three easy quests`);
+    const points = first.reduce((sum, id) => sum + dailyQuests.find(quest => quest.id === id)!.points, 0);
+    assert.equal(points, 10, `${dayKey} quests must total the 10 milestone points`);
+    assert.ok(first.includes("daily_spy"), `${dayKey} must include the hard spy quest`);
+    assert.ok(first.includes("daily_battle") && first.includes("daily_campaign"), `${dayKey} must include both medium quests`);
+    assert.ok(new Set(first).size === first.length, `${dayKey} repeats a quest id`);
+    // Every selected id is a catalog entry — the client joins ids against this
+    // catalog to render, so a stray id is an invisible row.
+    for (const id of first) assert.ok(dailyQuests.some(quest => quest.id === id), `${id} is not in the catalog`);
+  }
+  // Different days may share a selection, but at least one of these four must
+  // differ — otherwise the shuffle is a constant and variety is gone.
+  const selections = new Set(["2026-09-07", "2026-09-08", "2026-12-31", "2027-01-01"].map(dayKey => selectDailyQuestIds(dayKey).join(",")));
+  assert.ok(selections.size > 1, "the easy draw never changes across days");
+});
+
+test("the day key and refresh instant flip together at the UTC midnight boundary", () => {
+  const late = Date.parse("2026-09-07T23:59:59.999Z");
+  const early = Date.parse("2026-09-08T00:00:00.000Z");
+  assert.equal(dailyQuestDayKey(late), "2026-09-07");
+  assert.equal(dailyQuestDayKey(early), "2026-09-08");
+  assert.equal(dailyQuestRefreshesAt(late), "2026-09-08T00:00:00.000Z");
+  assert.equal(dailyQuestRefreshesAt(early), "2026-09-09T00:00:00.000Z");
+  // The refresh instant always lands strictly in the future and exactly one day out.
+  const noon = Date.parse("2026-09-07T12:00:00.000Z");
+  assert.equal(Date.parse(dailyQuestRefreshesAt(noon)) - noon, 43_200_000);
+});
+
+test("a daily quest claim command names exactly one target, a quest or a milestone", () => {
+  assert.equal(dailyQuestClaimCommandSchema.safeParse({ commandId: "12345678", questId: "daily_harvest" }).success, true);
+  assert.equal(dailyQuestClaimCommandSchema.safeParse({ commandId: "12345678", milestone: 5 }).success, true);
+  assert.equal(dailyQuestClaimCommandSchema.safeParse({ commandId: "12345678", milestone: 10 }).success, true);
+  assert.equal(dailyQuestClaimCommandSchema.safeParse({ commandId: "12345678" }).success, false, "no target must be rejected");
+  assert.equal(dailyQuestClaimCommandSchema.safeParse({ commandId: "12345678", questId: "daily_harvest", milestone: 5 }).success, false, "two targets must be rejected");
+  assert.equal(dailyQuestClaimCommandSchema.safeParse({ commandId: "12345678", milestone: 7 }).success, false, "an unknown milestone must be rejected");
 });

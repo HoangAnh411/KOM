@@ -325,6 +325,9 @@ export class ArmyManagementRepository {
         const reserve = reserveFor(state, cityId, city.playerId);
         reserve.available[item.troopType] += item.amount;
         queue.items = queue.items.filter(candidate => candidate.id !== item.id);
+        // Daily-quest evidence: one finished training batch (the hospital
+        // queue below heals — it is not training and must not count).
+        state.activityCounters.trainingBatches[city.playerId] = (state.activityCounters.trainingBatches[city.playerId] ?? 0) + 1;
         changed = true;
       }
     }

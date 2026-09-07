@@ -1,4 +1,5 @@
-import { campaignMissions, gameRules, regionAt, technologyCatalog, technologyIds, type CampaignMission, type TechnologyId, type WorldSnapshot } from "@kingdoms/shared";
+import { useEffect, useState } from "react";
+import { campaignMissions, gameRules, regionAt, technologyCatalog, technologyIds, dailyQuests, dailyQuestMilestones, type CampaignMission, type TechnologyId, type WorldSnapshot } from "@kingdoms/shared";
 import { useGame } from "../state.js";
 import { usePanelAnchor } from "../panel-anchors.js";
 import { explorationBit } from "../map-geometry.js";
@@ -52,6 +53,10 @@ export function ProgressionPanel() {
   const { state, runCommand, setSelection } = useGame();
   const snapshot = state.snapshot;
   const playerId = state.session?.player.id;
+  // The daily board counts down to its own 00:00 UTC roll, so it needs its own
+  // clock — the same one-second interval the header runs for the season.
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => { const timer = setInterval(() => setNow(Date.now()), 1000); return () => clearInterval(timer); }, []);
   if (!snapshot || !playerId) return null;
   const city = snapshot.cities.find(item => item.playerId === playerId);
   const campaign = snapshot.campaignProgress?.[playerId];
@@ -68,12 +73,55 @@ export function ProgressionPanel() {
   const tradeProgress = nextMission?.condition?.type === "trade"
     ? Object.values(snapshot.logistics.throughput[playerId] ?? {}).reduce((sum, value) => sum + (value ?? 0), 0)
     : undefined;
+  // The daily board is optional on the snapshot — an older server speaks no
+  // `dailyQuests` field, and the section simply hides rather than breaking.
+  const board = snapshot.dailyQuests;
+  const refreshSeconds = board ? Math.max(0, Math.ceil((Date.parse(board.refreshesAt) - now) / 1000)) : 0;
+  const refreshMinutes = Math.floor(refreshSeconds / 60);
   // A completed mission's feed row jumps here — the panel that offers the next
   // one is where "Nhiệm vụ xong" leads.
   const anchor = usePanelAnchor<HTMLElement>("progression");
   return <Panel panelRef={anchor} accent="amber" className="progression-panel" aria-label="Chiến dịch và nghiên cứu">
     <PanelHeader title="Chiến dịch & nghiên cứu" />
     <PanelBody>
+      {board && <section className="daily-quests">
+        <strong>Nhiệm vụ hằng ngày</strong>
+        <p className="kom-meta">Hôm nay · <span className="kom-num">{board.points}</span>/10 điểm · làm mới sau <span className="kom-num">{refreshMinutes}m {refreshSeconds % 60}s</span></p>
+        <div className="city-view-progress-bar" role="progressbar" aria-label="Điểm nhiệm vụ hằng ngày" aria-valuenow={board.points} aria-valuemin={0} aria-valuemax={10}>
+          <div className="city-view-progress-fill" style={{ width: `${Math.min(100, board.points * 10)}%` }} />
+        </div>
+        <ol className="onboarding-list daily-quest-list">
+          {board.quests.map(quest => {
+            const definition = dailyQuests.find(item => item.id === quest.questId);
+            if (!definition) return null;
+            const completed = quest.progress >= definition.target;
+            return <li key={quest.questId} className={completed ? "step-done" : ""}>
+              <span className={completed ? "step-check" : "step-dot"} aria-hidden="true">{completed ? "✓" : `${definition.points}đ`}</span>
+              <span className="step-label">
+                <strong>{definition.title}</strong>
+                <small>{definition.description} · {Math.min(quest.progress, definition.target)}/{definition.target} · thưởng {formatResources(definition.reward, "—")}</small>
+              </span>
+              <span className="step-actions">
+                <Button density="compact" variant="primary" disabled={quest.claimed || !completed} reason={quest.claimed ? "Đã nhận thưởng." : !completed ? "Chưa hoàn thành." : undefined} onClick={() => void runCommand({ kind: "daily_quest_claim", label: `Nhận thưởng "${definition.title}"`, path: "/api/commands/daily-quest/claim", body: { questId: quest.questId } })}>{quest.claimed ? "Đã nhận" : "Nhận"}</Button>
+                <PendingChip kind="daily_quest_claim" match={{ questId: quest.questId }} />
+              </span>
+            </li>;
+          })}
+        </ol>
+        <div className="daily-milestones">
+          {dailyQuestMilestones.map(milestone => {
+            const reached = board.points >= milestone.points;
+            const claimed = board.claimedMilestones.includes(milestone.points);
+            return <div className="daily-milestone" key={milestone.points}>
+              <span className="kom-meta">Mốc {milestone.points} điểm · {formatResources(milestone.reward, "—")}</span>
+              <span className="step-actions">
+                <Button density="compact" variant="secondary" disabled={claimed || !reached} reason={claimed ? "Đã nhận mốc này." : !reached ? `Cần ${milestone.points} điểm.` : undefined} onClick={() => void runCommand({ kind: "daily_quest_claim", label: `Nhận thưởng mốc ${milestone.points} điểm`, path: "/api/commands/daily-quest/claim", body: { milestone: milestone.points } })}>{claimed ? "Đã nhận" : `Nhận mốc ${milestone.points}đ`}</Button>
+                <PendingChip kind="daily_quest_claim" match={{ milestone: milestone.points }} />
+              </span>
+            </div>;
+          })}
+        </div>
+      </section>}
       <section>
         <strong>Chiến dịch</strong>
         <p className="kom-meta">Chương {unlockedChapter} · {completedMissionIds.length}/{campaignMissions.length} nhiệm vụ hoàn tất</p>

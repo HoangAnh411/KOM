@@ -14,7 +14,7 @@
 // parts that are actually easy to get wrong — ordering, the ring's cap, the
 // dedupe of a repeated snapshot, and one row per fact per kind of change.
 
-import { gameRules, regions, regionTileCounts, campaignMissions } from "@kingdoms/shared";
+import { gameRules, regions, regionTileCounts, campaignMissions, dailyQuests, dailyQuestMilestones } from "@kingdoms/shared";
 import type { BattleReport, WorldSnapshot } from "@kingdoms/shared";
 import type { PendingCommand } from "./commands.js";
 import type { PanelAnchorId } from "./panel-anchors.js";
@@ -29,7 +29,8 @@ export type ActivityKind =
   | "spy-success" | "spy-failed" | "spy-intercepted"
   | "treaty-proposed" | "treaty-active" | "treaty-ended" | "treaty-violated"
   | "region-captured" | "region-lost" | "mission-completed"
-  | "world-event" | "order-canceled" | "connection";
+  | "world-event" | "order-canceled" | "connection"
+  | "daily-quest-completed";
 
 export type ActivityEvent = {
   /** Derived from the fact, never from a counter: the same snapshot pair yields
@@ -68,6 +69,7 @@ export const activityKindLabels: Record<ActivityKind, string> = {
   "world-event": "Sự kiện thế giới",
   "order-canceled": "Lệnh bị hủy",
   connection: "Kết nối",
+  "daily-quest-completed": "Nhiệm vụ hằng ngày",
 };
 
 /** The glyph and the chip a kind wears by default. Three kinds refine the state
@@ -96,6 +98,7 @@ export const activityIcons: Record<ActivityKind, IconName> = {
   "world-event": "alert",
   "order-canceled": "ban",
   connection: "link-off",
+  "daily-quest-completed": "check",
 };
 
 export const activityStates: Record<ActivityKind, UiState> = {
@@ -119,6 +122,7 @@ export const activityStates: Record<ActivityKind, UiState> = {
   "world-event": "warning",
   "order-canceled": "warning",
   connection: "warning",
+  "daily-quest-completed": "success",
 };
 
 /** Where a row's anchor points. `undefined` means the fact has no panel to open
@@ -140,6 +144,7 @@ export const activityAnchors: Partial<Record<ActivityKind, PanelAnchorId>> = {
   "region-lost": "army",
   "mission-completed": "progression",
   "order-canceled": "army",
+  "daily-quest-completed": "progression",
 };
 
 /** The feed is a ring, not a log: 50 rows is more than the column can show in a
@@ -395,6 +400,25 @@ function snapshotDrafts(previous: WorldSnapshot | undefined, next: WorldSnapshot
     });
   }
 
+  // Daily quests, on the transition of one quest past its target. The dayKey
+  // guard mirrors the season guard above: a new day means a whole new board,
+  // and none of yesterday's completions are news about today's. Titles and
+  // point values join from the shared catalog, never from the wire.
+  const board = next.dailyQuests;
+  if (board && previous.dailyQuests?.dayKey === board.dayKey) {
+    const before = new Map(previous.dailyQuests.quests.map(quest => [quest.questId, quest.progress]));
+    for (const quest of board.quests) {
+      const definition = dailyQuests.find(item => item.id === quest.questId);
+      if (!definition || quest.progress < definition.target) continue;
+      if ((before.get(quest.questId) ?? 0) >= definition.target) continue;
+      rows.push({
+        id: `daily-quest:${board.dayKey}:${quest.questId}`,
+        kind: "daily-quest-completed",
+        message: `Hoàn thành nhiệm vụ hằng ngày "${definition.title}" (+${definition.points}đ).`,
+      });
+    }
+  }
+
   // World events are kingdom-wide, so they are the one source not filtered by
   // owner. State and glyph come from the same registries the drawer reads, which
   // is what stops the feed and `EventsPanel` describing one event two ways.
@@ -482,6 +506,35 @@ export function attentionItems(snapshot: WorldSnapshot | undefined, pending: Pen
       message: `${unitName(army.unitType)} ở ô ${army.x},${army.y} chỉ còn ${army.supply}% tiếp tế.`,
       anchor: "army",
     });
+  }
+  // 5. Daily quests and milestones that are earned but unclaimed. Both are
+  //    forfeit when the day rolls at 00:00 UTC, so the nudge is time-sensitive
+  //    in a way the rows above are not — and both vanish on their own the
+  //    moment the claim lands.
+  const board = snapshot.dailyQuests;
+  if (board) {
+    for (const quest of board.quests) {
+      if (quest.claimed) continue;
+      const definition = dailyQuests.find(item => item.id === quest.questId);
+      if (!definition || quest.progress < definition.target) continue;
+      items.push({
+        id: `attention:daily-quest:${quest.questId}`,
+        state: "success",
+        icon: "check",
+        message: `Nhiệm vụ hằng ngày "${definition.title}" đã xong — nhận thưởng trước khi hết ngày.`,
+        anchor: "progression",
+      });
+    }
+    for (const milestone of dailyQuestMilestones) {
+      if (board.claimedMilestones.includes(milestone.points) || board.points < milestone.points) continue;
+      items.push({
+        id: `attention:daily-milestone:${milestone.points}`,
+        state: "warning",
+        icon: "banner",
+        message: `Đã đủ ${milestone.points} điểm nhiệm vụ — nhận thưởng mốc trước khi hết ngày.`,
+        anchor: "progression",
+      });
+    }
   }
   return items.slice(0, attentionLimit);
 }

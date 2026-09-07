@@ -203,6 +203,18 @@ Faction thay đổi decision space, không chỉ cộng vài phần trăm attack
 - PvP cân bằng bằng command cap, terrain, counter, timing, supply, morale và matchmaking.
 - Alliance dùng contribution diminishing returns, voting, term limit và audit log.
 
+## Nhiệm vụ hằng ngày
+
+Loop đăng nhập mỗi ngày, thiết kế để **đóng được trong một buổi chơi ngắn** chứ không thay thế meta mùa:
+
+- **Bảng 6 nhiệm vụ, 10 điểm**: 3 dễ (1đ) + 2 vừa (2đ) + 1 khó (3đ). Bảng do `selectDailyQuestIds(dayKey)` rút deterministic theo ngày UTC — mọi người chơi cùng một bảng trong ngày, không re-roll theo từng người.
+- **7 metric đều là hoạt động có sẵn**: thu hoạch, xây công trình, huấn luyện, giao caravan, thắng trận, nhiệm vụ chiến dịch/tuần tra, điệp vụ gián điệp thành công. Không thêm hoạt động mới chỉ để làm quest — quest là cái nhìn khác của việc người chơi vốn làm.
+- **Nhiệm vụ khó là spy** (3đ, 200/140/50) chứ không phải "khám phá N ô": exploration gần bão hòa giữa mùa (reveal radius 14) nên quest khám phá sẽ chết; spy luôn có cost iron + cooldown + rủi ro thất bại, đó mới là cái giá đúng của 3 điểm.
+- **Điểm và claim tách nhau**: điểm tính ngay khi vượt target (server suy ra từ counter), nhận thưởng là hành động riêng cho từng nhiệm vụ và từng mốc. **Thưởng chưa nhận mất khi qua 00:00 UTC** — đúng nghĩa của "hằng ngày"; client có attention item nhắc nhận trước khi hết ngày.
+- **Mốc thưởng 5đ (150/100/40) và 10đ (400/280/100)**: trọn bảng ≈ 1.170 gỗ tương đương ~3 lần thắng tuần tra — đủ có ý nghĩa với người chơi tích cực, không vượt thu nhập của một buổi chơi.
+- **Thưởng chỉ wood/stone/iron**, đồng bộ với campaign/patrol — không food để không phá cân bằng farm/training.
+- Khi đóng mùa, bảng ngày bị xóa để chụp lại baseline (một phần counter mà baseline tham chiếu reset theo mùa). Mất tối đa một ngày dang dở ở biên mùa — chấp nhận.
+
 ## Tình báo và world events
 ### Phase 5 implementation baseline
 

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { campaignMissions, gameRules, regions, regionTileCounts } from "@kingdoms/shared";
+import { campaignMissions, dailyQuests, gameRules, regions, regionTileCounts } from "@kingdoms/shared";
 import type { Alliance, AllianceVote, Army, BattleReport, Caravan, City, SpyMission, Treaty, WorldEvent, WorldSnapshot } from "@kingdoms/shared";
 import {
   activityAnchors, activityIcons, activityKindLabels, activityLimit, activityStates, attentionItems, attentionLimit,
@@ -499,4 +499,61 @@ test("a campaign mission is news once, on the tick it completes", () => {
   const theirs = { [FOE]: { playerId: FOE, completedMissionIds: ["chapter-1-ruins"], claimedFirstClearIds: [], unlockedChapter: 1 } };
   assert.deepEqual(diff(before, world({ campaignProgress: theirs })), []);
   assert.deepEqual(diff(undefined, after), []);
+});
+
+/** A daily board with every quest unstarted — the shape the server sends at the
+ *  top of a UTC day, before any play. Quest ids come from the catalog the feed
+ *  itself joins against, so the fixture cannot drift from what it will read. */
+const board = (over: Partial<NonNullable<WorldSnapshot["dailyQuests"]>> = {}): NonNullable<WorldSnapshot["dailyQuests"]> => ({
+  dayKey: "2026-09-08", refreshesAt: "2026-09-09T00:00:00.000Z", points: 0,
+  quests: dailyQuests.map(quest => ({ questId: quest.id, progress: 0, claimed: false })),
+  claimedMilestones: [], ...over,
+});
+
+test("a daily quest is news once, on the tick it crosses its target", () => {
+  const build = dailyQuests.find(quest => quest.id === "daily_build")!;
+  const withProgress = (progress: number) =>
+    board({ quests: board().quests.map(quest => quest.questId === build.id ? { ...quest, progress } : quest) });
+  // The last snapshot before the tick had the quest underway; this one crossed
+  // the line — worth exactly one row, in the catalog's own words.
+  const rows = diff(world({ dailyQuests: withProgress(build.target - 1) }), world({ dailyQuests: withProgress(build.target) }));
+  assert.deepEqual(rows.map(row => row.kind), ["daily-quest-completed"]);
+  assert.equal(rows[0]!.id, `daily-quest:2026-09-08:daily_build`);
+  assert.equal(rows[0]!.message, `Hoàn thành nhiệm vụ hằng ngày "${build.title}" (+${build.points}đ).`);
+  assert.equal(rows[0]!.state, "success");
+  assert.equal(rows[0]!.anchor, "progression");
+  // Every later snapshot repeats the completed progress and must stay silent.
+  assert.deepEqual(diff(world({ dailyQuests: withProgress(build.target) }), world({ dailyQuests: withProgress(build.target) })), []);
+  // Over-shooting in one jump is still the same one crossing.
+  assert.deepEqual(diff(world({ dailyQuests: withProgress(0) }), world({ dailyQuests: withProgress(build.target + 3) })).map(row => row.kind), ["daily-quest-completed"]);
+  // A new dayKey is a new board: nothing that changed inside it is news about
+  // this one, the same silence the first snapshot of a new season gets.
+  const nextDay = board({ dayKey: "2026-09-09", quests: board().quests.map(quest => ({ ...quest, progress: 0 })) });
+  assert.deepEqual(diff(world({ dailyQuests: withProgress(build.target) }), world({ dailyQuests: nextDay })), []);
+  // An older server speaks no `dailyQuests` at all, and neither does a session's
+  // first snapshot — both must stay quiet rather than report six rows at once.
+  assert.deepEqual(diff(world({ dailyQuests: withProgress(build.target) }), world()), []);
+  assert.deepEqual(diff(undefined, world({ dailyQuests: withProgress(build.target) })), []);
+});
+
+test("Cần chú ý nudges the daily rewards that midnight will take away", () => {
+  const harvest = dailyQuests.find(quest => quest.id === "daily_harvest")!;
+  const completed = board({
+    points: 5,
+    quests: board().quests.map(quest => quest.questId === harvest.id ? { ...quest, progress: harvest.target } : quest),
+  });
+  const items = attentionItems(world({ dailyQuests: completed }), [], ME);
+  // The finished quest and the reached milestone are both one claim away from
+  // being gone at 00:00 UTC — the panel says so while there is still a day left.
+  assert.deepEqual(items.map(item => item.id), [`attention:daily-quest:daily_harvest`, "attention:daily-milestone:5"]);
+  assert.equal(items[0]!.state, "success");
+  assert.equal(items[0]!.anchor, "progression");
+  assert.equal(items[1]!.state, "warning");
+  // Both vanish on their own the moment the claim lands — no stale nudge.
+  const claimed = { ...completed, quests: completed.quests.map(quest => quest.questId === harvest.id ? { ...quest, claimed: true } : quest), claimedMilestones: [5] };
+  assert.deepEqual(attentionItems(world({ dailyQuests: claimed }), [], ME), []);
+  // A quest underway, or a board short of every milestone, asks for nothing.
+  assert.deepEqual(attentionItems(world({ dailyQuests: board() }), [], ME), []);
+  // And a server that has not sent the field cannot owe the player anything.
+  assert.deepEqual(attentionItems(world(), [], ME), []);
 });

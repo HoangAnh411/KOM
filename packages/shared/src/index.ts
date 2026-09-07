@@ -635,6 +635,111 @@ export const cosmeticRewards: Array<{ id: string; title: string; amount: number;
   { id: "onboarding_raider", title: "Thắng raider", amount: 100, step: "raider_defeated" },
 ];
 
+// === DAILY QUESTS ===
+// Six quests a day, every player in the world the same six: three easy (1 point
+// each, drawn from a pool of four), both medium (2 points) and the one hard
+// (3 points) — 10 points total. Points come from *completing* quests; claiming
+// the reward is a separate act, and unclaimed rewards are forfeit when the day
+// rolls at 00:00 UTC. The client joins quest ids against this catalog the way
+// it joins campaign missions — authored data does not ride the wire.
+//
+// Progress is not stored: the server derives it as `max(0, current − baseline)`
+// from monotonic counters against per-player baselines captured at the day roll
+// (`apps/server/src/daily-quests.ts`). The metrics below name those counters.
+export const dailyQuestMetrics = ["harvests", "builds_completed", "training_batches", "caravans_delivered", "battles_won", "campaigns_completed", "spy_successes"] as const;
+export type DailyQuestMetric = (typeof dailyQuestMetrics)[number];
+export const dailyQuestDifficulties = ["easy", "medium", "hard"] as const;
+
+export const dailyQuestSchema = z.object({
+  id: z.string(),
+  difficulty: z.enum(dailyQuestDifficulties),
+  points: z.union([z.literal(1), z.literal(2), z.literal(3)]),
+  metric: z.enum(dailyQuestMetrics),
+  target: z.number().int().positive(),
+  reward: z.object({ wood: z.number().int().nonnegative(), stone: z.number().int().nonnegative(), iron: z.number().int().nonnegative() }),
+  title: z.string(),
+  description: z.string(),
+});
+export type DailyQuest = z.infer<typeof dailyQuestSchema>;
+
+export const dailyQuests: ReadonlyArray<DailyQuest> = [
+  // Easy pool — `selectDailyQuestIds` draws three of these four per day.
+  { id: "daily_harvest", difficulty: "easy", points: 1, metric: "harvests", target: 3, reward: { wood: 60, stone: 40, iron: 15 }, title: "Vào rừng lấy gỗ", description: "Khai thác tài nguyên 3 lần trong ngày." },
+  { id: "daily_build", difficulty: "easy", points: 1, metric: "builds_completed", target: 2, reward: { wood: 60, stone: 40, iron: 15 }, title: "Chuẩn bị xây dựng", description: "Hoàn tất 2 cấp công trình trong ngày." },
+  { id: "daily_train", difficulty: "easy", points: 1, metric: "training_batches", target: 2, reward: { wood: 60, stone: 40, iron: 15 }, title: "Ra quân thao trường", description: "Huấn luyện 2 mẻ quân trong ngày." },
+  { id: "daily_caravan", difficulty: "easy", points: 1, metric: "caravans_delivered", target: 2, reward: { wood: 60, stone: 40, iron: 15 }, title: "Người của thương lộ", description: "Đưa 2 caravan tới đích trong ngày." },
+  // Medium — both every day.
+  { id: "daily_battle", difficulty: "medium", points: 2, metric: "battles_won", target: 1, reward: { wood: 120, stone: 80, iron: 30 }, title: "Trận đánh đầu ngày", description: "Thắng 1 trận đánh bất kỳ trong ngày." },
+  { id: "daily_campaign", difficulty: "medium", points: 2, metric: "campaigns_completed", target: 1, reward: { wood: 120, stone: 80, iron: 30 }, title: "Mệnh lệnh từ chỉ huy", description: "Hoàn tất 1 nhiệm vụ chiến dịch hoặc thắng 1 lượt tuần tra trong ngày." },
+  // Hard — the one every day. Deliberately not "explore N tiles": the
+  // exploration mask saturates mid-season (reveal radius 14), which would kill
+  // a 3-point quest for established players.
+  { id: "daily_spy", difficulty: "hard", points: 3, metric: "spy_successes", target: 1, reward: { wood: 200, stone: 140, iron: 50 }, title: "Mắt trong bóng tối", description: "Thành công 1 điệp vụ tình báo trong ngày." },
+];
+
+// Claim both at 5 points (halfway) and at 10 (full board). Full clear pays
+// ~1170 wood across the day — about three patrol wins, meaningful but below
+// what active play already produces.
+export const dailyQuestMilestones: ReadonlyArray<{ points: number; reward: { wood: number; stone: number; iron: number } }> = [
+  { points: 5, reward: { wood: 150, stone: 100, iron: 40 } },
+  { points: 10, reward: { wood: 400, stone: 280, iron: 100 } },
+];
+
+// UTC day a timestamp falls in, as `YYYY-MM-DD` — the authoritative day key.
+export function dailyQuestDayKey(now: Date | number): string {
+  return new Date(now).toISOString().slice(0, 10);
+}
+
+// The ISO instant the current day rolls over: next 00:00 UTC.
+export function dailyQuestRefreshesAt(now: Date | number): string {
+  const date = new Date(now);
+  return new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate() + 1)).toISOString();
+}
+
+// FNV-1a → mulberry32: a small deterministic PRNG chain that runs identically
+// in Node and the browser (only `Math.imul` and `>>>`).
+function mulberry32(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+/** The six quest ids for a UTC day: three of the four easy (deterministic per
+ *  day — no re-roll mid-day, everyone in the world the same), both medium, the hard. */
+export function selectDailyQuestIds(dayKey: string): string[] {
+  const hash = [...`daily-quests:${dayKey}`].reduce((value, char) => Math.imul(value ^ char.charCodeAt(0), 0x01000193) >>> 0, 0x811c9dc5);
+  const random = mulberry32(hash);
+  const easy = dailyQuests.filter(quest => quest.difficulty === "easy").map(quest => quest.id);
+  for (let i = easy.length - 1; i > 0; i--) {
+    const j = Math.floor(random() * (i + 1));
+    [easy[i], easy[j]] = [easy[j], easy[i]];
+  }
+  return [...easy.slice(0, 3), ...dailyQuests.filter(quest => quest.difficulty !== "easy").map(quest => quest.id)];
+}
+
+export const dailyQuestClaimCommandSchema = z.object({
+  commandId: z.string().min(8),
+  questId: z.string().optional(),
+  milestone: z.union([z.literal(5), z.literal(10)]).optional(),
+}).refine(value => (value.questId !== undefined) !== (value.milestone !== undefined), { message: "EXACTLY_ONE_TARGET" });
+export type DailyQuestClaimCommand = z.infer<typeof dailyQuestClaimCommandSchema>;
+
+// Viewer-scoped, derived on read — no stored progress travels, only today's
+// ids, progress against target, claim state and the milestones already taken.
+export const dailyQuestSnapshotSchema = z.object({
+  dayKey: z.string(),
+  refreshesAt: z.string(),
+  points: z.number().int().min(0),
+  quests: z.array(z.object({ questId: z.string(), progress: z.number().int().min(0), claimed: z.boolean() })),
+  claimedMilestones: z.array(z.number().int()),
+});
+export type DailyQuestSnapshot = z.infer<typeof dailyQuestSnapshotSchema>;
+
 // Protocol version of the world snapshot contract. Clients lock game commands
 // and ask for a refresh when the server speaks a different version.
 //
@@ -680,7 +785,7 @@ export const explorationSchema = z.object({
 });
 export type Exploration = z.infer<typeof explorationSchema>;
 
-export const snapshotSchema = z.object({ protocolVersion: z.number().int().default(PROTOCOL_VERSION), kingdom: z.object({ id: z.string(), name: z.string() }), season: z.object({ id: z.string(), status: z.enum(["SCHEDULED", "ACTIVE", "FINALIZING", "CLOSED"]), endsAt: z.string() }), world: worldDescriptorSchema, exploration: explorationSchema, cities: z.array(citySchema), caravans: z.array(caravanSchema), armies: z.array(armySchema), heroes: z.array(heroSchema), scores: z.record(scoreSchema), factionCatalog: z.record(z.object({ name: z.string(), description: z.string() })), commanderCatalog: z.array(z.object({ id: z.string(), name: z.string(), specialty: z.enum(commanderSpecialties) })).optional(), logistics: logisticsSnapshotSchema, commanders: z.array(commanderSchema).optional(), troopReserves: z.record(troopReserveSchema).optional(), formationPresets: z.array(formationPresetSchema).optional(), trainingQueues: z.record(trainingQueueSchema).optional(), hospitalQueues: z.record(hospitalQueueSchema).optional(), technologyProgress: z.record(technologyProgressSchema).optional(), researchQueues: z.record(researchQueueSchema).optional(), campaignProgress: z.record(campaignProgressSchema).optional(), battleReports: z.array(battleReportSchema).optional(), worldMapDigest: z.string().optional(), terrainOverrides: z.record(z.enum(terrainTypes)).optional(), regionControl: regionControlSchema.optional(), alliances: z.array(allianceSchema).optional(), allianceVotes: z.array(allianceVoteSchema).optional(), treaties: z.array(treatySchema).optional(), spyMissions: z.array(spyMissionSchema).optional(), worldEvents: z.array(worldEventSchema).optional(), onboarding: onboardingProgressSchema.optional() });
+export const snapshotSchema = z.object({ protocolVersion: z.number().int().default(PROTOCOL_VERSION), kingdom: z.object({ id: z.string(), name: z.string() }), season: z.object({ id: z.string(), status: z.enum(["SCHEDULED", "ACTIVE", "FINALIZING", "CLOSED"]), endsAt: z.string() }), world: worldDescriptorSchema, exploration: explorationSchema, cities: z.array(citySchema), caravans: z.array(caravanSchema), armies: z.array(armySchema), heroes: z.array(heroSchema), scores: z.record(scoreSchema), factionCatalog: z.record(z.object({ name: z.string(), description: z.string() })), commanderCatalog: z.array(z.object({ id: z.string(), name: z.string(), specialty: z.enum(commanderSpecialties) })).optional(), logistics: logisticsSnapshotSchema, commanders: z.array(commanderSchema).optional(), troopReserves: z.record(troopReserveSchema).optional(), formationPresets: z.array(formationPresetSchema).optional(), trainingQueues: z.record(trainingQueueSchema).optional(), hospitalQueues: z.record(hospitalQueueSchema).optional(), technologyProgress: z.record(technologyProgressSchema).optional(), researchQueues: z.record(researchQueueSchema).optional(), campaignProgress: z.record(campaignProgressSchema).optional(), battleReports: z.array(battleReportSchema).optional(), worldMapDigest: z.string().optional(), terrainOverrides: z.record(z.enum(terrainTypes)).optional(), regionControl: regionControlSchema.optional(), alliances: z.array(allianceSchema).optional(), allianceVotes: z.array(allianceVoteSchema).optional(), treaties: z.array(treatySchema).optional(), spyMissions: z.array(spyMissionSchema).optional(), worldEvents: z.array(worldEventSchema).optional(), onboarding: onboardingProgressSchema.optional(), dailyQuests: dailyQuestSnapshotSchema.optional() });
 export type WorldSnapshot = z.infer<typeof snapshotSchema>;
 
 // === PHASE 7B: COMMAND RESPONSE CONTRACT ===
