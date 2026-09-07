@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { campaignMissions, gameRules } from "@kingdoms/shared";
 
 const api = process.env.PLAYWRIGHT_API ?? "http://127.0.0.1:3000";
 // Fresh world per file: the ~16-city placement cap would 500 later logins in a shared world.
@@ -78,14 +79,16 @@ test("recruit-reserve rides the training queue instead of granting instantly", a
   // completesAt, both in the panel and in the server's own books. ---
   await expect(prep.getByText(/Quân dự bị tại thành/)).toContainText("Bộ binh khiên 10", { timeout: 30_000 });
   const token = await sessionToken(page);
-  const snapshot = await readSnapshot(page, token);
+  const snapshot = (await readBootstrap(page, token)).snapshot;
   const available = Object.values(snapshot.troopReserves ?? {}).reduce((sum, item) => sum + (item.available.shield_infantry ?? 0), 0);
   expect(available).toBe(10);
 });
 
 test("campaign sortie, formation preset and mixed replay pointer", async ({ page, request }, testInfo) => {
   test.skip(testInfo.project.name === "mobile", "desktop-sized HUD interaction");
-  test.setTimeout(300_000);
+  // The sortie now includes two ~47-tile marches (to the objective, then home)
+  // at one tile per server tick.
+  test.setTimeout(480_000);
   await page.goto("/");
   await page.getByPlaceholder("Tên người chơi").fill(`Campaign E2E sortie ${testInfo.project.name} ${Date.now()}`);
   await page.getByRole("button", { name: "Vào kingdom" }).click();
@@ -125,14 +128,18 @@ test("campaign sortie, formation preset and mixed replay pointer", async ({ page
   expect((await apply).ok()).toBeTruthy();
   // The card's counter follows the local draft, so the proof has to come from
   // the server's own books: the frontline squad really holds 20 now.
+  // The server's own books, twice: the reserve gave up its 10, and the
+  // frontline squad really holds 20 now. Polled once a second — the read
+  // bucket allows 60 bootstrap requests a minute and the walks below would
+  // spend a faster poll's whole budget.
   await expect.poll(async () => {
-    const snapshot = await readSnapshot(page, token);
+    const snapshot = (await readBootstrap(page, token)).snapshot;
     return Object.values(snapshot.troopReserves ?? {}).reduce((sum, item) => sum + (item?.available.shield_infantry ?? 0), 0);
-  }, { timeout: 15_000 }).toBe(0);
+  }, { timeout: 15_000, intervals: [1_000] }).toBe(0);
   await expect.poll(async () => {
-    const snapshot = await readSnapshot(page, token);
+    const snapshot = (await readBootstrap(page, token)).snapshot;
     return snapshot.armies.filter(army => army.composition?.frontline?.count === 20).length;
-  }, { timeout: 15_000 }).toBeGreaterThan(0);
+  }, { timeout: 15_000, intervals: [1_000] }).toBeGreaterThan(0);
 
   // --- The campaign sortie comes BEFORE the dev battle below: a sortie army is
   // never in transit (the encounter resolves in place), while an army that
@@ -142,6 +149,31 @@ test("campaign sortie, formation preset and mixed replay pointer", async ({ page
   // (simulated 800 seed×terrain combinations: all draws, zero wipes), so the
   // assertion is outcome-tolerant — whatever the result, the mission NPC must
   // be gone from the shared world. ---
+  // A sortie is only accepted within `gameRules.campaign.arrivalRadius` of the
+  // mission's map target, so the test walks the army there the way a player
+  // would: a move order through the same API the command tray uses, then the
+  // tick loop's one tile per second. The objective line and the target pin are
+  // what told the player where to send it.
+  const { playerId, snapshot: beforeWalk } = await readBootstrap(page, token);
+  const walking = beforeWalk.armies.find(army => army.ownerPlayerId === playerId && army.composition?.frontline?.count === 20);
+  expect(walking).toBeDefined();
+  const firstMission = campaignMissions.find(item => item.id === "chapter-1-ruins")!;
+  expect(Math.abs(walking!.x - firstMission.target.x) + Math.abs(walking!.y - firstMission.target.y)).toBeGreaterThan(gameRules.campaign.arrivalRadius);
+  const move = await page.request.post(`${api}/api/commands/move-army`, {
+    headers: { authorization: `Bearer ${token}` },
+    data: { commandId: `e2e-sortie-move-${Date.now()}`, armyId: walking!.id, targetX: firstMission.target.x, targetY: firstMission.target.y },
+  });
+  expect(move.ok()).toBeTruthy();
+  // ~47 tiles at one per tick. Polled every TWO seconds: the read bucket
+  // allows 60 bootstrap requests a minute, and a sustained one-per-second
+  // poll across both walks plus the reads between them fills that window
+  // — the walk home hit a 429 that way.
+  await expect.poll(async () => {
+    const { snapshot } = await readBootstrap(page, token);
+    const army = snapshot.armies.find(item => item.id === walking!.id);
+    return army ? `${army.x},${army.y},${army.targetX === undefined ? "idle" : "moving"}` : "gone";
+  }, { timeout: 180_000, intervals: [2_000] }).toBe(`${firstMission.target.x},${firstMission.target.y},idle`);
+
   // The header's "Vương quốc" button is a *toggle* and the kingdom column has
   // been open since the start — clicking it unconditionally would close the
   // very panel the sortie button lives in.
@@ -149,14 +181,33 @@ test("campaign sortie, formation preset and mixed replay pointer", async ({ page
   if ((await kingdomButton.getAttribute("aria-expanded")) !== "true") await kingdomButton.click();
   const campaignPanel = page.getByRole("region", { name: "Chiến dịch và nghiên cứu" });
   await expect(campaignPanel).toBeVisible();
+  // The next-mission card says where the objective is and offers to look at it.
+  await expect(campaignPanel).toContainText(`Mục tiêu: ${firstMission.target.x},${firstMission.target.y}`);
+  await expect(campaignPanel.getByRole("button", { name: "Đi tới mục tiêu" })).toBeVisible();
   const sortie = page.waitForResponse(response => response.url().endsWith("/api/commands/campaign/complete"));
   await campaignPanel.getByRole("button", { name: "Xuất quân" }).click();
   const sortieResponse = await sortie;
   expect(sortieResponse.ok()).toBeTruthy();
 
-  const sortieSnapshot = await readSnapshot(page, token);
+  const sortieSnapshot = (await readBootstrap(page, token)).snapshot;
   const missionNpcs = sortieSnapshot.armies.filter(army => typeof army.sourceWorldEventId === "string" && army.sourceWorldEventId.startsWith("campaign:"));
   expect(missionNpcs).toHaveLength(0);
+
+  // --- Walk the army home before the broadcast battle: the dev mob spawns
+  // three tiles from the city, and a pursuit order issued 47 tiles away cannot
+  // resolve inside the report modal's 25s window. ---
+  const home = sortieSnapshot.cities.find(city => city.playerId === playerId);
+  expect(home).toBeDefined();
+  const returnMove = await page.request.post(`${api}/api/commands/move-army`, {
+    headers: { authorization: `Bearer ${token}` },
+    data: { commandId: `e2e-return-${Date.now()}`, armyId: walking!.id, targetX: home!.x, targetY: home!.y },
+  });
+  expect(returnMove.ok()).toBeTruthy();
+  await expect.poll(async () => {
+    const { snapshot } = await readBootstrap(page, token);
+    const army = snapshot.armies.find(item => item.id === walking!.id);
+    return army ? `${army.x},${army.y},${army.targetX === undefined ? "idle" : "moving"}` : "gone";
+  }, { timeout: 180_000, intervals: [2_000] }).toBe(`${home!.x},${home!.y},idle`);
 
   // --- A broadcast battle for the report modal: the deterministic dev target,
   // exactly the fixture army.spec uses, because natural mobs wander. The army
@@ -191,13 +242,16 @@ test("campaign sortie, formation preset and mixed replay pointer", async ({ page
 });
 
 type Snapshot = {
-  armies: Array<{ sourceWorldEventId?: string | null; composition?: { frontline?: { count: number } | null } | null }>;
+  armies: Array<{ id: string; x: number; y: number; targetX?: number | null; sourceWorldEventId?: string | null; composition?: { frontline?: { count: number } | null } | null; ownerPlayerId?: string | null }>;
+  cities: Array<{ id: string; playerId: string; x: number; y: number }>;
   troopReserves?: Record<string, { available: { shield_infantry: number } }>;
   campaignProgress?: Record<string, { completedMissionIds: string[] }>;
 };
 
-async function readSnapshot(page: Page, token: string): Promise<Snapshot> {
+/** Player id plus snapshot in one read — the army and its owner travel together. */
+async function readBootstrap(page: Page, token: string): Promise<{ playerId: string; snapshot: Snapshot }> {
   const bootstrap = await page.request.get(`${api}/api/bootstrap`, { headers: { authorization: `Bearer ${token}` } });
   expect(bootstrap.ok()).toBeTruthy();
-  return ((await bootstrap.json()) as { snapshot: Snapshot }).snapshot;
+  const body = (await bootstrap.json()) as { player: { id: string }; snapshot: Snapshot };
+  return { playerId: body.player.id, snapshot: body.snapshot };
 }

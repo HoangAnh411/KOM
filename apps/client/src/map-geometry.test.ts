@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { worldMapDigest } from "@kingdoms/shared";
 import {
-  armyGeometrySig, asciiPrintable, cityGeometrySig, eventSig, isoDepth, labelCharset, labelFitsAtlas,
+  armyGeometrySig, asciiPrintable, cityGeometrySig, eventSig, explorationBit, isoDepth, labelCharset, labelFitsAtlas,
   mapExtent, mapLabelOffsetY, maxZoom, minZoom, narrowestViewport, originAt, overlayGeometrySig, pickAt,
   regionLabelZoom, regionLabelsVisible, seatSig, terrainBounds,
   terrainPad, terrainResolution, terrainSig, terrainTextureSize, tileHeight, tileWidth,
@@ -313,4 +313,41 @@ test("strings outside the atlas are rejected so they fall back to Text", () => {
   assert.equal(labelFitsAtlas("À"), false);
   // Map labels are single-line by construction.
   assert.equal(labelFitsAtlas("Đông\nKinh"), false);
+});
+
+// === EXPLORATION ===
+//
+// The pure twin of `exploredAt` in `world-3d/scene.ts`: the panels ask "is this
+// mission target still dark?" once per render, and the answer must match what
+// the map shows for the same tile. The arithmetic quantises to the mask's cells
+// exactly the way the server's `explorationContains` does, so the assertions
+// below are stated in cells, not tiles.
+
+/** A mask with exactly the given cells set, base64-encoded the way the server
+ *  ships it. `cells` are (cx, cy) in a resolution x resolution grid. */
+const maskWith = (resolution: number, cells: Array<[number, number]>): string => {
+  const bytes = new Uint8Array(resolution * resolution / 8);
+  for (const [cx, cy] of cells) {
+    const bit = cy * resolution + cx;
+    bytes[bit >> 3]! |= 1 << (bit & 7);
+  }
+  return btoa(String.fromCharCode(...bytes));
+};
+
+test("exploration bit reads the same cells the map and the server do", () => {
+  const exploration = { resolution: 64, encodedMask: maskWith(64, [[2, 5], [0, 63], [63, 63]]) };
+  // Cell (2,5) covers tiles x 8-11, y 20-23 on the 256 grid: one cell, four
+  // tiles wide, and every tile in it answers together.
+  assert.equal(explorationBit(exploration, 8, 20), true);
+  assert.equal(explorationBit(exploration, 11, 23), true);
+  assert.equal(explorationBit(exploration, 12, 20), false, "one tile over is the next cell");
+  assert.equal(explorationBit(exploration, 11, 24), false);
+  // Out-of-map coordinates clamp rather than miss the array — the same guard
+  // `explorationContains` applies server-side.
+  assert.equal(explorationBit(exploration, -50, 252), true, "x clamps into cell (0, 63)");
+  assert.equal(explorationBit(exploration, 400, 400), true, "both axes clamp");
+  // A mask that has not been sent, or one that did not decode, is dark rather
+  // than an exception in a render pass.
+  assert.equal(explorationBit({ resolution: 64 }, 8, 20), false);
+  assert.equal(explorationBit({ resolution: 64, encodedMask: "%%%" }, 8, 20), false);
 });

@@ -242,3 +242,25 @@ export function labelFitsAtlas(text: string): boolean {
   for (const char of text) if (!atlasChars.has(char)) return false;
   return true;
 }
+
+// === EXPLORATION ===
+
+/** Point test against a base64 exploration mask, decoding per call. The 3D scene
+ *  keeps its own cached copy (it tests many points per frame); this is the pure
+ *  version for panels that ask once per render — "is the mission target still
+ *  dark?" — and for `map-geometry.test.ts`, which runs on compiled output with
+ *  no DOM and no WebGL. Arithmetic mirrors `exploredAt` in `world-3d/scene.ts`:
+ *  both derive from `explorationContains` on the server, so a divergence is a
+ *  bug in exactly one of the three. */
+export function explorationBit(exploration: { resolution: number; encodedMask?: string }, x: number, y: number): boolean {
+  if (!exploration.encodedMask) return false;
+  const cx = Math.min(exploration.resolution - 1, Math.max(0, Math.floor(x * exploration.resolution / mapExtent)));
+  const cy = Math.min(exploration.resolution - 1, Math.max(0, Math.floor(y * exploration.resolution / mapExtent)));
+  try {
+    const bytes = Uint8Array.from(atob(exploration.encodedMask), character => character.charCodeAt(0));
+    const bit = cy * exploration.resolution + cx;
+    return (bytes[bit >> 3]! & (1 << (bit & 7))) !== 0;
+  } catch {
+    return false;
+  }
+}

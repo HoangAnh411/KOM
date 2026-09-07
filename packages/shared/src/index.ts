@@ -274,23 +274,33 @@ export type ResearchQueueItem = z.infer<typeof researchQueueItemSchema>;
 export const researchQueueSchema = z.object({ playerId: z.string(), items: z.array(researchQueueItemSchema) });
 export type ResearchQueue = z.infer<typeof researchQueueSchema>;
 
-export const campaignMissionSchema = z.object({ id: z.string(), chapter: z.number().int().min(1).max(3), title: z.string(), description: z.string(), lesson: z.string(), terrain: z.enum(terrainTypes), rewardXp: z.number().int().positive() });
+export const campaignMissionKinds = ["combat", "scout", "build", "trade"] as const;
+export type CampaignMissionKind = (typeof campaignMissionKinds)[number];
+export const campaignRewardSchema = z.object({ wood: z.number().int().nonnegative(), stone: z.number().int().nonnegative(), iron: z.number().int().nonnegative() });
+export type CampaignReward = z.infer<typeof campaignRewardSchema>;
+export const campaignConditionSchema = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("scout") }),
+  z.object({ type: z.literal("build"), buildingId: z.enum(buildingIds), level: z.number().int().positive() }),
+  z.object({ type: z.literal("trade"), amount: z.number().int().positive() }),
+]);
+export type CampaignCondition = z.infer<typeof campaignConditionSchema>;
+export const campaignMissionSchema = z.object({ id: z.string(), chapter: z.number().int().min(1).max(3), title: z.string(), description: z.string(), lesson: z.string(), terrain: z.enum(terrainTypes), rewardXp: z.number().int().positive(), kind: z.enum(campaignMissionKinds), target: z.object({ x: z.number().int().min(0), y: z.number().int().min(0) }), condition: campaignConditionSchema.optional(), rewardResources: campaignRewardSchema.optional() });
 export type CampaignMission = z.infer<typeof campaignMissionSchema>;
 export const campaignProgressSchema = z.object({ playerId: z.string(), completedMissionIds: z.array(z.string()), claimedFirstClearIds: z.array(z.string()), unlockedChapter: z.number().int().min(1).max(3) });
 export type CampaignProgress = z.infer<typeof campaignProgressSchema>;
 export const campaignMissions: ReadonlyArray<CampaignMission> = [
-  { id: "chapter-1-ruins", chapter: 1, title: "Phế tích đầu tiên", description: "Khôi phục nguồn lực quanh thành.", lesson: "Giữ tiền tuyến để bảo vệ cung thủ.", terrain: "plains", rewardXp: 25 },
-  { id: "chapter-1-raiders", chapter: 1, title: "Trại cướp ven đường", description: "Đối đầu một đội quân hỗn hợp.", lesson: "Giáo binh làm chậm kỵ binh.", terrain: "hills", rewardXp: 30 },
-  { id: "chapter-1-scout", chapter: 1, title: "Dấu chân trong rừng", description: "Trinh sát trước khi ra quân.", lesson: "Dữ liệu chưa trinh sát là chưa biết.", terrain: "forest", rewardXp: 30 },
-  { id: "chapter-1-chief", chapter: 1, title: "Thủ lĩnh cướp", description: "Đánh trận đầu có chủ đích.", lesson: "Chọn thế trận theo địa hình.", terrain: "plains", rewardXp: 40 },
-  { id: "chapter-2-road", chapter: 2, title: "Mở đường", description: "Bảo vệ tuyến vận tải.", lesson: "Tiếp tế quyết định sức bền.", terrain: "hills", rewardXp: 40 },
-  { id: "chapter-2-marsh", chapter: 2, title: "Đầm lầy phía nam", description: "Đánh trong địa hình bất lợi cho kỵ binh.", lesson: "Đừng dùng kỵ binh mù quáng trong đầm.", terrain: "swamp", rewardXp: 45 },
-  { id: "chapter-2-escort", chapter: 2, title: "Hộ tống đoàn xe", description: "Giữ quân hỗn hợp sống sót.", lesson: "Phối hợp ba vị trí thay vì dồn một loại quân.", terrain: "forest", rewardXp: 45 },
-  { id: "chapter-2-fort", chapter: 2, title: "Cổng đá", description: "Phá tuyến phòng thủ.", lesson: "Cung thủ cần tiền tuyến còn sống.", terrain: "hills", rewardXp: 50 },
-  { id: "chapter-3-camp", chapter: 3, title: "Bình định trại bắc", description: "Tấn công có trinh sát đầy đủ.", lesson: "Báo cáo phải giải thích nguyên nhân thắng thua.", terrain: "plains", rewardXp: 50 },
-  { id: "chapter-3-forest", chapter: 3, title: "Kẻ mai phục", description: "Đánh vòng qua rừng.", lesson: "Giáo binh có thể chặn cánh kỵ binh.", terrain: "forest", rewardXp: 55 },
-  { id: "chapter-3-swamp-chief", chapter: 3, title: "Thủ lĩnh đầm lầy", description: "Kết hợp cung và bộ binh.", lesson: "Thế phòng thủ giúp giữ quân.", terrain: "swamp", rewardXp: 60 },
-  { id: "chapter-3-meridian", chapter: 3, title: "Bình định Meridian", description: "Hoàn tất chiến dịch đầu mùa.", lesson: "Không có lực chiến cam kết; hãy đọc từng hiệp.", terrain: "plains", rewardXp: 75 },
+  { id: "chapter-1-ruins", chapter: 1, title: "Phế tích đầu tiên", description: "Hành quân tới phế tích mỏ sắt phía bắc và quét sạch.", lesson: "Giữ tiền tuyến để bảo vệ cung thủ.", terrain: "plains", rewardXp: 25, kind: "combat", target: { x: 117, y: 51 } },
+  { id: "chapter-1-raiders", chapter: 1, title: "Trại cướp ven đường", description: "Đối đầu một đội quân hỗn hợp trên tuyến đường tây.", lesson: "Giáo binh làm chậm kỵ binh.", terrain: "hills", rewardXp: 30, kind: "combat", target: { x: 44, y: 117 } },
+  { id: "chapter-1-scout", chapter: 1, title: "Dấu chân trong rừng", description: "Đưa quân chạm tới rừng sâu Bắc Lâm để mở vùng chưa trinh sát.", lesson: "Dữ liệu chưa trinh sát là chưa biết.", terrain: "forest", rewardXp: 30, kind: "scout", target: { x: 44, y: 58 }, condition: { type: "scout" }, rewardResources: { wood: 80, stone: 40, iron: 10 } },
+  { id: "chapter-1-chief", chapter: 1, title: "Thủ lĩnh cướp", description: "Đánh trận đầu có chủ đích ngay rìa vùng trung tâm.", lesson: "Chọn thế trận theo địa hình.", terrain: "plains", rewardXp: 40, kind: "combat", target: { x: 109, y: 73 } },
+  { id: "chapter-2-road", chapter: 2, title: "Mở đường", description: "Mở tuyến xuống cảng Nam Giang: dựng Trạm tiếp tế tại thành của bạn.", lesson: "Tiếp tế quyết định sức bền.", terrain: "hills", rewardXp: 40, kind: "build", target: { x: 73, y: 182 }, condition: { type: "build", buildingId: "road_depot", level: 1 }, rewardResources: { wood: 150, stone: 100, iron: 30 } },
+  { id: "chapter-2-marsh", chapter: 2, title: "Đầm lầy phía nam", description: "Đánh trong địa hình bất lợi cho kỵ binh.", lesson: "Đừng dùng kỵ binh mù quáng trong đầm.", terrain: "swamp", rewardXp: 45, kind: "combat", target: { x: 51, y: 138 } },
+  { id: "chapter-2-escort", chapter: 2, title: "Hộ tống đoàn xe", description: "Vận chuyển tài nguyên về thương cảng Meridian qua các tuyến caravan.", lesson: "Phối hợp ba vị trí thay vì dồn một loại quân.", terrain: "forest", rewardXp: 45, kind: "trade", target: { x: 73, y: 73 }, condition: { type: "trade", amount: 100 }, rewardResources: { wood: 120, stone: 80, iron: 20 } },
+  { id: "chapter-2-fort", chapter: 2, title: "Cổng đá", description: "Phá tuyến phòng thủ trên đường đông.", lesson: "Cung thủ cần tiền tuyến còn sống.", terrain: "hills", rewardXp: 50, kind: "combat", target: { x: 153, y: 73 } },
+  { id: "chapter-3-camp", chapter: 3, title: "Bình định trại bắc", description: "Tấn công có trinh sát đầy đủ.", lesson: "Báo cáo phải giải thích nguyên nhân thắng thua.", terrain: "plains", rewardXp: 50, kind: "combat", target: { x: 233, y: 22 } },
+  { id: "chapter-3-forest", chapter: 3, title: "Kẻ mai phục", description: "Đánh vòng qua rừng.", lesson: "Giáo binh có thể chặn cánh kỵ binh.", terrain: "forest", rewardXp: 55, kind: "combat", target: { x: 211, y: 211 } },
+  { id: "chapter-3-swamp-chief", chapter: 3, title: "Thủ lĩnh đầm lầy", description: "Kết hợp cung và bộ binh.", lesson: "Thế phòng thủ giúp giữ quân.", terrain: "swamp", rewardXp: 60, kind: "combat", target: { x: 22, y: 233 } },
+  { id: "chapter-3-meridian", chapter: 3, title: "Bình định Meridian", description: "Hoàn tất chiến dịch đầu mùa ngay tâm thế giới.", lesson: "Không có lực chiến cam kết; hãy đọc từng hiệp.", terrain: "plains", rewardXp: 75, kind: "combat", target: { x: 127, y: 127 } },
 ];
 
 export const commanderCapacity = (level: number): number => Math.min(500, 100 + 50 * (Math.max(1, Math.min(10, Math.floor(level))) - 1));
@@ -744,7 +754,7 @@ export const applyFormationPresetCommandSchema = z.object({ commandId: z.string(
 export type ApplyFormationPresetCommand = z.infer<typeof applyFormationPresetCommandSchema>;
 export const startResearchCommandSchema = z.object({ commandId: z.string().min(8), technologyId: z.enum(technologyIds) });
 export type StartResearchCommand = z.infer<typeof startResearchCommandSchema>;
-export const completeCampaignMissionCommandSchema = z.object({ commandId: z.string().min(8), missionId: z.string(), armyId: z.string() });
+export const completeCampaignMissionCommandSchema = z.object({ commandId: z.string().min(8), missionId: z.string(), armyId: z.string().optional() });
 export type CompleteCampaignMissionCommand = z.infer<typeof completeCampaignMissionCommandSchema>;
 export const patrolCampaignCommandSchema = z.object({ commandId: z.string().min(8), missionId: z.string(), armyId: z.string() });
 export type PatrolCampaignCommand = z.infer<typeof patrolCampaignCommandSchema>;
@@ -976,6 +986,20 @@ export const gameRules = {
      *  past what is worth drawing by hand. Three gives 135, and a city three tiles from its mine is
      *  still a city that grew around it. */
     maxDistanceToHubOrNode: 3,
+  } as const,
+  campaign: {
+    /** Manhattan distance from the mission target an army counts as "at the objective". Three
+     *  rather than zero: a 3D terrain click can land a tile or two off, and three tiles is still
+     *  "arrived" for gameplay (same leniency as the caravan ambush range). */
+    arrivalRadius: 3,
+    /** Resources granted to the army's home city on every patrol victory, by the chapter of the
+     *  mission being patrolled. Chapter 1 is about half a road depot, chapter 2 pays one back,
+     *  chapter 3 sits between a depot and a barracks. Losses and draws pay nothing. */
+    patrolRewards: {
+      1: { wood: 60, stone: 40, iron: 10 },
+      2: { wood: 120, stone: 80, iron: 25 },
+      3: { wood: 200, stone: 140, iron: 40 },
+    } as const,
   } as const,
 } as const;
 

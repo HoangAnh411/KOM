@@ -3,7 +3,7 @@ import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { clone as cloneSkeleton } from "three/addons/utils/SkeletonUtils.js";
 import { MeshoptDecoder } from "meshoptimizer";
 import type { City, EquippedCosmetics, FactionId, WorldSnapshot } from "@kingdoms/shared";
-import { regions, terrainAt } from "@kingdoms/shared";
+import { campaignMissions, regions, terrainAt, type CampaignMissionKind } from "@kingdoms/shared";
 import type { InteractionMode } from "../state.js";
 import type { MapSelection, WorldMap } from "../map-contract.js";
 import { mapExtent } from "../map-geometry.js";
@@ -284,6 +284,32 @@ function seatModel(loaded: LoadedAssets, heldBy: "own" | "other" | "none"): THRE
   return root;
 }
 
+/** A campaign objective, at the spot on the world the mission names. The colour
+ *  says how it is completed — the same word the panel's kind badge carries — so
+ *  a scout target and a combat target are told apart at a glance. */
+const missionKindColors: Record<CampaignMissionKind, number> = {
+  combat: 0xe17b58,
+  scout: 0x4cb9c9,
+  build: 0x8a7ad4,
+  trade: 0xf0d15a,
+};
+
+function missionModel(loaded: LoadedAssets, kind: CampaignMissionKind): THREE.Group {
+  const root = new THREE.Group();
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(2.9, 3.5, 32),
+    new THREE.MeshBasicMaterial({ color: missionKindColors[kind], transparent: true, opacity: 0.9, side: THREE.DoubleSide }),
+  );
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.y = 0.12;
+  root.add(ring);
+  const flag = cloneAsset(loaded, "greenBanner", 0.7);
+  flag.position.y = 0.9;
+  tintModel(flag, missionKindColors[kind], 0.4);
+  root.add(flag);
+  return root;
+}
+
 export function createWorld3DMap(
   container: HTMLElement,
   snapshot: WorldSnapshot,
@@ -393,6 +419,17 @@ export function createWorld3DMap(
   fogPlane.rotation.x = -Math.PI / 2;
   fogPlane.renderOrder = 45;
   scene.add(fogPlane);
+
+  // The objective line: one dashed segment from the player's army to the next
+  // mission that needs one on the ground (combat or scout). Two points, updated
+  // in place by `syncEntities` — a mission line is the one thing on the map that
+  // points at the future rather than describing the present.
+  const missionLineGeometry = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(), new THREE.Vector3()]);
+  const missionLineMaterial = new THREE.LineDashedMaterial({ color: 0xf0d15a, dashSize: CELL_SIZE * 1.4, gapSize: CELL_SIZE * 0.9, transparent: true, opacity: 0.75, depthTest: false });
+  const missionLine = new THREE.Line(missionLineGeometry, missionLineMaterial);
+  missionLine.renderOrder = 44;
+  missionLine.visible = false;
+  scene.add(missionLine);
 
   const syncFog = () => {
     const resolution = latest.exploration.resolution;
@@ -512,6 +549,19 @@ export function createWorld3DMap(
   const syncEntities = () => {
     if (!loaded) return;
     const visible = new Set<string>();
+    // Campaign objectives, ours only and only what the fog allows: a mission pin
+    // on unexplored ground would be a free scout. Chapter gating caps this at
+    // four pins at a time (the current chapter's incomplete missions).
+    const campaign = latest.campaignProgress?.[ownPlayerId];
+    const unlockedChapter = campaign?.unlockedChapter ?? 1;
+    const completedMissions = new Set(campaign?.completedMissionIds ?? []);
+    for (const mission of campaignMissions) {
+      if (mission.chapter > unlockedChapter || completedMissions.has(mission.id)) continue;
+      if (!exploredAt(mission.target.x, mission.target.y)) continue;
+      const id = "mission:" + mission.id;
+      visible.add(id);
+      setEntity(id, mission.kind, () => missionModel(loaded!, mission.kind), mission.target.x, mission.target.y, mission.title);
+    }
     for (const region of regions) {
       if (!exploredAt(region.seatX, region.seatY)) continue;
       const holder = latest.regionControl?.[region.code];
@@ -557,6 +607,21 @@ export function createWorld3DMap(
       setEntity(`army:${army.id}`, String(army.strength), () => cloneAsset(loaded!, "soldier", 2.15), army.x, army.y, String(army.strength));
     }
     for (const id of entityRoots.keys()) if (!visible.has(id)) removeEntity(id);
+    // Objective line: army → the next mission that wants boots on the ground.
+    // Build and trade missions are completed from the city, so no line points at
+    // them even when their pin is up.
+    const nextGroundMission = campaignMissions.find(mission =>
+      !completedMissions.has(mission.id) && mission.chapter <= unlockedChapter &&
+      (mission.kind === "combat" || mission.kind === "scout") &&
+      exploredAt(mission.target.x, mission.target.y));
+    const ownArmy = latest.armies.find(army => army.ownerPlayerId === ownPlayerId && army.strength > 0);
+    if (nextGroundMission && ownArmy) {
+      missionLineGeometry.setFromPoints([positionAt(ownArmy.x, ownArmy.y, 0.6), positionAt(nextGroundMission.target.x, nextGroundMission.target.y, 0.6)]);
+      missionLine.computeLineDistances();
+      missionLine.visible = true;
+    } else {
+      missionLine.visible = false;
+    }
   };
 
   const loadWorldAssets = () => {
@@ -642,7 +707,7 @@ export function createWorld3DMap(
       while (current && current.parent !== entityLayer) current = current.parent;
       return typeof current?.userData.entityId === "string" ? [current.userData.entityId as string] : [];
     });
-    return ids.find(id => id.startsWith("army:")) ?? ids.find(id => id.startsWith("city:")) ?? ids.find(id => id.startsWith("seat:"));
+    return ids.find(id => id.startsWith("army:")) ?? ids.find(id => id.startsWith("city:")) ?? ids.find(id => id.startsWith("seat:")) ?? ids.find(id => id.startsWith("mission:"));
   };
 
   const pickEntity = (clientX: number, clientY: number): MapSelection | undefined => {
@@ -690,6 +755,10 @@ export function createWorld3DMap(
     if (interaction.kind === "idle" && raycastId?.startsWith("seat:")) {
       const region = regions.find(item => item.code === raycastId.slice(5));
       if (region) return { kind: "tile", x: region.seatX, y: region.seatY };
+    }
+    if (raycastId?.startsWith("mission:")) {
+      const mission = campaignMissions.find(item => item.id === raycastId.slice("mission:".length));
+      if (mission) return { kind: "tile", x: mission.target.x, y: mission.target.y };
     }
     if (raycastId?.startsWith("army:")) return { kind: "army", id: raycastId.slice(5) };
     return undefined;
@@ -885,7 +954,7 @@ export function createWorld3DMap(
       const ring = root.children.find(child => child instanceof THREE.Mesh && child.geometry instanceof THREE.RingGeometry) as THREE.Mesh | undefined;
       const entityId = String(root.userData.entityId ?? "");
       if (ring) {
-        ring.visible = entityId.startsWith("seat:") ||
+        ring.visible = entityId.startsWith("seat:") || entityId.startsWith("mission:") ||
           (selected?.kind === "city" && entityId === "city:" + selected.id);
       }
       if (ring) (ring.material as THREE.MeshBasicMaterial).opacity = pulse;
@@ -958,6 +1027,9 @@ export function createWorld3DMap(
       for (const texture of textures) texture.dispose();
       for (const material of materials) material.dispose();
       for (const geometry of geometries) geometry.dispose();
+      // A THREE.Line is neither Mesh nor Sprite, so the traverse above skips it.
+      missionLineGeometry.dispose();
+      missionLineMaterial.dispose();
       if (loaded) disposeAssets(loaded);
       loaded = undefined;
       renderer.dispose();

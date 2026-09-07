@@ -8,7 +8,7 @@ import { useGame } from "./state.js";
  * (`document.querySelector(".city-panel")`), which ties behaviour to styling and
  * breaks silently whenever the styles are reworked. Panels register their own
  * element here instead, so the jump goes through a real reference. */
-export type PanelAnchorId = "city" | "army" | "logistics" | "alliance" | "events" | "diplomacy" | "hud";
+export type PanelAnchorId = "city" | "army" | "logistics" | "progression" | "alliance" | "events" | "diplomacy" | "hud";
 
 const anchors = new Map<PanelAnchorId, HTMLElement>();
 

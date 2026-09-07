@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { overallScore, militaryScore, gameRules, recruitmentCost, snapshotSchema, PROTOCOL_VERSION, regionTileCounts, regions, buildCommandSchema, cityGridSize, buildingDimensions, validatePlacements, migrateCityLayoutV1toV2 } from "./index.js";
+import { overallScore, militaryScore, gameRules, recruitmentCost, snapshotSchema, PROTOCOL_VERSION, regionTileCounts, regions, buildCommandSchema, cityGridSize, buildingDimensions, validatePlacements, migrateCityLayoutV1toV2, campaignMissions, campaignMissionKinds } from "./index.js";
 
 test("season score uses the published weights", () => {
   assert.equal(overallScore({ military: 1000, economy: 1000, diplomacy: 1000 }), 1000);
@@ -113,4 +113,45 @@ test("the snapshot contract names the world instead of carrying it", () => {
 
 test("PROTOCOL_VERSION is 4 for the 256 world descriptor and seasonal exploration", () => {
   assert.equal(PROTOCOL_VERSION, 4);
+});
+
+// The campaign is not 12 abstract combat calls any more: every mission pins a target on the
+// authored world, three of them are non-combat, and each non-combat mission carries exactly the
+// condition kind the design assigned it. These invariants are what the map pins, the arrival
+// check and the condition checks are all written against.
+test("campaign missions carry map targets, one per mission, inside the world", () => {
+  const extent = gameRules.map.extent;
+  const seen = new Set<string>();
+  for (const mission of campaignMissions) {
+    const { x, y } = mission.target;
+    assert.ok(x >= 0 && x < extent && y >= 0 && y < extent, `${mission.id} target (${x}, ${y}) is outside the ${extent}x${extent} world`);
+    const key = `${x}:${y}`;
+    assert.ok(!seen.has(key), `missions share target ${key}`);
+    seen.add(key);
+    assert.ok(campaignMissionKinds.includes(mission.kind), `${mission.id} has unknown kind`);
+  }
+});
+
+test("the three non-combat missions each carry their own condition kind, and combat carries none", () => {
+  const byKind = new Map(campaignMissions.map(mission => [mission.kind, mission]));
+  for (const kind of ["scout", "build", "trade"] as const) {
+    const mission = byKind.get(kind)!;
+    assert.equal(mission.condition?.type, kind, `${mission.id} must be the ${kind} condition mission`);
+    assert.ok(mission.rewardResources, `${mission.id} pays resources instead of XP`);
+  }
+  for (const mission of campaignMissions.filter(item => item.kind === "combat")) {
+    assert.equal(mission.condition, undefined, `${mission.id} is combat and must not carry a condition`);
+  }
+});
+
+test("patrol rewards are priced for all three chapters", () => {
+  const rewards = gameRules.campaign.patrolRewards;
+  for (const chapter of [1, 2, 3] as const) {
+    const reward = rewards[chapter];
+    assert.ok(reward.wood > 0 && reward.stone > 0 && reward.iron >= 0, `chapter ${chapter} patrol reward is set`);
+    if (chapter > 1) {
+      const previous = rewards[(chapter - 1) as 1 | 2];
+      assert.ok(reward.wood > previous.wood, "later chapters patrol for more");
+    }
+  }
 });

@@ -13,7 +13,7 @@
 // job for server error codes.
 
 import { gameRules } from "@kingdoms/shared";
-import type { AllianceRole, Formation, NpcKind, Resources, SpyMissionType, TreatyType, UnitType, WorldEventType } from "@kingdoms/shared";
+import type { AllianceRole, CampaignMissionKind, Formation, NpcKind, Resources, SpyMissionType, TreatyType, UnitType, WorldEventType } from "@kingdoms/shared";
 import type { IconName, UiState } from "./ui/tokens.js";
 
 export type ResourceKey = keyof Resources;
@@ -159,3 +159,13 @@ export const formationLabels: Record<Formation, string> = {
 /** What to call an army in one word, whoever owns it. */
 export const armyLabel = (army: { unitType: UnitType; npcKind?: NpcKind }): string =>
   army.npcKind ? npcLabels[army.npcKind] : unitLabel(army.unitType);
+
+/** How a campaign mission is completed. The panel's badge, the button wording and
+ *  the map pin's colour all read this, so one kind cannot be "Trinh sát" in one
+ *  place and a plain combat row in another. */
+export const missionKindLabels: Record<CampaignMissionKind, string> = {
+  combat: "Chiến đấu",
+  scout: "Trinh sát",
+  build: "Xây dựng",
+  trade: "Giao thương",
+};

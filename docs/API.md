@@ -62,8 +62,15 @@ Request:
 - `POST /api/commands/army/return-home`: tạo hành trình về thành; chỉ khi đến nơi mới nạp tiếp tế, đưa thương binh vào dự bị và cho phép chỉnh quân.
 - `POST /api/commands/train`, `/api/commands/heal`: dùng hàng đợi doanh trại/quân y riêng. Quân y viện chữa thương bằng lương thực; thiếu tài nguyên thì lệnh bị từ chối, thương binh không mất.
 - `POST /api/commands/research`: bắt đầu một trong sáu công nghệ tại Học viện. Nghiên cứu hoàn tất qua server tick và được giữ qua mùa.
-- `POST /api/commands/campaign/complete`: hoàn thành nhiệm vụ chiến dịch lần đầu, nhận XP và mở chương theo tiến độ.
-- `POST /api/commands/campaign/patrol`: sau khi hoàn thành toàn bộ chiến dịch, chạy tuần tra PvE lặp lại; chỉ chiến thắng nhận XP, không nhận lại thưởng mở khóa.
+- `POST /api/commands/campaign/complete`: hoàn thành nhiệm vụ chiến dịch theo **loại nhiệm vụ**. Mỗi nhiệm vụ có `kind` và một tọa độ mục tiêu `target {x, y}` trên lưới 256 (xem `campaignMissions` trong `@kingdoms/shared`):
+  - `combat` (9 nhiệm vụ): cần `armyId` (bỏ trường này trả `ARMY_REQUIRED`), đạo quân phải v2, không đang di chuyển, và đứng trong bán kính Manhattan `gameRules.campaign.arrivalRadius` = 3 ô quanh mục tiêu (`MISSION_TARGET_NOT_REACHED`). NPC spawn **tại mục tiêu**, không phải tại vị trí quân. Thắng mới tính hoàn thành và trả XP cho chỉ huy.
+  - `scout`: điều kiện là ô mục tiêu đã nằm trong vùng khám phá của người chơi — cũng là điều kiện mọi kind đều phải qua (`MISSION_TARGET_UNEXPLORED`).
+  - `build`: cần công trình theo điều kiện (vd `road_depot` cấp 1) ở một thành bất kỳ của người chơi (`MISSION_CONDITION_UNMET`).
+  - `trade`: cần tổng throughput giao thương (wood+stone+iron) đạt mức điều kiện (`MISSION_CONDITION_UNMET`).
+  - Ba nhiệm vụ phi chiến đấu trả `rewardResources` vào thành đầu thay vì XP, và **không cần `armyId`**.
+- `POST /api/commands/campaign/patrol`: sau khi hoàn thành toàn bộ chiến dịch, chạy tuần tra PvE lặp lại tại chỗ quân đứng; mỗi trận **thắng** nhận thêm thưởng tài nguyên theo chương (`gameRules.campaign.patrolRewards`), chỉ hòa/thua thì không. XP vẫn chỉ theo chiến thắng, không nhận lại thưởng mở khóa.
+
+Lưu ý theo mùa: `campaignProgress` được giữ qua season reset, nhưng throughput giao thương thì bị reset — nhiệm vụ `trade` của một season mới phải giao đủ lại từ đầu.
 
 Đạo quân mới phải có tiền tuyến, một chỉ huy và tổng số lính không vượt sức chứa theo cấp chỉ huy. Snapshot trả rõ thành phần quân, thế trận, buff, thương binh, tiếp tế, dự bị và dữ liệu địch đã trinh sát; không dùng một chỉ số `strength` để cam kết thắng.
 

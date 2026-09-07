@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { gameRules, regions, regionTileCounts } from "@kingdoms/shared";
+import { campaignMissions, gameRules, regions, regionTileCounts } from "@kingdoms/shared";
 import type { Alliance, AllianceVote, Army, BattleReport, Caravan, City, SpyMission, Treaty, WorldEvent, WorldSnapshot } from "@kingdoms/shared";
 import {
   activityAnchors, activityIcons, activityKindLabels, activityLimit, activityStates, attentionItems, attentionLimit,
@@ -143,7 +143,7 @@ test("a row becomes a control only when it has somewhere useful to go", () => {
   assert.deepEqual(kinds.filter(kind => !activityAnchors[kind]).sort(),
     ["command-accepted", "command-rejected", "connection", "world-event"]);
   for (const kind of kinds.filter(kind => activityAnchors[kind])) {
-    assert.ok(["city", "army", "logistics", "diplomacy", "hud"].includes(activityAnchors[kind]!),
+    assert.ok(["city", "army", "logistics", "diplomacy", "hud", "progression"].includes(activityAnchors[kind]!),
       `${kind} points at a panel that has no anchor to scroll to`);
   }
 });
@@ -477,4 +477,26 @@ test("Cần chú ý puts the most answerable thing first and stops before it bec
   assert.deepEqual(items.slice(0, 3).map(item => item.id.split(":")[1]), ["uncertain", "treaty", "vote"]);
   assert.equal(items.length, attentionLimit, "the panel has to end somewhere or nobody reads it");
   assert.ok(items.every(item => item.message.length > 0));
+});
+
+test("a campaign mission is news once, on the tick it completes", () => {
+  const progress = (ids: string[]) => ({ [ME]: { playerId: ME, completedMissionIds: ids, claimedFirstClearIds: ids, unlockedChapter: 1 } });
+  const before = world({ campaignProgress: progress([]) });
+  const after = world({ campaignProgress: progress(["chapter-1-ruins"]) });
+  const rows = diff(before, after);
+  assert.deepEqual(rows.map(row => row.kind), ["mission-completed"]);
+  assert.equal(rows[0]!.id, "mission-completed:chapter-1-ruins");
+  // The snapshot carries only ids; the title is looked up in the shared catalog,
+  // so the feed says what the panel said when it offered the mission.
+  assert.equal(rows[0]!.message, `Hoàn thành nhiệm vụ "${campaignMissions[0]!.title}".`);
+  assert.equal(rows[0]!.state, "success");
+  assert.equal(rows[0]!.anchor, "progression");
+  // A mission never un-completes, so every snapshot afterwards repeats the id and
+  // must stay silent — the dedupe runs on every tick, not on login.
+  assert.deepEqual(diff(after, after), []);
+  // Someone else's campaign is theirs, and a server that has not sent the field
+  // (or a session's first snapshot) says nothing either.
+  const theirs = { [FOE]: { playerId: FOE, completedMissionIds: ["chapter-1-ruins"], claimedFirstClearIds: [], unlockedChapter: 1 } };
+  assert.deepEqual(diff(before, world({ campaignProgress: theirs })), []);
+  assert.deepEqual(diff(undefined, after), []);
 });

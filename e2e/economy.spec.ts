@@ -8,6 +8,9 @@ test.beforeEach(async ({ request }) => { await request.post(`${api}/api/dev/rese
 // route, and move a caravan onto it.
 test("harvest, depot, trade route and caravan flow", async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === "mobile", "desktop-sized HUD interaction");
+  // The depot build alone waits out a 12s queue; the whole flow sits right
+  // around the 30s default, so give it the headroom the other specs take.
+  test.setTimeout(60_000);
   await page.goto("/");
   await page.getByPlaceholder("Tên người chơi").fill(`Econ E2E ${testInfo.project.name} ${Date.now()}`);
   await page.getByRole("button", { name: "Vào kingdom" }).click();

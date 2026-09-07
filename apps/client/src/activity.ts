@@ -14,7 +14,7 @@
 // parts that are actually easy to get wrong — ordering, the ring's cap, the
 // dedupe of a repeated snapshot, and one row per fact per kind of change.
 
-import { gameRules, regions, regionTileCounts } from "@kingdoms/shared";
+import { gameRules, regions, regionTileCounts, campaignMissions } from "@kingdoms/shared";
 import type { BattleReport, WorldSnapshot } from "@kingdoms/shared";
 import type { PendingCommand } from "./commands.js";
 import type { PanelAnchorId } from "./panel-anchors.js";
@@ -28,7 +28,7 @@ export type ActivityKind =
   | "battle" | "build-finished" | "caravan-delivered" | "caravan-ambushed"
   | "spy-success" | "spy-failed" | "spy-intercepted"
   | "treaty-proposed" | "treaty-active" | "treaty-ended" | "treaty-violated"
-  | "region-captured" | "region-lost"
+  | "region-captured" | "region-lost" | "mission-completed"
   | "world-event" | "order-canceled" | "connection";
 
 export type ActivityEvent = {
@@ -64,6 +64,7 @@ export const activityKindLabels: Record<ActivityKind, string> = {
   "treaty-violated": "Hiệp ước bị phá",
   "region-captured": "Chiếm được vùng",
   "region-lost": "Mất vùng",
+  "mission-completed": "Nhiệm vụ xong",
   "world-event": "Sự kiện thế giới",
   "order-canceled": "Lệnh bị hủy",
   connection: "Kết nối",
@@ -91,6 +92,7 @@ export const activityIcons: Record<ActivityKind, IconName> = {
   "treaty-violated": "treaty",
   "region-captured": "banner",
   "region-lost": "banner",
+  "mission-completed": "banner",
   "world-event": "alert",
   "order-canceled": "ban",
   connection: "link-off",
@@ -113,6 +115,7 @@ export const activityStates: Record<ActivityKind, UiState> = {
   "treaty-violated": "hostile",
   "region-captured": "success",
   "region-lost": "hostile",
+  "mission-completed": "success",
   "world-event": "warning",
   "order-canceled": "warning",
   connection: "warning",
@@ -135,6 +138,7 @@ export const activityAnchors: Partial<Record<ActivityKind, PanelAnchorId>> = {
   "treaty-violated": "diplomacy",
   "region-captured": "army",
   "region-lost": "army",
+  "mission-completed": "progression",
   "order-canceled": "army",
 };
 
@@ -374,6 +378,21 @@ function snapshotDrafts(previous: WorldSnapshot | undefined, next: WorldSnapshot
           : `Mất ${provinceName(code)} — không còn ai giữ ô lỵ sở.`,
       });
     }
+  }
+
+  // Campaign missions, ours only, on the transition into `completedMissionIds`.
+  // Titles come from the shared catalog rather than the wire — the snapshot
+  // carries only ids — and a completed mission never un-completes, so the diff
+  // fires once per mission no matter how many snapshots follow.
+  const doneBefore = new Set(previous.campaignProgress?.[playerId]?.completedMissionIds ?? []);
+  for (const missionId of next.campaignProgress?.[playerId]?.completedMissionIds ?? []) {
+    if (doneBefore.has(missionId)) continue;
+    const mission = campaignMissions.find(item => item.id === missionId);
+    rows.push({
+      id: `mission-completed:${missionId}`,
+      kind: "mission-completed",
+      message: `Hoàn thành nhiệm vụ "${mission?.title ?? missionId}".`,
+    });
   }
 
   // World events are kingdom-wide, so they are the one source not filtered by
