@@ -36,7 +36,7 @@ test("accepted commands are recorded in the event ledger", async () => {
 // yours, everyone else's is what the map legitimately shows.
 test("a snapshot hides other players' city interiors but keeps the map readable", async () => {
   type Session = { token: string; player: { id: string } };
-  type City = { id: string; playerId: string; playerName: string; x: number; y: number; frozen?: boolean; resources: Record<string, number>; buildings: Record<string, number>; queues: unknown[] };
+  type City = { id: string; playerId: string; playerName: string; name: string; visibility: string; x: number; y: number; frozen?: boolean; resources: Record<string, number>; buildings: Record<string, number>; queues: unknown[] };
   const server = createServer();
   const victim = (await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Scout Victim", factionId: "meridian" } })).json() as Session;
   const viewer = (await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Scout Buyer", factionId: "veiled" } })).json() as Session;
@@ -51,10 +51,70 @@ test("a snapshot hides other players' city interiors but keeps the map readable"
   assert.deepEqual(foreign.resources, { food: 0, wood: 0, stone: 0, iron: 0 }, "another player's stock is what espionage sells");
   assert.deepEqual(foreign.buildings, {}, "another player's build levels are what espionage sells");
   assert.deepEqual(foreign.queues, [], "a build queue says what its owner is about to field");
+  assert.equal(foreign.name, "Thành chưa xác định");
+  assert.equal(foreign.visibility, "unknown");
   // The map draws foreign cities from these fields and the target lists filter on
   // `frozen`, so redacting the interior must not blank the city itself.
   assert.equal(foreign.id, truth.id); assert.equal(foreign.x, truth.x); assert.equal(foreign.y, truth.y);
-  assert.equal(foreign.playerName, "Scout Victim"); assert.equal(foreign.frozen, truth.frozen);
+  assert.equal(foreign.playerName, "Không rõ"); assert.equal(foreign.frozen, truth.frozen);
+  await server.app.close();
+});
+
+test("v2 army routes keep reserve recruitment separate from army creation", async () => {
+  const server = createServer();
+  try {
+    const login = await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Army Route Player", factionId: "meridian" } });
+    const session = login.json() as { token: string; player: { id: string } };
+    const city = server.store.snapshot.cities.find(item => item.playerId === session.player.id)!;
+    const commander = { id: "route-commander", ownerPlayerId: session.player.id, name: "Route Commander", specialty: "logistics" as const, level: 1, xp: 0, assignedArmyId: undefined };
+    server.store.snapshot.commanders.push(commander);
+    city.buildings.barracks = 1;
+    city.resources = { food: 500, wood: 500, stone: 500, iron: 500 };
+    const headers = { authorization: `Bearer ${session.token}` };
+    const recruit = await server.app.inject({ method: "POST", url: "/api/commands/recruit-reserve", headers, payload: { commandId: "route-reserve-1", cityId: city.id, troopType: "spearmen", amount: 20 } });
+    assert.equal(recruit.statusCode, 200);
+    // recruit-reserve rides the training queue now — let the drill finish.
+    server.store.armyManagement.tick(server.store.snapshot, Date.now() + 60_000);
+    const create = await server.app.inject({ method: "POST", url: "/api/commands/army/create", headers, payload: { commandId: "route-army-1", cityId: city.id, commanderId: commander.id, composition: { frontline: { id: "route-front", troopType: "spearmen", position: "frontline", count: 20 }, backline: null, flank: null }, stance: "balanced" } });
+    assert.equal(create.statusCode, 200);
+    assert.equal((create.json() as { data: { strength: number } }).data.strength, 20);
+    assert.equal(server.store.snapshot.troopReserves[city.id]!.available.spearmen, 0);
+  } finally {
+    await server.app.close();
+  }
+});
+
+test("a successful scout exposes a timestamped snapshot, never live city state", async () => {
+  const server = createServer();
+  const victim = (await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Intel Target", factionId: "bastion" } })).json() as { player: { id: string } };
+  const viewer = (await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Intel Viewer", factionId: "veiled" } })).json() as { token: string; player: { id: string } };
+  const observedAt = "2026-09-05T10:00:00.000Z";
+  const reportResources = { food: 0, wood: 321, stone: 222, iron: 111 };
+  server.store.snapshot.spyMissions.push({
+    id: "scout-snapshot-test",
+    kingdomId: server.store.snapshot.kingdom.id,
+    actorPlayerId: viewer.player.id,
+    targetPlayerId: victim.player.id,
+    missionType: "scout",
+    status: "success",
+    accuracy: 0.72,
+    cost: { wood: 0, stone: 0, iron: 40 },
+    startedAt: "2026-09-05T09:55:00.000Z",
+    completesAt: observedAt,
+    report: { resources: reportResources, buildings: { town_hall: 3 }, armies: [] },
+  });
+  const truth = server.store.snapshot.cities.find(city => city.playerId === victim.player.id)!;
+  truth.resources.wood = 999;
+
+  const response = await server.app.inject({ method: "GET", url: "/api/bootstrap", headers: { authorization: `Bearer ${viewer.token}` } });
+  const city = (response.json() as { snapshot: { cities: Array<any> } }).snapshot.cities.find(item => item.playerId === victim.player.id)!;
+  assert.equal(city.visibility, "scouted");
+  assert.equal(city.playerName, "Intel Target");
+  assert.equal(city.factionId, "bastion");
+  assert.deepEqual(city.resources, reportResources);
+  assert.notEqual(city.resources.wood, truth.resources.wood);
+  assert.equal(city.intel.observedAt, observedAt);
+  assert.equal(city.intel.accuracy, 0.72);
   await server.app.close();
 });
 
@@ -347,4 +407,50 @@ test("GET /api/battles: participant-only history with keyset pagination (in-memo
   } finally {
     await server.app.close();
   }
+});
+
+test("city-layout command endpoint updates placements atomically and enforces revision checks", async () => {
+  const server = createServer();
+  const login = await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Layout Tester", factionId: "meridian" } });
+  assert.equal(login.statusCode, 200);
+  const session = login.json() as { token: string; player: { id: string }; snapshot: { cities: Array<{ id: string; playerId: string; cityLayoutRevision?: number; buildingPlots?: Array<{ buildingId: string; x: number; y: number; rotation?: number }> }> } };
+  const city = session.snapshot.cities.find(c => c.playerId === session.player.id)!;
+  const cityId = city.id;
+
+  const validUpdate = await server.app.inject({
+    method: "POST",
+    url: "/api/commands/city-layout",
+    headers: { authorization: `Bearer ${session.token}` },
+    payload: {
+      commandId: "cmd-layout-1",
+      cityId,
+      layoutVersion: 2,
+      expectedRevision: city.cityLayoutRevision ?? 0,
+      placements: [{ buildingId: "town_hall", x: 2, y: 2, rotation: 90 }]
+    }
+  });
+  assert.equal(validUpdate.statusCode, 200);
+  const updateBody = validUpdate.json() as { result: string; snapshot: { cities: Array<{ id: string; cityLayoutRevision?: number; buildingPlots?: Array<{ buildingId: string; x: number; y: number; rotation?: number }> }> } };
+  assert.equal(updateBody.result, "accepted");
+  const updatedCity = updateBody.snapshot.cities.find(c => c.id === cityId)!;
+  assert.equal(updatedCity.cityLayoutRevision, 1);
+  assert.deepEqual(updatedCity.buildingPlots, [{ buildingId: "town_hall", x: 2, y: 2, rotation: 90 }]);
+
+  // Stale revision rejection
+  const staleUpdate = await server.app.inject({
+    method: "POST",
+    url: "/api/commands/city-layout",
+    headers: { authorization: `Bearer ${session.token}` },
+    payload: {
+      commandId: "cmd-layout-2",
+      cityId,
+      layoutVersion: 2,
+      expectedRevision: 0,
+      placements: [{ buildingId: "town_hall", x: 2, y: 2, rotation: 90 }]
+    }
+  });
+  assert.equal(staleUpdate.statusCode, 400);
+  assert.equal((staleUpdate.json() as { code: string }).code, "CITY_LAYOUT_STALE");
+
+  await server.app.close();
 });

@@ -1,16 +1,17 @@
-import type { Army, FactionId, Hero, Resources, Scores, BattleReport, TerrainType, SpyMission, WorldEvent, AllianceVote } from "@kingdoms/shared";
+import type { Army, Commander, FactionId, Hero, Resources, Scores, BattleReport, TerrainType, SpyMission, WorldEvent, AllianceVote, BuildingPlacement, CityRotation, Exploration, EquippedCosmetics, OwnedCosmetic, FormationPreset, TrainingQueue, HospitalQueue, TroopReserve, TechnologyProgress, ResearchQueue, CampaignProgress } from "@kingdoms/shared";
 
 export type SeasonStatus = "SCHEDULED" | "ACTIVE" | "FINALIZING" | "CLOSED";
 export type QueueType = "build" | "research";
 
 export type Player = { id: string; displayName: string; factionId: FactionId; kingdomId: string; crossSeasonReputation: number; userId?: string; status?: "active" | "banned"; bannedAt?: string };
-export type QueueItem = { id: string; type: QueueType; buildingId: string; targetLevel: number; startedAt: string; completesAt: string };
-export type CityState = { id: string; playerId: string; name: string; x: number; y: number; resources: Resources; buildings: Record<string, number>; queues: QueueItem[]; starterGranted?: boolean; frozen?: boolean; frozenAt?: string };
+export type QueueItem = { id: string; type: QueueType; buildingId: string; targetLevel: number; startedAt: string; completesAt: string; plotX?: number; plotY?: number; plotRotation?: CityRotation };
+export type CityState = { id: string; playerId: string; name: string; x: number; y: number; resources: Resources; buildings: Record<string, number>; cityLayoutVersion: 2; cityLayoutRevision: number; buildingPlots: BuildingPlacement[]; queues: QueueItem[]; productionAt?: string; starterGranted?: boolean; frozen?: boolean; frozenAt?: string };
 export type CaravanState = { id: string; ownerPlayerId: string; sourceCityId: string; destinationCityId: string; progress: number; status: "moving" | "delivered" | "ambushed"; routeId?: string; cargo?: Resources; departureAt?: string; arrivesAt?: string; escortArmyId?: string; ambushSeed?: number; frozen?: boolean; frozenAt?: string };
-export type SeasonState = { id: string; status: SeasonStatus; startsAt: string; endsAt: string };
+export type SeasonState = { id: string; status: SeasonStatus; startsAt: string; endsAt: string; worldId?: string };
 export type LegacyRecord = { id: string; ownerId: string; seasonId: string; recordType: string; payload: unknown };
 export type MilitaryStats = { victories: number; defeats: number; draws: number; strengthDestroyed: number; strengthLost: number; tilesControlled: number; successfulDefenses: number };
 export type SeasonMetrics = { resourcesProduced: Record<string, { wood: number; stone: number; iron: number }> };
+export type CosmeticAccount = { badges: number; owned: OwnedCosmetic[]; equipped: EquippedCosmetics; claimedRewardIds: string[] };
 import type { Alliance, Treaty, DiplomacyStats } from "@kingdoms/shared";
 
 export type GameState = {
@@ -20,6 +21,14 @@ export type GameState = {
   cities: CityState[];
   caravans: CaravanState[];
   armies: Army[];
+  commanders: Commander[];
+  troopReserves: Record<string, TroopReserve>;
+  formationPresets: FormationPreset[];
+  trainingQueues: Record<string, TrainingQueue>;
+  hospitalQueues: Record<string, HospitalQueue>;
+  technologyProgress: Record<string, TechnologyProgress>;
+  researchQueues: Record<string, ResearchQueue>;
+  campaignProgress: Record<string, CampaignProgress>;
   heroes: Hero[];
   scores: Record<string, Scores>;
   seasonHistory: Array<{ seasonId: string; rankings: Array<{ playerId: string; rank: number; overall: number; scores: Scores }>; closedAt: string }>;
@@ -29,6 +38,8 @@ export type GameState = {
    *  world itself. Read it through `terrainOf()`, which falls through to `terrainAt()`. Only
    *  `map_tiles` rows put anything here, so today it is empty. */
   terrainMap: Record<string, TerrainType>;
+  /** Permanent discovery for the active season, stored as compact bit masks per player. */
+  explorationMasks: Record<string, Exploration>;
   alliances: Alliance[];
   allianceVotes: AllianceVote[];
   treaties: Treaty[];
@@ -48,5 +59,5 @@ export type GameState = {
   // Evidence counters for server-verified onboarding steps, kept in the
   // canonical game_state JSON (no dedicated table needed).
   logisticsCounters: { exports: Record<string, { wood: number; stone: number; iron: number }>; harvests: Record<string, number> };
+  cosmeticAccounts: Record<string, CosmeticAccount>;
 };
-

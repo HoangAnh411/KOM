@@ -69,7 +69,8 @@ export function bandForMatches(matched: number): LayoutBand {
  *  map would drop under ~800px of usable width with three tracks open, and the
  *  map staying dominant is the point of the layout. */
 export function defaultSurfaces(band: LayoutBand): SurfaceState {
-  return { kingdom: band !== "compact", activity: band === "wide" };
+  void band;
+  return { kingdom: false, activity: false };
 }
 
 /** Below the medium breakpoint both surfaces are flyouts over the map, so two

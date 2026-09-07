@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
-import type { Army, AttackOrder, BattleReport, Formation, TerrainType, UnitType, FactionId } from "@kingdoms/shared";
-import { recruitmentCost, terrainAt } from "@kingdoms/shared";
+import type { Army, AttackOrder, BattleReport, Formation, TerrainType, UnitType, FactionId, TroopCounts, MixedBattleReport, Commander, ArmyComposition } from "@kingdoms/shared";
+import { armyCompositionTotal, armyPositions, commanderCapacity, emptyTroopCounts, recruitmentCost, terrainAt, troopTypes } from "@kingdoms/shared";
 import type { GameState } from "./types.js";
 import { CommandRegistry } from "./command-registry.js";
 import { resolveBattle } from "./battle-engine.js";
+import { resolveMixedBattle, allocateCasualties, type MixedBattleOutput, type MixedBattleSide } from "./mixed-battle-engine.js";
+import { dropEmptySquads, legacyUnitTypeOf, releaseCommander, specialtyForUnit, troopTypeForUnit } from "./army-model.js";
 
 /** What the ground is at a tile: the authored world, with `map_tiles` overrides on top. Every
  *  reader goes through this — a raw `state.terrainMap[key]` lookup would answer `undefined` for
@@ -84,10 +86,10 @@ export class CombatRepository {
     await client.query("DELETE FROM armies WHERE kingdom_id = $1 AND NOT (id = ANY($2::uuid[]))", [state.kingdom.id, state.armies.map(army => army.id)]);
     for (const army of state.armies) {
       await client.query(
-        `INSERT INTO armies (id, player_id, kingdom_id, x, y, unit_type, strength, morale, formation, target_x, target_y, supply, owner_type, npc_kind, source_world_event_id, next_action_at, target_army_id, attack_order_id, attack_seed, attack_issued_at, last_supply_at, frozen, frozen_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
-         ON CONFLICT (id) DO UPDATE SET player_id=EXCLUDED.player_id, x=EXCLUDED.x, y=EXCLUDED.y, strength=EXCLUDED.strength, morale=EXCLUDED.morale, formation=EXCLUDED.formation, target_x=EXCLUDED.target_x, target_y=EXCLUDED.target_y, supply=EXCLUDED.supply, owner_type=EXCLUDED.owner_type, npc_kind=EXCLUDED.npc_kind, source_world_event_id=EXCLUDED.source_world_event_id, next_action_at=EXCLUDED.next_action_at, target_army_id=EXCLUDED.target_army_id, attack_order_id=EXCLUDED.attack_order_id, attack_seed=EXCLUDED.attack_seed, attack_issued_at=EXCLUDED.attack_issued_at, last_supply_at=EXCLUDED.last_supply_at, frozen=EXCLUDED.frozen, frozen_at=EXCLUDED.frozen_at`,
-        [army.id, army.ownerPlayerId, state.kingdom.id, army.x, army.y, army.unitType, army.strength, army.morale, army.formation, army.targetX ?? null, army.targetY ?? null, army.supply, army.ownerType, army.npcKind ?? null, army.sourceWorldEventId ?? null, army.nextActionAt ?? null, army.attackOrder?.targetArmyId ?? null, army.attackOrder?.id ?? null, army.attackOrder?.seed ?? null, army.attackOrder?.issuedAt ?? null, army.lastSupplyAt ?? null, army.frozen ?? false, army.frozenAt ?? null]
+        `INSERT INTO armies (id, player_id, kingdom_id, x, y, unit_type, strength, morale, formation, target_x, target_y, supply, owner_type, npc_kind, source_world_event_id, next_action_at, target_army_id, attack_order_id, attack_seed, attack_issued_at, last_supply_at, frozen, frozen_at, commander_id, composition, stance, home_city_id, wounded, recovery_at, returning_home)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)
+         ON CONFLICT (id) DO UPDATE SET player_id=EXCLUDED.player_id, x=EXCLUDED.x, y=EXCLUDED.y, strength=EXCLUDED.strength, morale=EXCLUDED.morale, formation=EXCLUDED.formation, target_x=EXCLUDED.target_x, target_y=EXCLUDED.target_y, supply=EXCLUDED.supply, owner_type=EXCLUDED.owner_type, npc_kind=EXCLUDED.npc_kind, source_world_event_id=EXCLUDED.source_world_event_id, next_action_at=EXCLUDED.next_action_at, target_army_id=EXCLUDED.target_army_id, attack_order_id=EXCLUDED.attack_order_id, attack_seed=EXCLUDED.attack_seed, attack_issued_at=EXCLUDED.attack_issued_at, last_supply_at=EXCLUDED.last_supply_at, frozen=EXCLUDED.frozen, frozen_at=EXCLUDED.frozen_at, commander_id=EXCLUDED.commander_id, composition=EXCLUDED.composition, stance=EXCLUDED.stance, home_city_id=EXCLUDED.home_city_id, wounded=EXCLUDED.wounded, recovery_at=EXCLUDED.recovery_at, returning_home=EXCLUDED.returning_home`,
+        [army.id, army.ownerPlayerId, state.kingdom.id, army.x, army.y, army.unitType, army.strength, army.morale, army.formation, army.targetX ?? null, army.targetY ?? null, army.supply, army.ownerType, army.npcKind ?? null, army.sourceWorldEventId ?? null, army.nextActionAt ?? null, army.attackOrder?.targetArmyId ?? null, army.attackOrder?.id ?? null, army.attackOrder?.seed ?? null, army.attackOrder?.issuedAt ?? null, army.lastSupplyAt ?? null, army.frozen ?? false, army.frozenAt ?? null, army.commanderId ?? null, army.composition ? JSON.stringify(army.composition) : null, army.stance ?? null, army.homeCityId ?? null, JSON.stringify(army.wounded ?? emptyTroopCounts()), army.recoveryAt ?? null, army.returningHome ?? false]
       );
     }
     
@@ -160,6 +162,7 @@ export class CombatRepository {
 
     // A manual move supersedes any pursuit order.
     army.attackOrder = undefined;
+    army.returningHome = undefined;
     army.targetX = targetX;
     army.targetY = targetY;
     return "accepted";
@@ -179,20 +182,68 @@ export class CombatRepository {
     const source = state.armies.find(a => a.id === sourceId);
     const target = state.armies.find(a => a.id === targetId);
     if (!source || !target || source.ownerPlayerId !== playerId || target.ownerPlayerId !== playerId) throw new Error("ARMY_ACCESS_DENIED");
-    if (source.unitType !== target.unitType) throw new Error("UNIT_TYPE_MISMATCH");
     if (source.x !== target.x || source.y !== target.y) throw new Error("NOT_ON_SAME_TILE");
+    if (source.composition && target.composition) return this.mergeCompositions(commandId, source, target, state);
+    if (source.unitType !== target.unitType) throw new Error("UNIT_TYPE_MISMATCH");
     if (target.strength >= 500) throw new Error("TARGET_ARMY_FULL");
-    
+
     if (!this.claim(commandId)) return "already_processed";
-    
+
     const transfer = Math.min(source.strength, 500 - target.strength);
     source.strength -= transfer;
     target.strength += transfer;
-    
+
     if (source.strength === 0) {
+      releaseCommander(state, source);
       state.armies = state.armies.filter(a => a.id !== sourceId);
     }
-    
+
+    return "accepted";
+  }
+
+  /** Composition armies merge squad by squad, troop type into matching position,
+   *  bounded by the target commander's capacity instead of the flat 500. This is
+   *  the group-model path: strength alone must never move without the squads. */
+  private mergeCompositions(commandId: string, source: Army, target: Army, state: GameState): string {
+    const targetCommander = target.commanderId ? state.commanders.find(item => item.id === target.commanderId) : undefined;
+    const capacity = targetCommander ? commanderCapacity(targetCommander.level) : 500;
+    let room = capacity - armyCompositionTotal(target.composition!);
+    if (room <= 0) throw new Error("TARGET_ARMY_FULL");
+
+    if (!this.claim(commandId)) return "already_processed";
+
+    const sourceComposition: ArmyComposition = {
+      frontline: source.composition!.frontline ? { ...source.composition!.frontline } : null,
+      backline: source.composition!.backline ? { ...source.composition!.backline } : null,
+      flank: source.composition!.flank ? { ...source.composition!.flank } : null,
+    };
+    const targetComposition: ArmyComposition = {
+      frontline: target.composition!.frontline ? { ...target.composition!.frontline } : null,
+      backline: target.composition!.backline ? { ...target.composition!.backline } : null,
+      flank: target.composition!.flank ? { ...target.composition!.flank } : null,
+    };
+    for (const position of armyPositions) {
+      const squad = sourceComposition[position];
+      if (!squad || squad.count <= 0 || room <= 0) continue;
+      const move = Math.min(squad.count, room);
+      const slot = armyPositions.find(candidate => targetComposition[candidate]?.troopType === squad.troopType) ?? armyPositions.find(candidate => !targetComposition[candidate]);
+      if (!slot) break; // every position holds a different troop type; the rest stays put
+      const existing = targetComposition[slot];
+      if (existing) existing.count += move;
+      else targetComposition[slot] = { id: `${target.id}-${slot}-${squad.troopType}`, troopType: squad.troopType, position: slot, count: move };
+      squad.count -= move;
+      room -= move;
+    }
+    source.composition = dropEmptySquads(sourceComposition);
+    target.composition = dropEmptySquads(targetComposition);
+    source.strength = armyCompositionTotal(source.composition);
+    target.strength = armyCompositionTotal(target.composition);
+    source.unitType = legacyUnitTypeOf(source.composition);
+    target.unitType = legacyUnitTypeOf(target.composition);
+    if (source.strength === 0) {
+      releaseCommander(state, source);
+      state.armies = state.armies.filter(a => a.id !== source.id);
+    }
     return "accepted";
   }
 
@@ -237,10 +288,10 @@ export class CombatRepository {
     return "accepted";
   }
 
-  resolveEncounter(attacker: Army, defender: Army, seed: number, state: GameState, diplomacy?: any, commandId?: string, broadcast = true): BattleReport {
+  resolveEncounter(attacker: Army, defender: Army, seed: number, state: GameState, diplomacy?: any, commandId?: string, broadcast = true, terrainOverride?: TerrainType): BattleReport {
     const attackerPlayer = attacker.ownerPlayerId ? state.players.find(p => p.id === attacker.ownerPlayerId) : undefined;
     const defenderPlayer = defender.ownerPlayerId ? state.players.find(p => p.id === defender.ownerPlayerId) : undefined;
-    const terrain = terrainOf(state, attacker.x, attacker.y);
+    const terrain = terrainOverride ?? terrainOf(state, attacker.x, attacker.y);
     const input = {
       attacker: { unitType: attacker.unitType, strength: attacker.strength, morale: attacker.morale, formation: attacker.formation, supply: attacker.supply, factionId: attackerPlayer?.factionId ?? "ravager" as FactionId },
       defender: { unitType: defender.unitType, strength: defender.strength, morale: defender.morale, formation: defender.formation, supply: defender.supply, factionId: defenderPlayer?.factionId ?? "ravager" as FactionId },
@@ -252,7 +303,57 @@ export class CombatRepository {
         const violation = diplomacy.checkAttackViolation(attacker.ownerPlayerId, defender.ownerPlayerId, state);
         if (violation) diplomacy.breakTreaty(commandId + "-violate", violation.id, attacker.ownerPlayerId, state);
       }
-      const output = resolveBattle(input);
+    let mixedOutput: MixedBattleOutput | undefined;
+    let output: { rounds: Array<{ round: number; attackerDamage: number; defenderDamage: number; attackerStrength: number; defenderStrength: number }>; attacker: { strengthAfter: number; moraleAfter: number }; defender: { strengthAfter: number; moraleAfter: number }; victor: "attacker" | "defender" | "draw" };
+    const attackerCommander = attacker.commanderId ? state.commanders.find(commander => commander.id === attacker.commanderId) : undefined;
+    const defenderCommander = defender.commanderId ? state.commanders.find(commander => commander.id === defender.commanderId) : undefined;
+    const attackerReady = Boolean(attacker.composition && attacker.stance && attackerCommander);
+    const defenderReady = Boolean(defender.composition && defender.stance && defenderCommander);
+    // A battle resolves through the mixed engine whenever either side carries
+    // composition data; a pre-composition army is presented as a single squad
+    // of its legacy unit type, so it can no longer push the other side's
+    // strength out of sync with its composition. The strength-only resolver
+    // survives only for two pre-composition armies, where neither side has a
+    // composition to drift from.
+    const sideOf = (army: Army, ready: boolean, commander?: Commander): MixedBattleSide => {
+      const composition: ArmyComposition = ready || army.composition
+        ? army.composition!
+        : { frontline: { id: `${army.id}-legacy-frontline`, troopType: troopTypeForUnit(army.unitType), position: "frontline", count: army.strength }, backline: null, flank: null };
+      return {
+        composition,
+        commander: ready ? commander! : commander ?? { specialty: specialtyForUnit(army.unitType), level: 1 },
+        stance: army.stance ?? "balanced",
+        morale: army.morale,
+        supply: army.supply,
+      };
+    };
+    if (attackerReady || defenderReady) {
+      // Composition is the source of truth. A strength that disagrees with it
+      // (legacy save, pre-fix attrition) is repaired here rather than routed to
+      // the old resolver, which would resurrect the drifted troops next battle.
+      if (attackerReady) attacker.strength = armyCompositionTotal(attacker.composition!);
+      if (defenderReady) defender.strength = armyCompositionTotal(defender.composition!);
+      mixedOutput = resolveMixedBattle({
+        attacker: sideOf(attacker, attackerReady, attackerCommander),
+        defender: sideOf(defender, defenderReady, defenderCommander),
+        terrain,
+        seed,
+      });
+      output = {
+        rounds: mixedOutput.rounds.map(round => ({
+          round: round.round,
+          attackerDamage: round.defender.reduce((sum, group) => sum + group.casualties, 0),
+          defenderDamage: round.attacker.reduce((sum, group) => sum + group.casualties, 0),
+          attackerStrength: round.attacker.reduce((sum, group) => sum + group.countAfter, 0),
+          defenderStrength: round.defender.reduce((sum, group) => sum + group.countAfter, 0),
+        })),
+        attacker: { strengthAfter: mixedOutput.attacker.totalAfter, moraleAfter: mixedOutput.attacker.moraleAfter },
+        defender: { strengthAfter: mixedOutput.defender.totalAfter, moraleAfter: mixedOutput.defender.moraleAfter },
+        victor: mixedOutput.victor,
+      };
+    } else {
+      output = resolveBattle(input);
+    }
     
     const report: BattleReport = {
       id: randomUUID(),
@@ -292,12 +393,46 @@ export class CombatRepository {
       seed,
       resolvedAt: new Date().toISOString()
     };
+
+    if (mixedOutput && attackerReady && defenderReady) {
+      // One allocation for everything: the report's killed/wounded and the
+      // army's wounded cargo both read allocateCasualties, per troop type.
+      const sideReport = (army: Army, commander: Commander, before: number, after: number, side: "attacker" | "defender"): MixedBattleReport["attacker"] => {
+        const allocation = allocateCasualties(mixedOutput.rounds, side);
+        const killed = troopTypes.reduce((sum, troopType) => sum + allocation[troopType].killed, 0);
+        const wounded = troopTypes.reduce((sum, troopType) => sum + allocation[troopType].wounded, 0);
+        return { commanderId: commander.id, commanderSpecialty: commander.specialty, commanderLevel: commander.level, stance: army.stance!, composition: army.composition!, totalBefore: before, totalAfter: after, killed, wounded };
+      };
+      report.mixed = {
+        rulesVersion: 1,
+        attacker: sideReport(attacker, attackerCommander!, armyCompositionTotal(attacker.composition!), mixedOutput.attacker.totalAfter, "attacker"),
+        defender: sideReport(defender, defenderCommander!, armyCompositionTotal(defender.composition!), mixedOutput.defender.totalAfter, "defender"),
+        rounds: mixedOutput.rounds,
+      };
+    }
     
     // Apply damage
     attacker.strength = output.attacker.strengthAfter;
     attacker.morale = output.attacker.moraleAfter;
     defender.strength = output.defender.strengthAfter;
     defender.morale = output.defender.moraleAfter;
+    if (mixedOutput) {
+      // Only an army that already carries a composition gets one written back;
+      // a pre-composition army keeps the strength-only model it fought with.
+      const applyComposition = (army: Army, result: MixedBattleOutput["attacker"]): void => {
+        if (!army.composition) return;
+        army.composition = dropEmptySquads(result.composition);
+        army.unitType = legacyUnitTypeOf(army.composition);
+      };
+      applyComposition(attacker, mixedOutput.attacker);
+      applyComposition(defender, mixedOutput.defender);
+      // Any player army that fought with a composition carries its wounded —
+      // PvP included. The report shows the same split, so what the player
+      // reads is what the hospital can later heal.
+      if (attacker.ownerType === "player" && attacker.composition) this.recordWounded(attacker, "attacker", mixedOutput.rounds);
+      if (defender.ownerType === "player" && defender.composition) this.recordWounded(defender, "defender", mixedOutput.rounds);
+      this.awardPvEXp(attacker, defender, output.victor, state);
+    }
     
     // Update stats
     const attStats = attackerPlayer ? (state.militaryThroughput[attackerPlayer.id] ??= { victories: 0, defeats: 0, draws: 0, strengthDestroyed: 0, strengthLost: 0, tilesControlled: 0, successfulDefenses: 0 }) : undefined;
@@ -324,17 +459,57 @@ export class CombatRepository {
     if (broadcast) this.reportsToBroadcast.push(report);
 
     // Clean up destroyed armies
-    if (attacker.strength === 0) state.armies = state.armies.filter(a => a.id !== attacker.id);
-    if (defender.strength === 0) state.armies = state.armies.filter(a => a.id !== defender.id);
+    const keepForRecovery = (army: Army, opponent: Army) => mixedOutput && army.ownerType === "player" && opponent.ownerType === "npc" && army.strength === 0 && Boolean(army.homeCityId);
+    // Every branch that removes an army releases its commander, PvP included —
+    // otherwise the commander stays assigned to a nonexistent army forever.
+    const destroy = (army: Army): void => {
+      releaseCommander(state, army);
+      state.armies = state.armies.filter(a => a.id !== army.id);
+    };
+    if (attacker.strength === 0 && !keepForRecovery(attacker, defender)) destroy(attacker);
+    if (defender.strength === 0 && !keepForRecovery(defender, attacker)) destroy(defender);
+    for (const [army, opponent] of [[attacker, defender], [defender, attacker]] as const) {
+      if (keepForRecovery(army, opponent)) {
+        army.recoveryAt = new Date(Date.now() + 120_000).toISOString();
+        army.returningHome = true;
+        const home = state.cities.find(city => city.id === army.homeCityId);
+        if (home) { army.targetX = home.x; army.targetY = home.y; }
+      }
+    }
 
     return report;
+  }
+
+  private recordWounded(army: Army, side: "attacker" | "defender", rounds: MixedBattleOutput["rounds"]): void {
+    // Same per-troop-type allocation the battle report shows (see
+    // allocateCasualties) — the report and the recoverable cargo can't drift.
+    const allocation = allocateCasualties(rounds, side);
+    const wounded = { ...emptyTroopCounts(), ...(army.wounded ?? {}) };
+    for (const troopType of troopTypes) wounded[troopType] += allocation[troopType].wounded;
+    army.wounded = wounded;
+  }
+
+  private awardPvEXp(attacker: Army, defender: Army, victor: "attacker" | "defender" | "draw", state: GameState): void {
+    if (victor === "draw") return;
+    const winner = victor === "attacker" ? attacker : defender;
+    const loser = victor === "attacker" ? defender : attacker;
+    // XP chỉ đến từ đánh NPC (mission/world). PvP không cấp — hai tài khoản
+    // của cùng người sẽ farm XP cho nhau vô hạn nếu được tính.
+    if (winner.ownerType !== "player" || loser.ownerType !== "npc" || !winner.commanderId) return;
+    const commander = state.commanders.find(item => item.id === winner.commanderId);
+    if (!commander || commander.level >= 10) return;
+    commander.xp += 25;
+    while (commander.level < 10 && commander.xp >= commander.level * 100) {
+      commander.xp -= commander.level * 100;
+      commander.level += 1;
+    }
   }
 
   tick(state: GameState, diplomacy?: any): boolean {
     let changed = false;
     for (const army of state.armies) {
       if (army.frozen || (army.ownerPlayerId && state.players.find(player => player.id === army.ownerPlayerId)?.status === "banned")) continue;
-      if (army.strength <= 0) continue;
+      if (army.strength <= 0 && !army.recoveryAt) continue;
 
       // Morale recovery (slowly regains up to 100 if supplied)
       if (army.supply >= 50 && army.morale < 100) {
@@ -370,7 +545,8 @@ export class CombatRepository {
       // Movement
       if (army.targetX !== undefined && army.targetY !== undefined) {
         if (army.x !== army.targetX || army.y !== army.targetY) {
-          const speed = army.unitType === "cavalry" ? 2 : 1;
+          const roadEngineering = army.ownerPlayerId ? state.technologyProgress[army.ownerPlayerId]?.unlocked.includes("road_engineering") : false;
+          const speed = (army.unitType === "cavalry" ? 2 : 1) + (roadEngineering ? 1 : 0);
           for (let step = 0; step < speed; step++) {
             if (army.x !== army.targetX) army.x += army.x < army.targetX ? 1 : -1;
             else if (army.y !== army.targetY) army.y += army.y < army.targetY ? 1 : -1;

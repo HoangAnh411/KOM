@@ -28,6 +28,13 @@ export const resourceLabels: Record<ResourceKey, string> = {
   iron: "Sắt",
 };
 
+export const resourceIcons: Record<ResourceKey, IconName> = {
+  food: "food",
+  wood: "wood",
+  stone: "stone",
+  iron: "iron",
+};
+
 /** Display order, exhaustive by construction. Matches the field order of
  *  `resourceSchema`, so the header reads the same way the API is shaped. */
 export const resourceKeys = Object.keys(resourceLabels) as ResourceKey[];

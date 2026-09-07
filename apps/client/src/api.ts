@@ -1,4 +1,4 @@
-import type { BattleReport, CommandResponse, FactionId, SeasonArchive, WorldSnapshot } from "@kingdoms/shared";
+import type { BattleReport, CommandResponse, FactionId, PlayerHub, SeasonArchive, WorldSnapshot } from "@kingdoms/shared";
 import { errorMessage } from "./errors.js";
 import { reduceConnection, type ConnectionEvent, type ConnectionState } from "./connect.js";
 
@@ -136,3 +136,4 @@ export async function sendCommand(token: string, path: string, body: Record<stri
   return settled as CommandResponse;
 }
 export async function seasonHistory(token: string): Promise<SeasonArchive> { const response = await authorizedFetch(token, apiBase + "/api/season-history"); if (!response.ok) throw new ApiError(((await response.json()) as { code?: string }).code ?? "ARCHIVE_FAILED"); return response.json() as Promise<SeasonArchive>; }
+export async function playerHub(token: string): Promise<PlayerHub> { const response = await authorizedFetch(token, apiBase + "/api/player-hub"); if (!response.ok) throw new ApiError(((await response.json()) as { code?: string }).code ?? "HUB_FAILED"); return response.json() as Promise<PlayerHub>; }

@@ -28,7 +28,7 @@ import { armyLabel } from "../vocabulary.js";
  *     out *beside* it instead of under it (`.command-tray__commands .kom-btn-gate`
  *     flips the primitive's column to a row). */
 export function CommandTray({ onReveal }: { onReveal: (id: SurfaceId) => void }) {
-  const { state, selection, interaction, beginOrder, cancelOrder, runCommand } = useGame();
+  const { state, selection, interaction, beginOrder, cancelOrder, runCommand, openCityInterior } = useGame();
   const session = state.session!;
   const jump = usePanelJump(onReveal);
   /** The merge dialog is opened by an intent and carries its own candidate list,
@@ -47,11 +47,12 @@ export function CommandTray({ onReveal }: { onReveal: (id: SurfaceId) => void })
       case "cancel-order": return cancelOrder();
       case "command": { void runCommand(intent.command).catch(() => undefined); return; }
       case "merge": return setMerging(intent);
+      case "enter-city": return openCityInterior(intent.cityId);
       case "panel": return jump(intent.anchor);
     }
   };
 
-  return <div className="command-tray" role="region" aria-label="Lệnh cho lựa chọn">
+  return <div className={`command-tray ${selection ? "command-tray--active" : "command-tray--idle"}`} role="region" aria-label="Lệnh cho lựa chọn">
     <div className="command-tray__context">
       <strong className="kom-num">{subject.title}</strong>
       <span className="command-tray__detail kom-num">{subject.detail}</span>

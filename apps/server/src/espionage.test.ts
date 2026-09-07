@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import type { Pool, PoolClient } from "pg";
-import { misinformationEffectSeconds, spyMissionConfig } from "@kingdoms/shared";
+import { anchors, misinformationEffectSeconds, spyMissionConfig } from "@kingdoms/shared";
 import { EspionageRepository } from "./espionage.js";
 import { CommandRegistry } from "./command-registry.js";
 import { EventLedger } from "./event-ledger.js";
@@ -157,10 +157,12 @@ test("world event modifiers affect harvest and plague affects armies", () => {
   const state = createSeedState();
   const engine = new WorldEventEngine();
   const now = Date.now();
-  state.worldEvents.push({ id: "event-1", kingdomId: state.kingdom.id, eventType: "drought", affectedTiles: [{ x: 6, y: 8 }], modifier: { harvest: 0.5 }, startsAt: new Date(now - 1000).toISOString(), endsAt: new Date(now + 100000).toISOString(), severity: 1 });
-  assert.equal(engine.harvestModifier(6, 8, state), 0.5);
-  state.worldEvents.push({ id: "event-2", kingdomId: state.kingdom.id, eventType: "plague", affectedTiles: [{ x: 9, y: 8 }], modifier: {}, startsAt: new Date(now - 1000).toISOString(), endsAt: new Date(now + 100000).toISOString(), severity: 1 });
-  const army = state.armies[0]; engine.tick(state); assert.equal(army.strength, 95);
+  const mine = anchors.find(anchor => anchor.kind === "node")!;
+  state.worldEvents.push({ id: "event-1", kingdomId: state.kingdom.id, eventType: "drought", affectedTiles: [{ x: mine.x, y: mine.y }], modifier: { harvest: 0.5 }, startsAt: new Date(now - 1000).toISOString(), endsAt: new Date(now + 100000).toISOString(), severity: 1 });
+  assert.equal(engine.harvestModifier(mine.x, mine.y, state), 0.5);
+  const army = state.armies[0];
+  state.worldEvents.push({ id: "event-2", kingdomId: state.kingdom.id, eventType: "plague", affectedTiles: [{ x: army.x, y: army.y }], modifier: {}, startsAt: new Date(now - 1000).toISOString(), endsAt: new Date(now + 100000).toISOString(), severity: 1 });
+  engine.tick(state); assert.equal(army.strength, 95);
 });
 
 test("expired world events are removed", () => {

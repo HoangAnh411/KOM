@@ -36,6 +36,8 @@ Danh sách để đối chiếu khi review, không phải script để chạy ta
 | `013_web_playable_alpha.sql` | market hub (một/kingdom), NPC raider, attack pursuit, supply zone, onboarding persisted, city placement |
 | `014_web_closed_alpha.sql` | partial index `battle_reports (attacker_id\|defender_id, created_at DESC, id DESC)` cho keyset pagination của `/api/battles` |
 | `015_world_map_36.sql` | bốn thương cảng mỗi kingdom: bỏ unique index `market_hubs (kingdom_id)` của `013`, thay bằng index thường. Bản đồ 36×36 nằm ở code (`packages/shared/src/world-map.ts`), không có bảng nào cho nó |
+| `016_world_3d_256.sql` | Metadata `world_id`: season cũ ghi `meridian-36-v1`, season mới mặc định `meridian-256-v2`. Không chuyển tọa độ hoặc canonical save cũ. Runtime v2 từ chối save khác phiên bản (`WORLD_VERSION_MISMATCH`); dùng database mới riêng, không đổi nhãn save để bỏ qua guard. Fog khám phá nằm trong canonical `game_state` JSON. |
 
-`012`–`015` viết idempotent (`IF NOT EXISTS`), an toàn cả trên database mới và
+`012`–`016` viết idempotent (`IF NOT EXISTS`), an toàn cả trên database mới và
 database đã có `001`–`011`; điều đó **không** miễn cho việc chạy qua runner.
+| `017_commanders_armies_progression.sql` | Các cột đạo quân v2 và bảng truy vấn cho chỉ huy, dự bị, hàng đợi huấn luyện/quân y, mẫu đội hình, nghiên cứu và chiến dịch. `game_state` vẫn là canonical snapshot. |

@@ -76,8 +76,9 @@ function AlliancePanel() {
    *  nothing about which of the three was short. */
   const contribution = affordable(city, allianceContribution);
   const voted = openVote?.votes.some(vote => vote.playerId === session.player.id) ?? false;
+  const anchor = usePanelAnchor<HTMLElement>("alliance");
 
-  return <Panel accent="teal" className="alliance-panel" aria-label="Liên minh">
+  return <Panel accent="teal" className="alliance-panel" panelRef={anchor} aria-label="Liên minh">
     <PanelHeader
       title={<><Icon name="banner" size="sm" /> Liên minh</>}
       meta={myAlliance ? `${myAlliance.members.length}/${allianceCap} thành viên` : undefined}
@@ -201,8 +202,9 @@ function EventsPanel() {
   const snapshot = state.snapshot!;
   const now = useNow();
   const invaders = (eventId: string) => snapshot.armies.filter(army => army.sourceWorldEventId === eventId).length;
+  const anchor = usePanelAnchor<HTMLElement>("events");
 
-  return <Panel accent="amber" className="events-panel" aria-label="Sự kiện thế giới">
+  return <Panel accent="amber" className="events-panel" panelRef={anchor} aria-label="Sự kiện thế giới">
     <PanelHeader title={<><Icon name="alert" size="sm" /> Sự kiện thế giới</>} />
     <PanelBody>
       {snapshot.worldEvents?.length ? <ul className="drawer-list">

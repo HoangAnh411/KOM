@@ -200,6 +200,16 @@ export function seatSig(controllerPlayerId: string | undefined, ownPlayerId: str
 export const regionLabelZoom = 1;
 export const regionLabelsVisible = (zoom: number): boolean => zoom >= regionLabelZoom;
 
+/** Vertical label lanes around an occupied tile. Ports are also province seats,
+ *  so using the ordinary below-marker offsets put the port name, province name,
+ *  and the nearby seed city's label into the same narrow strip. Keep the port
+ *  name above its marker and give a co-located province its own lower lane. */
+export function mapLabelOffsetY(kind: "city" | "market" | "region", sharesMarket = false): number {
+  if (kind === "city") return -42;
+  if (kind === "market") return -28;
+  return sharesMarket ? 52 : 34;
+}
+
 // === LABEL CHARSET ===
 //
 // Map labels are drawn from one runtime-generated bitmap font atlas instead of a

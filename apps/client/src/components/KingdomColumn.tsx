@@ -11,6 +11,7 @@ import { ArmyPanel } from "./ArmyPanel.js";
 import { CityPanel } from "./CityPanel.js";
 import { LogisticsPanel } from "./LogisticsPanel.js";
 import { OnboardingPanel } from "./OnboardingPanel.js";
+import { ProgressionPanel } from "./ProgressionPanel.js";
 import { offlineRetryReason } from "./PendingChip.js";
 
 // The advanced drawer (alliance/espionage/archive/diplomacy) loads on first open.
@@ -37,7 +38,7 @@ const navEntries: Array<{ id: PanelId & PanelAnchorId; label: string; icon: Icon
  *  separate column. It was only ever a set of jump links into these panels, and a
  *  rail plus a column is two navigation systems for one list. Its `<nav>`, its
  *  labels and its `activePanel` behaviour are unchanged — only its geometry is. */
-export function KingdomColumn({ open }: { open: boolean }) {
+export function KingdomColumn({ open, onClose }: { open: boolean; onClose: () => void }) {
   const {
     state, pending, connection, retryPending, advancedOpen, setAdvancedOpen, activePanel, setActivePanel,
   } = useGame();
@@ -61,7 +62,10 @@ export function KingdomColumn({ open }: { open: boolean }) {
     hidden={!open}
   >
     <div className="kingdom-column__head">
-      <div className="hud-title"><h2 data-testid="city-name">{(myCity ?? state.snapshot?.cities[0])?.name ?? "Thành phố"}</h2><span className="hint">Bảng điều khiển</span></div>
+      <div className="drawer-title-row">
+        <div className="hud-title"><h2 data-testid="city-name">{(myCity ?? state.snapshot?.cities[0])?.name ?? "Thành phố"}</h2><span className="hint">Trung tâm chỉ huy</span></div>
+        <Button variant="ghost" density="compact" className="drawer-close" aria-label="Đóng bảng Vương quốc" onClick={onClose}>×</Button>
+      </div>
       {/* The chip is the head's answer to "why is everything greyed out": the
           banner in the top bar says what happened, this says which surface it
           took. Icon glyph, because a lock has to survive being read in the same
@@ -78,6 +82,7 @@ export function KingdomColumn({ open }: { open: boolean }) {
       </nav>
     </div>
     <OnboardingPanel />
+    <ProgressionPanel />
     {/* Frozen is `disabled` on a fieldset, which is the only thing in the platform
         that disables every control inside it. The rule it replaces —
         `.hud-frozen … { pointer-events: none; opacity: .5 }` — only disabled the

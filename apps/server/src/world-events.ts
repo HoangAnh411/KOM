@@ -4,6 +4,7 @@ import { gameRules } from "@kingdoms/shared";
 import type { GameState } from "./types.js";
 import { CombatRepository } from "./combat.js";
 import { EventLedger } from "./event-ledger.js";
+import { npcCommanderFor, npcComposition } from "./army-model.js";
 import { config } from "./config.js";
 
 const eventDuration: Record<WorldEventType, [number, number]> = {
@@ -65,11 +66,19 @@ export class WorldEventEngine {
     const count = 2 + Math.floor(rng() * 2);
     for (let index = 0; index < count; index++) {
       const tile = event.affectedTiles[Math.floor(rng() * event.affectedTiles.length)];
+      const unitType = unitTypes[Math.floor(rng() * unitTypes.length)];
+      const strength = 50 + Math.floor(rng() * 51);
+      const id = randomUUID();
+      // Same composition model as raiders: world NPCs resolve through the mixed
+      // engine so a player's squads and the NPC's squads stay in sync.
       state.armies.push({
-        id: randomUUID(), ownerType: "npc", ownerPlayerId: null, npcKind: "migration", sourceWorldEventId: event.id,
+        id, ownerType: "npc", ownerPlayerId: null, npcKind: "migration", sourceWorldEventId: event.id,
         nextActionAt: new Date(now + 10_000).toISOString(), x: tile.x, y: tile.y,
-        unitType: unitTypes[Math.floor(rng() * unitTypes.length)], strength: 50 + Math.floor(rng() * 51), morale: 100, formation: "line", supply: 100,
-        lastSupplyAt: new Date(now).toISOString()
+        unitType, strength, morale: 100, formation: "line", supply: 100,
+        lastSupplyAt: new Date(now).toISOString(),
+        commanderId: npcCommanderFor(state, { npcKind: "migration", unitType }).id,
+        composition: npcComposition(id, unitType, strength),
+        stance: "balanced",
       });
     }
   }

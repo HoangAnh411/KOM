@@ -9,6 +9,7 @@ test("login, build, websocket snapshot and session restore", async ({ page }, te
   await expect(page.getByRole("heading", { name: "Kingdoms of Meridian" })).toBeVisible();
   await page.getByPlaceholder("Tên người chơi").fill(`E2E ${testInfo.project.name} ${Date.now()}`);
   await page.getByRole("button", { name: "Vào kingdom" }).click();
+  await page.getByRole("button", { name: "Vương quốc", exact: true }).click();
   const hud = page.getByRole("complementary", { name: "Bảng điều khiển" });
   await expect(page.getByTestId("city-name")).toBeVisible();
   await expect(hud).toBeVisible();
@@ -17,6 +18,7 @@ test("login, build, websocket snapshot and session restore", async ({ page }, te
   expect((await buildResponse).ok()).toBeTruthy();
   await expect(page.getByText("Hàng đợi xây: 1/2")).toBeVisible();
   await page.reload();
+  await page.getByRole("button", { name: "Vương quốc", exact: true }).click();
   await expect(page.getByTestId("city-name")).toBeVisible();
   await expect(page.getByText("Hàng đợi xây: 1/2")).toBeVisible();
 });

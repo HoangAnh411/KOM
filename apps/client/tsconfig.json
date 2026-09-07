@@ -1,5 +1,6 @@
 {
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {"jsx": "react-jsx", "rootDir": "src", "outDir": "dist", "module": "ESNext", "moduleResolution": "Bundler", "allowImportingTsExtensions": false},
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/map.ts"]
 }

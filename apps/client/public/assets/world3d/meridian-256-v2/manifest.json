@@ -1,0 +1,28 @@
+{
+  "id": "meridian-256-v2",
+  "extent": 256,
+  "chunkSize": 16,
+  "terrain": {
+    "lod0": "/assets/world3d/meridian-256-v2/terrain-lod0.glb",
+    "lod1": "/assets/world3d/meridian-256-v2/terrain-lod1.glb"
+  },
+  "models": {
+    "cityTower": "/assets/city3d/temp/kenney-v1/castle/tower-square-top-roof-high.glb",
+    "townHall": "/assets/city3d/temp/kenney-v1/castle/tower-square.glb",
+    "cityWall": "/assets/city3d/temp/kenney-v1/castle/wall.glb",
+    "cityGate": "/assets/city3d/temp/kenney-v1/castle/gate.glb",
+    "woodWall": "/assets/city3d/temp/kenney-v1/fantasy/wall-wood.glb",
+    "redRoof": "/assets/city3d/temp/kenney-v1/fantasy/roof.glb",
+    "greenRoof": "/assets/city3d/temp/kenney-v1/fantasy/roof-high.glb",
+    "crookedTree": "/assets/city3d/temp/kenney-v1/fantasy/tree-crooked.glb",
+    "redBanner": "/assets/city3d/temp/kenney-v1/fantasy/banner-red.glb",
+    "greenBanner": "/assets/city3d/temp/kenney-v1/fantasy/banner-green.glb",
+    "market": "/assets/city3d/temp/kenney-v1/fantasy/stall-red.glb",
+    "tree": "/assets/city3d/temp/kenney-v1/fantasy/tree-high-round.glb",
+    "rock": "/assets/city3d/temp/kenney-v1/fantasy/rock-large.glb",
+    "caravan": "/assets/city3d/temp/kenney-v1/fantasy/cart.glb",
+    "army": "/assets/city3d/temp/kenney-v1/characters/character-male-a.glb"
+  },
+  "license": "CC0-1.0",
+  "replaceableBySemanticId": true
+}

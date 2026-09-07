@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState, type ReactNode } from "react";
-import type { BattleReport, CommandResponse, WorldSnapshot } from "@kingdoms/shared";
+import type { BattleReport, CommandResponse, PlayerHub, WorldSnapshot } from "@kingdoms/shared";
 import { deriveActivity, type ActivityEvent, type ActivityInput } from "./activity.js";
 import { errorMessage } from "./api.js";
 import * as api from "./api.js";
@@ -7,7 +7,7 @@ import { beginPending, markUncertain, resolvePending, restorePending, savePendin
 import type { ConnectionState } from "./connect.js";
 import { shouldNotifyRestore } from "./connect.js";
 import { protocolBlockedMessage } from "./protocol.js";
-import type { MapSelection } from "./map.js";
+import type { MapSelection } from "./map-contract.js";
 
 export type Notice = { id: number; message: string; kind: "error" | "info" };
 export type InteractionMode = { kind: "idle" } | { kind: "move"; armyId: string } | { kind: "attack"; armyId: string };
@@ -38,6 +38,9 @@ type GameContextValue = {
   retryPending: (commandId: string) => void;
   selection: MapSelection | undefined;
   setSelection: (selection: MapSelection | undefined) => void;
+  cityInteriorId: string | undefined;
+  openCityInterior: (cityId: string) => void;
+  closeCityInterior: () => void;
   interaction: InteractionMode;
   beginOrder: (mode: "move" | "attack", armyId: string) => void;
   cancelOrder: () => void;
@@ -54,6 +57,8 @@ type GameContextValue = {
   dismissReport: () => void;
   /** The activity column's feed: derived from the four sources below, never fetched. */
   activity: ActivityEvent[];
+  playerHub?: PlayerHub;
+  setPlayerHub: (hub: PlayerHub | undefined) => void;
 };
 
 const GameContext = createContext<GameContextValue | undefined>(undefined);
@@ -65,12 +70,14 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const [notices, setNotices] = useState<Notice[]>([]);
   const [reports, setReports] = useState<BattleReport[]>([]);
   const [activity, setActivity] = useState<ActivityEvent[]>([]);
+  const [playerHub, setPlayerHub] = useState<PlayerHub>();
   const [connection, setConnection] = useState<ConnectionState>("connecting");
   const connectionRef = useRef<ConnectionState>("connecting");
   const [pending, setPending] = useState<PendingCommand[]>([]);
   const pendingRef = useRef<PendingCommand[]>([]);
   const inFlightRef = useRef(new Map<string, Promise<CommandResponse>>());
   const [selection, setSelection] = useState<MapSelection | undefined>();
+  const [cityInteriorId, setCityInteriorId] = useState<string>();
   const [interaction, setInteraction] = useState<InteractionMode>({ kind: "idle" });
   const [activePanel, setActivePanel] = useState<PanelId>("city");
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -115,15 +122,19 @@ export function GameProvider({ children }: { children: ReactNode }) {
     if (sessionRef.current) sessionStorage.removeItem(`kingdoms-pending-${sessionRef.current.player.id}`);
     pendingRef.current = [];
     setPending([]);
+    setCityInteriorId(undefined);
     // The feed is about one player's world; leaving it up would show the next
     // login somebody else's history in the same tab.
     setActivity([]);
+    setPlayerHub(undefined);
     sessionRef.current = undefined;
     dispatch({ type: "logout" });
   }, []);
   const dismissReport = useCallback(() => setReports(list => list.slice(1)), []);
   const beginOrder = useCallback((mode: "move" | "attack", armyId: string) => setInteraction({ kind: mode, armyId }), []);
   const cancelOrder = useCallback(() => setInteraction({ kind: "idle" }), []);
+  const openCityInterior = useCallback((cityId: string) => setCityInteriorId(cityId), []);
+  const closeCityInterior = useCallback(() => setCityInteriorId(undefined), []);
 
   const protocolBlocked = useMemo(() => protocolBlockedMessage(state.snapshot), [state.snapshot]);
 
@@ -137,6 +148,18 @@ export function GameProvider({ children }: { children: ReactNode }) {
     } finally { clearTimeout(timer); }
   }, []);
 
+  const hubRefreshVersion = useRef(0);
+  const refreshPlayerHub = useCallback(() => {
+    const token = sessionRef.current?.token;
+    if (!token) return;
+    const version = ++hubRefreshVersion.current;
+    void api.playerHub(token).then(next => {
+      // A slower response from an older command must not overwrite a newer
+      // equip/purchase, and a response from a previous session is never valid.
+      if (version === hubRefreshVersion.current && sessionRef.current?.token === token) setPlayerHub(next);
+    }).catch(() => undefined);
+  }, []);
+
   const settle = useCallback((commandId: string, response: CommandResponse) => {
     // Read the label before `resolvePending` drops the entry: the feed row says
     // which order settled ("Xây kho"), not which uuid did.
@@ -145,7 +168,13 @@ export function GameProvider({ children }: { children: ReactNode }) {
     const detail = response.result === "rejected" ? (response.code ? errorMessage(response.code) : "Lệnh bị từ chối.") : undefined;
     if (entry) recordActivity({ source: "command", commandId, label: entry.label, result: response.result, detail });
     if (response.result === "rejected") addNotice(detail!);
-  }, [updatePending, addNotice, recordActivity]);
+    if (entry && ["cosmetics_claim", "cosmetics_purchase", "cosmetics_equip"].includes(entry.kind) && response.result !== "rejected") {
+      if (response.data) setPlayerHub(response.data as PlayerHub);
+      // already_processed responses intentionally omit data, so always ask the
+      // server for the authoritative hub after a cosmetic transaction settles.
+      refreshPlayerHub();
+    }
+  }, [updatePending, addNotice, recordActivity, refreshPlayerHub]);
 
   /** Sends a command: id minted BEFORE the HTTP request, sync pending blocks
    * double-clicks, network/timeout failures downgrade the entry to
@@ -220,6 +249,17 @@ export function GameProvider({ children }: { children: ReactNode }) {
     return () => { cancelled = true; };
   }, []);
 
+  // Cosmetic presentation is part of the signed-in shell, not only the modal.
+  // Load it once with the session so the avatar and city flag are correct even
+  // when the player never opens the hub during this visit.
+  useEffect(() => {
+    const token = state.session?.token;
+    if (!token) { setPlayerHub(undefined); return; }
+    let cancelled = false;
+    void api.playerHub(token).then(next => { if (!cancelled) setPlayerHub(next); }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [state.session?.token]);
+
   // Socket lifecycle per session: restore uncertain commands, drive the
   // connection state, and announce a restore exactly once per outage.
   useEffect(() => {
@@ -253,6 +293,10 @@ export function GameProvider({ children }: { children: ReactNode }) {
           recordActivity({ source: "notice", id: `connection:${Date.now()}`, kind: "connection", message: "Đã kết nối lại phiên chơi.", state: "success", icon: "check" });
         }
         if (next === "online") everOnline = true;
+        if (next === "online" && previous !== "online") {
+          const hubToken = sessionRef.current?.token;
+          if (hubToken) void api.playerHub(hubToken).then(setPlayerHub).catch(() => undefined);
+        }
       },
       onAuthExpired: (reason) => {
         if (import.meta.env.VITE_AUTH_MODE === "password") {
@@ -299,8 +343,8 @@ export function GameProvider({ children }: { children: ReactNode }) {
     setReports(list => (list.some(item => item.id === report.id) ? list : [...list, report]));
   }, [recordActivity]);
 
-  const value = useMemo(() => ({ state, setSession, applySnapshot, logout, connection, pending, runCommand, retryPending, selection, setSelection, interaction, beginOrder, cancelOrder, activePanel, setActivePanel, advancedOpen, setAdvancedOpen, protocolBlocked, notices, addNotice, dismissNotice, reports, pushReport, dismissReport, activity }),
-    [state, setSession, applySnapshot, logout, connection, pending, runCommand, retryPending, selection, setSelection, interaction, beginOrder, cancelOrder, activePanel, setActivePanel, advancedOpen, setAdvancedOpen, protocolBlocked, notices, addNotice, dismissNotice, reports, pushReport, dismissReport, activity]);
+  const value = useMemo(() => ({ state, setSession, applySnapshot, logout, connection, pending, runCommand, retryPending, selection, setSelection, cityInteriorId, openCityInterior, closeCityInterior, interaction, beginOrder, cancelOrder, activePanel, setActivePanel, advancedOpen, setAdvancedOpen, protocolBlocked, notices, addNotice, dismissNotice, reports, pushReport, dismissReport, activity, playerHub, setPlayerHub }),
+    [state, setSession, applySnapshot, logout, connection, pending, runCommand, retryPending, selection, setSelection, cityInteriorId, openCityInterior, closeCityInterior, interaction, beginOrder, cancelOrder, activePanel, setActivePanel, advancedOpen, setAdvancedOpen, protocolBlocked, notices, addNotice, dismissNotice, reports, pushReport, dismissReport, activity, playerHub]);
   return <GameContext.Provider value={value}>{children}</GameContext.Provider>;
 }
 

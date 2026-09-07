@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { gameRules, regions } from "@kingdoms/shared";
 import type { Army, City, ResourceNode, WorldSnapshot } from "@kingdoms/shared";
-import type { MapSelection } from "./map.js";
+import type { MapSelection } from "./map-contract.js";
 import type { InteractionMode } from "./state.js";
 import {
   panelForSelection, trayCommandLimit, trayGroups, traySubject, type TrayCommand, type TrayGroup,
@@ -36,7 +36,8 @@ const IDLE: InteractionMode = { kind: "idle" };
 const city = (over: Partial<City> = {}): City => ({
   id: "city-me", playerId: ME, playerName: "Ember", name: "Hoa Lư", x: 5, y: 5,
   resources: { food: 200, wood: 200, stone: 200, iron: 200 },
-  buildings: { town_hall: 1 }, queues: [], ...over,
+  buildings: { town_hall: 1 }, buildingPlots: [{ buildingId: "town_hall", x: 2, y: 2, rotation: 0 }], queues: [],
+  cityLayoutVersion: 2, cityLayoutRevision: 0, ...over,
 });
 
 const foeCity = (over: Partial<City> = {}): City =>
@@ -59,6 +60,8 @@ const world = (over: Partial<WorldSnapshot> = {}): WorldSnapshot => ({
   protocolVersion: 1,
   kingdom: { id: "kingdom-1", name: "Meridian" },
   season: { id: "season-1", status: "ACTIVE", endsAt: "2026-09-03T00:00:00.000Z" },
+  world: { id: "meridian-256-v2", extent: 256, chunkSize: 16, digest: "test", assetManifestUrl: "/assets/world3d/meridian-256-v2/manifest.json" },
+  exploration: { resolution: 64, revision: 0, encodedMask: "" },
   cities: [city(), foeCity()],
   caravans: [], armies: [], heroes: [], scores: {}, factionCatalog: {},
   logistics: { resourceNodes: [], depots: [], tradeRoutes: [], marketHubs: [], throughput: {} },
@@ -183,10 +186,10 @@ test("someone else's army and city are information, with the way in named", () =
   assert.match(theirs.hint ?? "", /Rival/, "a rival city's hint must name whose it is");
 });
 
-test("your own city is a way into the panels that command it, not a copy of them", () => {
+test("your own city offers the 3D entrance before its supporting command panels", () => {
   const group = only({ kind: "city", id: "city-me" });
   assert.deepEqual(group.commands.map(command => command.intent), [
-    { kind: "panel", anchor: "city" }, { kind: "panel", anchor: "army" }, { kind: "panel", anchor: "logistics" },
+    { kind: "enter-city", cityId: "city-me" }, { kind: "panel", anchor: "city" }, { kind: "panel", anchor: "army" },
   ]);
   for (const command of group.commands) assert.equal(command.check.ok, true, "a jump to a panel is never blocked");
   // Frozen changes the sentence, not the commands: the panels are still worth

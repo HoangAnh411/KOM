@@ -11,6 +11,7 @@ test("harvest, depot, trade route and caravan flow", async ({ page }, testInfo) 
   await page.goto("/");
   await page.getByPlaceholder("Tên người chơi").fill(`Econ E2E ${testInfo.project.name} ${Date.now()}`);
   await page.getByRole("button", { name: "Vào kingdom" }).click();
+  await page.getByRole("button", { name: "Vương quốc", exact: true }).click();
   await expect(page.getByRole("complementary", { name: "Bảng điều khiển" })).toBeVisible();
   const cityPanel = page.getByRole("region", { name: "Thành phố & công trình" });
   const logisticsPanel = page.getByRole("region", { name: "Kinh tế & vận tải" });

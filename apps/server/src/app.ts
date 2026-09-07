@@ -4,9 +4,13 @@ import { Counter, Gauge, Histogram, Registry, collectDefaultMetrics } from "prom
 import {
   ambushCommandSchema,
   adminCloseSeasonSchema,
+  applyFormationPresetCommandSchema,
+  createArmyCommandSchema,
+  assignCommanderCommandSchema,
   attackCommandSchema,
   breakTreatyCommandSchema,
   buildCommandSchema,
+  cityLayoutCommandSchema,
   caravanCommandSchema,
   cancelArmyOrderCommandSchema,
   contributeAllianceCommandSchema,
@@ -16,6 +20,10 @@ import {
   factions,
   factionIds,
   harvestCommandSchema,
+  healTroopsCommandSchema,
+  initialCommanderCatalog,
+  commanderUnlockChapter,
+  campaignMissions,
   joinAllianceCommandSchema,
   launchSpyCommandSchema,
   leaveAllianceCommandSchema,
@@ -26,13 +34,29 @@ import {
   setAllianceNoticeCommandSchema,
   openAllianceVoteCommandSchema,
   castAllianceVoteCommandSchema,
+  cosmeticClaimCommandSchema,
+  cosmeticEquipCommandSchema,
+  cosmeticPurchaseCommandSchema,
   proposeTreatyCommandSchema,
   recruitCommandSchema,
+  recruitReserveCommandSchema,
+  reinforceArmyCommandSchema,
+  transferArmyCommandSchema,
+  returnArmyHomeCommandSchema,
+  saveFormationPresetCommandSchema,
   respondTreatyCommandSchema,
   routeCommandSchema,
+  startResearchCommandSchema,
+  completeCampaignMissionCommandSchema,
+  patrolCampaignCommandSchema,
   setFormationCommandSchema,
+  trainTroopsCommandSchema,
+  updateArmyCompositionCommandSchema,
   gameRules,
   PROTOCOL_VERSION,
+  worldAssetId,
+  worldChunkSize,
+  worldExtent,
   worldMapDigest,
   type BattleHistoryResponse,
   type BattleReport,
@@ -46,6 +70,7 @@ import { RateLimiter } from "./rate-limit.js";
 import { GameStore } from "./store.js";
 import { AuthRepository, REFRESH_MS, dummyPasswordHash, hashPassword, normalizeUsername, validateCredentials, verifyPassword } from "./auth.js";
 import { redisPing, redisClose } from "./redis.js";
+import { explorationContains, fullExploration } from "./exploration.js";
 
 // proxy-addr turns a hop count into exactly this predicate — trust the first `hops`
 // addresses, which are the proxies we run, and read the client from the next one — but
@@ -92,7 +117,9 @@ export function createServer(): { app: FastifyInstance; store: GameStore; start:
   });
   let saveTimer: NodeJS.Timeout | undefined; let tickTimer: NodeJS.Timeout | undefined; let tickRunning = false;
   const getSnapshot = (viewerId?: string): WorldSnapshot => {
+    store.migrateLegacyState();
     store.onboarding.verify(store.snapshot);
+    const exploration = viewerId ? store.explorationFor(viewerId) : fullExploration();
     // Alpha privacy: a viewer only sees their own battle reports in the
     // snapshot, capped to the 20 most recent.
     const battleReports = (viewerId ? store.snapshot.battleReports.filter(report => report.attacker.playerId === viewerId || report.defender.playerId === viewerId) : store.snapshot.battleReports).slice(-20);
@@ -106,8 +133,50 @@ export function createServer(): { app: FastifyInstance; store: GameStore; start:
     // the fields keeps `WorldSnapshot` one shape, and no client panel reads a foreign
     // city's stock (they resolve their own city by `playerId` first).
     const cities = store.snapshot.cities.map(city => {
-      const named = { ...city, playerName: store.findPlayer(city.playerId)?.displayName ?? "Unknown" };
-      return viewerId && city.playerId !== viewerId ? { ...named, resources: { food: 0, wood: 0, stone: 0, iron: 0 }, buildings: {}, queues: [] } : named;
+      const owner = store.findPlayer(city.playerId);
+      const named = { ...city, playerName: owner?.displayName ?? "Unknown", factionId: owner?.factionId };
+      if (!viewerId || city.playerId === viewerId) return { ...named, visibility: "own" as const };
+
+      // A foreign city's identity is intelligence, not public map decoration.
+      // The latest successful scout is an immutable observation: later economy
+      // ticks must not silently turn an old report into live information.
+      const scout = store.snapshot.spyMissions
+        .filter(mission => mission.actorPlayerId === viewerId
+          && mission.targetPlayerId === city.playerId
+          && mission.missionType === "scout"
+          && mission.status === "success"
+          && mission.report)
+        .sort((left, right) => Date.parse(right.completesAt) - Date.parse(left.completesAt))[0];
+      const report = scout?.report as {
+        resources?: typeof city.resources;
+        buildings?: Record<string, number>;
+        armies?: Array<{ id: string; x: number; y: number; strength: number }>;
+      } | undefined;
+      const concealed = { buildingPlots: [], queues: [] };
+      if (!scout || !report) return {
+        ...named,
+        ...concealed,
+        name: "Thành chưa xác định",
+        playerName: "Không rõ",
+        factionId: undefined,
+        visibility: "unknown" as const,
+        resources: { food: 0, wood: 0, stone: 0, iron: 0 },
+        buildings: {},
+      };
+      return {
+        ...named,
+        ...concealed,
+        visibility: "scouted" as const,
+        resources: { food: 0, wood: 0, stone: 0, iron: 0, ...(report.resources ?? {}) },
+        buildings: report.buildings ?? {},
+        intel: {
+          observedAt: scout.completesAt,
+          accuracy: scout.accuracy,
+          resources: report.resources,
+          buildings: report.buildings,
+          armies: report.armies,
+        },
+      };
     });
     // The world itself is not in here. It is authored in `@kingdoms/shared` and both
     // sides import it, so the snapshot names the world (`worldMapDigest`) and carries
@@ -116,7 +185,12 @@ export function createServer(): { app: FastifyInstance; store: GameStore; start:
     // bytes of never-changing data to every viewer every tick, and 21 061 at 36×36.
     // `regionControl` follows the same rule: sixteen province names, seats and tile
     // counts are authored data the client already has, so only the controller travels.
-    return { protocolVersion: PROTOCOL_VERSION, kingdom: store.snapshot.kingdom, season: { id: store.snapshot.season.id, status: store.snapshot.season.status, endsAt: store.snapshot.season.endsAt }, cities, caravans: store.logistics.caravans(), armies: store.snapshot.armies, heroes: store.snapshot.heroes, scores: store.snapshot.scores, factionCatalog: factions, logistics: store.logistics.snapshot(), battleReports, worldMapDigest: worldMapDigest(), terrainOverrides: store.snapshot.terrainMap, regionControl: store.snapshot.regionControl, alliances: store.snapshot.alliances, allianceVotes: store.snapshot.allianceVotes, treaties: store.snapshot.treaties, spyMissions: store.snapshot.spyMissions.filter(m => !viewerId || m.actorPlayerId === viewerId), worldEvents: store.snapshot.worldEvents, onboarding: store.onboarding.progressFor(viewerId) };
+    const digest = worldMapDigest();
+    const armies = store.snapshot.armies.filter(army => !viewerId || army.ownerPlayerId === viewerId || explorationContains(exploration, army.x, army.y));
+    const progress = viewerId ? store.snapshot.campaignProgress[viewerId] : undefined;
+    const completedChapter = viewerId ? Math.max(0, ...[1, 2, 3].filter(chapter => campaignMissions.filter(item => item.chapter === chapter).every(item => progress?.completedMissionIds.includes(item.id)))) : 3;
+    const commanderCatalog = initialCommanderCatalog.filter(item => (commanderUnlockChapter[item.specialty] ?? 0) <= completedChapter);
+    return { protocolVersion: PROTOCOL_VERSION, kingdom: store.snapshot.kingdom, season: { id: store.snapshot.season.id, status: store.snapshot.season.status, endsAt: store.snapshot.season.endsAt }, world: { id: worldAssetId, extent: worldExtent, chunkSize: worldChunkSize, digest, assetManifestUrl: `/assets/world3d/${worldAssetId}/manifest.json` }, exploration, cities, caravans: store.logistics.caravans(), armies, commanderCatalog, commanders: viewerId ? store.snapshot.commanders.filter(commander => commander.ownerPlayerId === viewerId) : store.snapshot.commanders, troopReserves: viewerId ? Object.fromEntries(Object.entries(store.snapshot.troopReserves).filter(([, reserve]) => reserve.ownerPlayerId === viewerId)) : store.snapshot.troopReserves, formationPresets: viewerId ? store.snapshot.formationPresets.filter(preset => preset.ownerPlayerId === viewerId) : store.snapshot.formationPresets, trainingQueues: viewerId ? Object.fromEntries(Object.entries(store.snapshot.trainingQueues).filter(([, queue]) => queue.items[0]?.cityId && store.findCity(queue.items[0].cityId)?.playerId === viewerId)) : store.snapshot.trainingQueues, hospitalQueues: viewerId ? Object.fromEntries(Object.entries(store.snapshot.hospitalQueues).filter(([, queue]) => queue.items[0]?.cityId && store.findCity(queue.items[0].cityId)?.playerId === viewerId)) : store.snapshot.hospitalQueues, technologyProgress: viewerId ? Object.fromEntries(Object.entries(store.snapshot.technologyProgress).filter(([playerId]) => playerId === viewerId)) : store.snapshot.technologyProgress, researchQueues: viewerId ? Object.fromEntries(Object.entries(store.snapshot.researchQueues).filter(([playerId]) => playerId === viewerId)) : store.snapshot.researchQueues, campaignProgress: viewerId ? Object.fromEntries(Object.entries(store.snapshot.campaignProgress).filter(([playerId]) => playerId === viewerId)) : store.snapshot.campaignProgress, heroes: store.snapshot.heroes, scores: store.snapshot.scores, factionCatalog: factions, logistics: store.logistics.snapshot(), battleReports, worldMapDigest: digest, terrainOverrides: store.snapshot.terrainMap, regionControl: store.snapshot.regionControl, alliances: store.snapshot.alliances, allianceVotes: store.snapshot.allianceVotes, treaties: store.snapshot.treaties, spyMissions: store.snapshot.spyMissions.filter(m => !viewerId || m.actorPlayerId === viewerId), worldEvents: store.snapshot.worldEvents, onboarding: store.onboarding.progressFor(viewerId) };
   };
   let pendingBroadcast = false; const requestBroadcast = () => { pendingBroadcast = true; };
   const send = (socket: WebSocket, message: ServerMessage) => { if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message)); }; const doBroadcast = () => { for (const [client, playerId] of clients) send(client, { type: "SNAPSHOT", payload: getSnapshot(playerId) }); };
@@ -131,7 +205,7 @@ export function createServer(): { app: FastifyInstance; store: GameStore; start:
   // instead of at the call site so a limit can no longer disagree with the counter it consumes.
   const rateBuckets = { write: 20, combat: 10, spy: 5, read: 60 } as const;
   type RateBucket = keyof typeof rateBuckets;
-  const commandBuckets: Record<string, RateBucket> = { spy_launch: "spy", counter_intel: "spy", recruit: "combat", move_army: "combat", attack: "combat", cancel_army_order: "combat", set_formation: "combat", merge_army: "combat", ambush: "combat" };
+  const commandBuckets: Record<string, RateBucket> = { spy_launch: "spy", counter_intel: "spy", recruit: "combat", recruit_reserve: "combat", create_army: "combat", reinforce_army: "combat", transfer_army: "combat", return_army_home: "combat", train_troops: "combat", heal_troops: "combat", start_research: "write", complete_campaign_mission: "combat", patrol_campaign: "combat", move_army: "combat", attack: "combat", cancel_army_order: "combat", set_formation: "combat", merge_army: "combat", ambush: "combat", assign_commander: "combat", update_army_composition: "combat", save_formation_preset: "combat", apply_formation_preset: "combat" };
   const limitReached = async (bucket: RateBucket, playerId: string) => rateLimited(`${bucket}:${playerId}`, rateBuckets[bucket], 60_000);
   app.addHook("onRequest", async (request, reply) => { if (config.authMode !== "password" || request.method !== "POST" || !request.raw.url?.startsWith("/api/auth/")) return; const origin = request.headers.origin; if (!origin || origin !== config.clientOrigin) return reply.code(403).send({ code: "ORIGIN_NOT_ALLOWED" }); });
   app.addHook("onSend", async (_request, reply) => { reply.header("X-Content-Type-Options", "nosniff"); reply.header("X-Frame-Options", "DENY"); reply.header("Referrer-Policy", "no-referrer"); reply.header("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'"); reply.header("Permissions-Policy", "camera=(), microphone=(), geolocation=()"); });
@@ -184,9 +258,13 @@ export function createServer(): { app: FastifyInstance; store: GameStore; start:
     target.strength = 5;
     target.nextActionAt = new Date(now + 60 * 60 * 1000).toISOString();
     requestBroadcast();
+    // This fixture is created outside the normal command/tick path. Push its
+    // snapshot now so the browser can enable the attack action immediately.
+    doBroadcast();
     return { targetArmyId: target.id };
   });
   app.get("/api/bootstrap", async (request, reply) => { const playerId = await playerFromRequest(request); if (!playerId) return reply.code(401).send({ code: "UNAUTHORIZED" }); const limited = await limitReached("read", playerId); if (limited) return reply.code(limited === "RATE_LIMITED" ? 429 : 503).send({ code: limited }); return { player: store.findPlayer(playerId), snapshot: getSnapshot(playerId) }; });
+  app.get("/api/player-hub", async (request, reply) => { const playerId = await playerFromRequest(request); if (!playerId) return reply.code(401).send({ code: "UNAUTHORIZED" }); const limited = await limitReached("read", playerId); if (limited) return reply.code(limited === "RATE_LIMITED" ? 429 : 503).send({ code: limited }); store.onboarding.verify(store.snapshot); return store.getPlayerHub(playerId); });
   app.get("/api/season-history", async (request, reply) => { const playerId = await playerFromRequest(request); if (!playerId) return reply.code(401).send({ code: "UNAUTHORIZED" }); const limited = await limitReached("read", playerId); if (limited) return reply.code(limited === "RATE_LIMITED" ? 429 : 503).send({ code: limited }); return store.archiveForPlayer(playerId); });
   app.get<{ Querystring: { cursor?: string; limit?: string } }>("/api/battles", async (request, reply) => { const playerId = await playerFromRequest(request); if (!playerId) return reply.code(401).send({ code: "UNAUTHORIZED" }); const limited = await limitReached("read", playerId); if (limited) return reply.code(limited === "RATE_LIMITED" ? 429 : 503).send({ code: limited }); const rawLimit = request.query.limit; let limit = 20; if (rawLimit !== undefined) { if (!/^[1-9]\d*$/.test(rawLimit)) return reply.code(400).send({ code: "INVALID_LIMIT" }); limit = Math.min(50, Math.max(1, Number(rawLimit))); } let cursor: { createdAt: string; id: string } | undefined; if (request.query.cursor !== undefined) { try { const parsed = JSON.parse(Buffer.from(request.query.cursor, "base64url").toString("utf8")) as unknown; if (typeof parsed !== "object" || parsed === null || typeof (parsed as { createdAt?: unknown }).createdAt !== "string" || typeof (parsed as { id?: unknown }).id !== "string") throw new Error("malformed cursor"); const createdAt = (parsed as { createdAt: string }).createdAt; const id = (parsed as { id: string }).id; const parsedAt = new Date(createdAt); if (Number.isNaN(parsedAt.getTime()) || parsedAt.toISOString() !== createdAt || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id)) throw new Error("invalid cursor fields"); cursor = { createdAt, id }; } catch { return reply.code(400).send({ code: "INVALID_CURSOR" }); } } const items: BattleReport[] = []; let nextCursor: string | undefined; if (store.databasePool) { const sql = cursor ? "SELECT id, created_at, result FROM battle_reports WHERE (attacker_id=$1 OR defender_id=$1) AND (created_at, id) < ($2, $3) ORDER BY created_at DESC, id DESC LIMIT $4" : "SELECT id, created_at, result FROM battle_reports WHERE (attacker_id=$1 OR defender_id=$1) ORDER BY created_at DESC, id DESC LIMIT $2"; const rows = await store.databasePool.query<{ id: string; created_at: string | Date; result: unknown }>(sql, cursor ? [playerId, cursor.createdAt, cursor.id, limit + 1] : [playerId, limit + 1]); for (const row of rows.rows.slice(0, limit)) items.push((typeof row.result === "string" ? JSON.parse(row.result) : { ...(row.result as object) }) as BattleReport); if (rows.rows.length > limit) { const last = rows.rows[limit - 1]; const createdAt = last.created_at instanceof Date ? last.created_at.toISOString() : String(last.created_at); nextCursor = Buffer.from(JSON.stringify({ createdAt, id: last.id })).toString("base64url"); } } else { const sorted = store.snapshot.battleReports.filter(report => report.attacker.playerId === playerId || report.defender.playerId === playerId).sort((a, b) => (b.resolvedAt ?? "").localeCompare(a.resolvedAt ?? "") || (a.id > b.id ? -1 : a.id < b.id ? 1 : 0)); const start = cursor ? sorted.findIndex(report => report.resolvedAt === cursor.createdAt && report.id === cursor.id) + 1 : 0; const page = sorted.slice(start, start + limit); for (const report of page) items.push(report); if (sorted.length > start + limit) { const last = page[page.length - 1]; nextCursor = Buffer.from(JSON.stringify({ createdAt: last.resolvedAt ?? last.id, id: last.id })).toString("base64url"); } } const response: BattleHistoryResponse = { items, nextCursor }; return response; });
   const adminAuthorized = (request: any): boolean => { if (!config.adminToken) return false; const supplied = request.headers.authorization?.replace(/^Bearer\s+/i, "") ?? ""; const a = Buffer.from(supplied); const b = Buffer.from(config.adminToken); return a.length === b.length && requireConstantTime(a, b); };
@@ -207,19 +285,37 @@ export function createServer(): { app: FastifyInstance; store: GameStore; start:
   app.post<{ Body: unknown }>("/api/commands/treaty/break", async (request, reply) => command("treaty_break", request, reply, playerId => { const c = breakTreatyCommandSchema.parse(request.body); return store.diplomacy.breakTreaty(c.commandId, c.treatyId, playerId, store.snapshot); }));
   app.post<{ Body: unknown }>("/api/commands/spy/launch", async (request, reply) => command("spy_launch", request, reply, playerId => { const c = launchSpyCommandSchema.parse(request.body); return store.espionage.launchMission(c.commandId, c.targetPlayerId, c.missionType, playerId, store.snapshot); }));
   app.post<{ Body: unknown }>("/api/commands/spy/counter-intel", async (request, reply) => command("counter_intel", request, reply, playerId => { const c = counterIntelCommandSchema.parse(request.body); return store.espionage.activateCounterIntel(c.commandId, playerId, store.snapshot); }));
-  app.post<{ Body: unknown }>("/api/commands/build", async (request, reply) => command("build", request, reply, playerId => { const c = buildCommandSchema.parse(request.body); return store.startBuild(playerId, c.commandId, c.cityId, c.buildingId, c.queueType); }));
+  app.post<{ Body: unknown }>("/api/commands/build", async (request, reply) => command("build", request, reply, playerId => { const c = buildCommandSchema.parse(request.body); return store.startBuild(playerId, c.commandId, c.cityId, c.buildingId, c.queueType, c.plotX === undefined ? undefined : { x: c.plotX, y: c.plotY!, rotation: c.plotRotation }); }));
+  app.post<{ Body: unknown }>("/api/commands/city-layout", async (request, reply) => command("city_layout", request, reply, playerId => { const c = cityLayoutCommandSchema.parse(request.body); return store.updateCityLayout(playerId, c.commandId, c.cityId, c.layoutVersion, c.expectedRevision, c.placements); }));
   app.post<{ Body: unknown }>("/api/commands/harvest", async (request, reply) => command("harvest", request, reply, playerId => { const c = harvestCommandSchema.parse(request.body); return store.logistics.harvest(c.commandId, c.nodeId, c.cityId, playerId, c.amount, store.snapshot); }));
   app.post<{ Body: unknown }>("/api/commands/routes", async (request, reply) => command("route", request, reply, playerId => { const c = routeCommandSchema.parse(request.body); return store.logistics.createRoute(c.commandId, c.sourceCityId, { kind: c.destinationKind ?? "city", id: c.destinationId ?? c.destinationCityId! }, playerId, store.snapshot); }));
   app.post<{ Body: unknown }>("/api/commands/caravans", async (request, reply) => command("caravan", request, reply, playerId => { const c = caravanCommandSchema.parse(request.body); return store.logistics.startCaravan(c.commandId, c.routeId, { food: 0, ...c.cargo }, playerId, store.snapshot); }));
   app.post<{ Body: unknown }>("/api/commands/escort", async (request, reply) => command("escort", request, reply, playerId => { const c = escortCommandSchema.parse(request.body); return store.logistics.escort(c.commandId, c.caravanId, c.armyId, playerId, store.snapshot); }));
   app.post<{ Body: unknown }>("/api/commands/ambush", async (request, reply) => command("ambush", request, reply, playerId => { const c = ambushCommandSchema.parse(request.body); return store.logistics.ambush(c.commandId, c.caravanId, playerId, store.snapshot); }));
   app.post<{ Body: unknown }>("/api/commands/recruit", async (request, reply) => command("recruit", request, reply, playerId => { const c = recruitCommandSchema.parse(request.body); return store.combat.recruit(c.commandId, c.cityId, c.unitType, c.amount, playerId, store.snapshot); }));
+  app.post<{ Body: unknown }>("/api/commands/recruit-reserve", async (request, reply) => command("recruit_reserve", request, reply, playerId => { const c = recruitReserveCommandSchema.parse(request.body); return store.armyManagement.recruitReserve(c.commandId, c.cityId, c.troopType, c.amount, playerId, store.snapshot); }));
+  app.post<{ Body: unknown }>("/api/commands/army/create", async (request, reply) => command("create_army", request, reply, playerId => { const c = createArmyCommandSchema.parse(request.body); return store.armyManagement.createArmy(c.commandId, c.cityId, c.commanderId, c.composition, c.stance, playerId, store.snapshot); }));
+  app.post<{ Body: unknown }>("/api/commands/army/reinforce", async (request, reply) => command("reinforce_army", request, reply, playerId => { const c = reinforceArmyCommandSchema.parse(request.body); return store.armyManagement.reinforce(c.commandId, c.armyId, c.troopType, c.amount, c.position, playerId, store.snapshot); }));
+  app.post<{ Body: unknown }>("/api/commands/army/transfer", async (request, reply) => command("transfer_army", request, reply, playerId => { const c = transferArmyCommandSchema.parse(request.body); return store.armyManagement.transfer(c.commandId, c.sourceArmyId, c.targetArmyId, c.troopType, c.amount, c.sourcePosition, c.targetPosition, playerId, store.snapshot); }));
+  app.post<{ Body: unknown }>("/api/commands/army/return-home", async (request, reply) => command("return_army_home", request, reply, playerId => { const c = returnArmyHomeCommandSchema.parse(request.body); return store.armyManagement.returnHome(c.commandId, c.armyId, playerId, store.snapshot); }));
+  app.post<{ Body: unknown }>("/api/commands/research", async (request, reply) => command("start_research", request, reply, playerId => { const c = startResearchCommandSchema.parse(request.body); return store.progression.startResearch(c.commandId, c.technologyId, playerId, store.snapshot); }));
+  app.post<{ Body: unknown }>("/api/commands/campaign/complete", async (request, reply) => command("complete_campaign_mission", request, reply, playerId => { const c = completeCampaignMissionCommandSchema.parse(request.body); return store.progression.completeMission(c.commandId, c.missionId, c.armyId, playerId, store.snapshot); }));
+  app.post<{ Body: unknown }>("/api/commands/campaign/patrol", async (request, reply) => command("patrol_campaign", request, reply, playerId => { const c = patrolCampaignCommandSchema.parse(request.body); return store.progression.patrol(c.commandId, c.missionId, c.armyId, playerId, store.snapshot); }));
+  app.post<{ Body: unknown }>("/api/commands/train", async (request, reply) => command("train_troops", request, reply, playerId => { const c = trainTroopsCommandSchema.parse(request.body); return store.armyManagement.train(c.commandId, c.cityId, c.troopType, c.amount, playerId, store.snapshot); }));
+  app.post<{ Body: unknown }>("/api/commands/heal", async (request, reply) => command("heal_troops", request, reply, playerId => { const c = healTroopsCommandSchema.parse(request.body); return store.armyManagement.heal(c.commandId, c.cityId, c.troopType, c.amount, playerId, store.snapshot); }));
+  app.post<{ Body: unknown }>("/api/commands/army/commander", async (request, reply) => command("assign_commander", request, reply, playerId => { const c = assignCommanderCommandSchema.parse(request.body); return store.armyManagement.assignCommander(c.commandId, c.armyId, c.commanderId, playerId, store.snapshot); }));
+  app.post<{ Body: unknown }>("/api/commands/army/composition", async (request, reply) => command("update_army_composition", request, reply, playerId => { const c = updateArmyCompositionCommandSchema.parse(request.body); return store.armyManagement.updateComposition(c.commandId, c.armyId, c.composition, c.stance, playerId, store.snapshot); }));
+  app.post<{ Body: unknown }>("/api/commands/formation-presets", async (request, reply) => command("save_formation_preset", request, reply, playerId => { const c = saveFormationPresetCommandSchema.parse(request.body); return store.armyManagement.savePreset(c.commandId, c.name, c.composition, c.stance, playerId, store.snapshot); }));
+  app.post<{ Body: unknown }>("/api/commands/formation-presets/apply", async (request, reply) => command("apply_formation_preset", request, reply, playerId => { const c = applyFormationPresetCommandSchema.parse(request.body); return store.armyManagement.applyPreset(c.commandId, c.armyId, c.presetId, playerId, store.snapshot); }));
   app.post<{ Body: unknown }>("/api/commands/move-army", async (request, reply) => command("move_army", request, reply, playerId => { const c = moveArmyCommandSchema.parse(request.body); return store.combat.moveArmy(c.commandId, c.armyId, c.targetX, c.targetY, playerId, store.snapshot); }));
   app.post<{ Body: unknown }>("/api/commands/attack", async (request, reply) => command("attack", request, reply, playerId => { const c = attackCommandSchema.parse(request.body); return store.combat.attack(c.commandId, c.armyId, c.targetArmyId, playerId, store.snapshot, store.diplomacy); }, result => { if (result && typeof result === "object" && "victor" in result) broadcastReport(result as BattleReport); }));
   app.post<{ Body: unknown }>("/api/commands/cancel-army-order", async (request, reply) => command("cancel_army_order", request, reply, playerId => { const c = cancelArmyOrderCommandSchema.parse(request.body); return store.combat.cancelArmyOrder(c.commandId, c.armyId, playerId, store.snapshot); }));
   app.post<{ Body: unknown }>("/api/commands/formation", async (request, reply) => command("set_formation", request, reply, playerId => { const c = setFormationCommandSchema.parse(request.body); return store.combat.setFormation(c.commandId, c.armyId, c.formation, playerId, store.snapshot); }));
   app.post<{ Body: unknown }>("/api/commands/merge-army", async (request, reply) => command("merge_army", request, reply, playerId => { const c = mergeArmyCommandSchema.parse(request.body); return store.combat.mergeArmies(c.commandId, c.sourceArmyId, c.targetArmyId, playerId, store.snapshot); }));
   app.post<{ Body: unknown }>("/api/commands/onboarding/ack", async (request, reply) => command("onboarding_ack", request, reply, playerId => { const c = onboardingAckCommandSchema.parse(request.body); return store.onboarding.ackStep(c.commandId, playerId, c.step, store.snapshot); }));
+  app.post<{ Body: unknown }>("/api/commands/cosmetics/claim", async (request, reply) => command("cosmetics_claim", request, reply, playerId => { const c = cosmeticClaimCommandSchema.parse(request.body); return store.claimCosmeticReward(playerId, c.commandId, c.rewardId); }));
+  app.post<{ Body: unknown }>("/api/commands/cosmetics/purchase", async (request, reply) => command("cosmetics_purchase", request, reply, playerId => { const c = cosmeticPurchaseCommandSchema.parse(request.body); return store.purchaseCosmetic(playerId, c.commandId, c.itemId); }));
+  app.post<{ Body: unknown }>("/api/commands/cosmetics/equip", async (request, reply) => command("cosmetics_equip", request, reply, playerId => { const c = cosmeticEquipCommandSchema.parse(request.body); return store.equipCosmetic(playerId, c.commandId, c.slot, c.itemId); }));
   app.post<{ Body: unknown }>("/api/admin/season/close", async (request, reply) => { if (!config.adminToken) return reply.code(503).send({ code: "ADMIN_DISABLED" }); if (!adminAuthorized(request)) return reply.code(401).send({ code: "UNAUTHORIZED" }); const limited = await rateLimited(`admin:${request.ip}`, 5, 60_000); if (limited) return reply.code(limited === "RATE_LIMITED" ? 429 : 503).send({ code: limited }); try { const body = adminCloseSeasonSchema.parse(request.body); const finalized = await store.runExclusive(() => store.finalizeIfDue({ force: true, reason: body.reason })); requestBroadcast(); return { accepted: finalized, status: finalized ? "finalized" : "already_finalized" }; } catch (error: any) { let message = error instanceof Error ? error.message : "INVALID_REQUEST"; if (error?.name === "ZodError") message = "INVALID_PAYLOAD"; if (message === "DEPENDENCY_UNAVAILABLE") return reply.code(503).send({ code: message }); if (!/^[A-Z0-9_]+$/.test(message)) { request.log.error(error); return reply.code(500).send({ code: "INTERNAL_ERROR" }); } return reply.code(400).send({ code: message }); } });
   const websocketServer = new WebSocketServer({ noServer: true, maxPayload: 8192, perMessageDeflate: false }); app.server.on("upgrade", (request, socket, head) => { const url = new URL(request.url ?? "/", "http://localhost"); if (url.pathname !== "/ws") { socket.destroy(); return; } if (config.authMode === "password" && (!request.headers.origin || request.headers.origin !== config.clientOrigin)) { socket.destroy(); return; } websocketServer.handleUpgrade(request, socket, head, client => websocketServer.emit("connection", client, request)); });
   websocketServer.on("connection", (socket: WebSocket) => { let authenticated = false; let isAlive = true; socket.on("pong", () => { isAlive = true; }); const pingTimer = setInterval(() => { if (!isAlive) return socket.terminate(); isAlive = false; socket.ping(); }, 30000); pingTimer.unref(); const timer = setTimeout(() => { if (!authenticated) { wsAuthFailCounter.inc({ reason: "TIMEOUT" }); socket.close(4401, "AUTH_REQUIRED"); } }, 5000); const authenticate = async (raw: string) => { const user = config.authMode === "dev" ? devTokens.get(raw) : (await auth.authenticateAccess(raw))?.playerId; if (!user || store.findPlayer(user)?.status === "banned") return false; authenticated = true; clearTimeout(timer); clients.set(socket, user); websocketConnections.set(clients.size); send(socket, { type: "SNAPSHOT", payload: getSnapshot(user) }); return true; }; socket.on("message", raw => { if (authenticated) return; try { const message = JSON.parse(raw.toString()) as { type?: string; token?: string }; if (message.type !== "AUTH" || !message.token) { wsAuthFailCounter.inc({ reason: "INVALID_FORMAT" }); return socket.close(4401, "AUTH_FAILED"); } void authenticate(message.token).then(ok => { if (!ok) { wsAuthFailCounter.inc({ reason: "INVALID_CREDENTIALS" }); socket.close(4401, "AUTH_FAILED"); } }); } catch { wsAuthFailCounter.inc({ reason: "BAD_JSON" }); socket.close(4401, "AUTH_FAILED"); } }); socket.on("close", code => { clearInterval(pingTimer); clearTimeout(timer); if (clients.delete(socket)) websocketDisconnects.inc({ code: String(code) }); websocketConnections.set(clients.size); }); });

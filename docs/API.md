@@ -2,6 +2,16 @@
 
 ## REST
 
+### Player hub va cosmetic
+
+`GET /api/player-hub` tra catalog phien ban, vi `Huy hieu`, cosmetic da so huu, cosmetic dang trang bi, ho so va cac phan thuong du dieu kien cua chinh player.
+
+- `POST /api/commands/cosmetics/claim` nhan `{ commandId, rewardId }`.
+- `POST /api/commands/cosmetics/purchase` mua `{ commandId, itemId }`; gia va so du do server quyet dinh.
+- `POST /api/commands/cosmetics/equip` trang bi `{ commandId, slot, itemId }`; gui `itemId: null` de tro ve mac dinh.
+
+Tat ca command tra `CommandResponse` kem hub moi trong `data`, dung cung idempotency va transaction voi canonical `game_state`. Cosmetic khong anh huong tai nguyen, diem chien dau, combat hay do tham.
+
 ### Password authentication
 
 `POST /api/auth/register` nhận `{ username, password, factionId, displayName? }`; `POST /api/auth/login` nhận `{ username, password }`. Password mode yêu cầu `AUTH_MODE=password` và PostgreSQL. Access token chỉ sống 15 phút; refresh secret chỉ nằm trong HttpOnly SameSite=Strict cookie và được rotate tại `POST /api/auth/refresh`. `POST /api/auth/logout` revoke session.
@@ -39,10 +49,25 @@ Header: `Authorization: Bearer <token>`.
 Request:
 
 ```json
-{"commandId":"unique-command-id","cityId":"city-id","buildingId":"warehouse","queueType":"build"}
+{"commandId":"unique-command-id","cityId":"city-id","buildingId":"warehouse","queueType":"build","plotX":1,"plotY":3}
 ```
 
-Server kiểm tra season, rate-limit, schema, ownership, queue capacity, resource cost và idempotency trước khi chấp nhận.
+`plotX` và `plotY` là tọa độ nội thành, cùng bắt đầu từ 0; phải có cả hai hoặc không có cả hai. Khi xây công trình lần đầu, server kiểm tra ô nằm trong kích thước hiện tại và chưa bị chiếm rồi giữ ô ngay lúc lệnh vào queue. Nếu bỏ tọa độ (các nút xây nhanh cũ), server tự lấy ô trống đầu tiên. Nâng cấp dùng lại vị trí công trình đã có. Server còn kiểm tra season, rate-limit, schema, ownership, queue capacity, resource cost và idempotency trước khi chấp nhận.
+
+## Army v2, research và campaign
+
+- `POST /api/commands/recruit-reserve`: tuyển quân vào dự bị của thành qua **hàng đợi huấn luyện** — cùng giá, giới hạn hàng đợi và thời gian với `/api/commands/train`; không tạo đạo quân và không cấp quân tức thời.
+- `POST /api/commands/army/create`: lấy quân dự bị và gán một chỉ huy chưa dùng để lập đạo quân.
+- `POST /api/commands/army/reinforce`, `/api/commands/army/transfer`: bổ sung hoặc chuyển đúng số lượng quân khi các đạo quân cùng ở thành và không có lệnh.
+- `POST /api/commands/army/return-home`: tạo hành trình về thành; chỉ khi đến nơi mới nạp tiếp tế, đưa thương binh vào dự bị và cho phép chỉnh quân.
+- `POST /api/commands/train`, `/api/commands/heal`: dùng hàng đợi doanh trại/quân y riêng. Quân y viện chữa thương bằng lương thực; thiếu tài nguyên thì lệnh bị từ chối, thương binh không mất.
+- `POST /api/commands/research`: bắt đầu một trong sáu công nghệ tại Học viện. Nghiên cứu hoàn tất qua server tick và được giữ qua mùa.
+- `POST /api/commands/campaign/complete`: hoàn thành nhiệm vụ chiến dịch lần đầu, nhận XP và mở chương theo tiến độ.
+- `POST /api/commands/campaign/patrol`: sau khi hoàn thành toàn bộ chiến dịch, chạy tuần tra PvE lặp lại; chỉ chiến thắng nhận XP, không nhận lại thưởng mở khóa.
+
+Đạo quân mới phải có tiền tuyến, một chỉ huy và tổng số lính không vượt sức chứa theo cấp chỉ huy. Snapshot trả rõ thành phần quân, thế trận, buff, thương binh, tiếp tế, dự bị và dữ liệu địch đã trinh sát; không dùng một chỉ số `strength` để cam kết thắng.
+
+Khi đóng mùa, thành, chỉ huy/XP, dự bị, đạo quân đang đi, thương binh, nghiên cứu, khám phá và chiến dịch được giữ lại. Chỉ điểm mùa, mục tiêu mùa, thành tích mùa và các NPC theo mùa được làm mới.
 
 ### `GET /health`, `/health/live`, `/health/ready` và `GET /metrics`
 
@@ -58,19 +83,17 @@ collection bị khoá theo `playerId` lấy từ token, không theo tham số cl
 
 - `battleReports`: chỉ trận mà người xem là attacker hoặc defender.
 - `spyMissions`: chỉ mission do chính người xem khởi chạy.
-- `cities`: city của người khác giữ phần bản đồ hợp pháp hiển thị — `id`, `playerId`,
-  `playerName`, `x`, `y`, `name`, `frozen` — nhưng **nội thất bị che**: `resources` về 0,
-  `buildings` thành `{}`, `queues` thành `[]`. Chỉ city của chính người xem mang số thật.
+- `world`: descriptor của asset world đang chạy; hiện là `meridian-256-v2`, extent 256, chunk size 16 và URL manifest semantic.
+- `exploration`: bitmask base64 64×64 cùng `revision`; vùng đã mở không đóng lại trong season.
+- `cities`: city của người khác chưa scout bị che cả danh tính (`name = Thành chưa xác định`, `playerName = Không rõ`, không có faction) lẫn nội thất. Sau scout thành công, `visibility = scouted` và `intel` là ảnh chụp tại `observedAt`, không phải dữ liệu live.
+- `armies`: quân của chính người xem luôn có; quân khác chỉ đi trên dây khi tọa độ nằm trong vùng đã khám phá.
 
 Nội thất city đúng là thứ mission `scout` của `spy/launch` bán: nó tốn iron, có cooldown, làm
 mờ kết quả theo `accuracy` và có thể bị counter-intel chặn. Nên client **không được** đọc
-`resources`/`buildings`/`queues` của city người khác như dữ liệu — số 0 ở đó nghĩa là "chưa
+`resources`/`buildings`/`buildingPlots`/`queues` của city người khác như dữ liệu — số 0 ở đó nghĩa là "chưa
 biết", không phải "trống". Muốn biết thì scout, và đọc kết quả từ report của mission.
 
-Kiểu dữ liệu không đổi: field bị che được zero chứ không bị bỏ, nên `WorldSnapshot` trong
-`packages/shared` giữ đúng một shape và thay đổi này không cần protocol version mới. Quân
-(`armies`) **không** bị che — sức mạnh của quân đang hành quân là thông tin công khai theo
-thiết kế, bản đồ và HUD đều hiển thị.
+Thay đổi này là snapshot **protocol v4**. Client cũ bị version gate chặn thay vì diễn giải nhầm fog hoặc coi số liệu scout cũ là dữ liệu trực tiếp.
 
 ## WebSocket
 

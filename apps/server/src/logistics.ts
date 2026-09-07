@@ -179,7 +179,15 @@ export class LogisticsRepository {
   setPlayerFrozen(playerId: string, frozen: boolean, frozenAt: string | undefined, deltaMs: number, state: GameState): void { for (const caravan of this.data.caravans) { const owned = caravan.ownerPlayerId === playerId; const targetsPlayer = state.cities.find(city => city.id === caravan.destinationCityId)?.playerId === playerId; if (!owned && !targetsPlayer) continue; if (!frozen && deltaMs > 0) { if (caravan.departureAt) caravan.departureAt = new Date(Date.parse(caravan.departureAt) + deltaMs).toISOString(); if (caravan.arrivesAt) caravan.arrivesAt = new Date(Date.parse(caravan.arrivesAt) + deltaMs).toISOString(); } if (owned) { caravan.frozen = frozen; caravan.frozenAt = frozenAt; } } }
   capture(): LogisticsCapture { return { data: structuredClone(this.data) }; }
   restore(capture: LogisticsCapture): void { this.data = structuredClone(capture.data); }
-  resetForSeason(state: GameState): void { this.data.caravans = []; this.data.tradeRoutes = []; this.data.throughput = {}; for (const node of this.data.resourceNodes) node.remaining = node.capacity; this.syncDepots(state); /* market hub survives season reset */ }
+  resetForSeason(state: GameState): void {
+    // A season changes the scoreboard, not the freight. Routes, caravans and
+    // their cargo keep moving across the boundary — hardReset keeps armies and
+    // orders for the same reason — so only the seasonal throughput counters
+    // reset here. Resource nodes refill because they are world, not player, state.
+    this.data.throughput = {};
+    for (const node of this.data.resourceNodes) node.remaining = node.capacity;
+    this.syncDepots(state); /* market hub survives season reset */
+  }
   private claim(commandId: string): boolean { return this.commands.claim(commandId); }
 
   harvest(commandId: string, nodeId: string, cityId: string, playerId: string, amount: number, state: GameState): string {

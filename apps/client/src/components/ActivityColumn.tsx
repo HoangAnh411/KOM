@@ -19,7 +19,7 @@ import { StatusChip } from "../ui/Status.js";
  *  list. The feed is history — it only grows, and a row stays true after the fact
  *  it describes stops mattering. "Cần chú ý" is read from the current snapshot on
  *  every render and empties itself the moment the player deals with the thing. */
-export function ActivityColumn({ open, onReveal }: { open: boolean; onReveal: (id: SurfaceId) => void }) {
+export function ActivityColumn({ open, onClose, onReveal }: { open: boolean; onClose: () => void; onReveal: (id: SurfaceId) => void }) {
   const { state, pending, activity } = useGame();
   const playerId = state.session?.player.id;
   const attention = playerId ? attentionItems(state.snapshot, pending, playerId) : [];
@@ -38,6 +38,10 @@ export function ActivityColumn({ open, onReveal }: { open: boolean; onReveal: (i
     aria-label="Dòng hoạt động"
     hidden={!open}
   >
+    <div className="activity-column__head drawer-title-row">
+      <div><span className="drawer-kicker">NHẬT KÝ CHIẾN TRƯỜNG</span><PanelHeader title="Nhiệm vụ & hoạt động" level={2} /></div>
+      <Button variant="ghost" density="compact" className="drawer-close" aria-label="Đóng bảng Nhiệm vụ" onClick={onClose}>×</Button>
+    </div>
     <Panel density="compact" accent="amber" className="activity-panel" aria-label="Cần chú ý">
       <PanelHeader title={<><Icon name="alert" size="sm" /> Cần chú ý</>} level={3} />
       <PanelBody>

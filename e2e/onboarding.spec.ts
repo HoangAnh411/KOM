@@ -9,6 +9,7 @@ test("onboarding checklist, Đi tới focus and ack both player steps", async ({
   await page.goto("/");
   await page.getByPlaceholder("Tên người chơi").fill(`Ob E2E ${testInfo.project.name} ${Date.now()}`);
   await page.getByRole("button", { name: "Vào kingdom" }).click();
+  await page.getByRole("button", { name: "Vương quốc", exact: true }).click();
   await expect(page.getByRole("complementary", { name: "Bảng điều khiển" })).toBeVisible();
 
   const panel = page.getByRole("region", { name: "Nhiệm vụ giới thiệu" });

@@ -1,5 +1,18 @@
 Kingdoms of Meridian — Tiến trình và Roadmap
 
+## World 3D v2 — triển khai 2026-09-05
+
+- [X] Chuyển runtime world map từ Pixi placeholder sang Three.js orthographic isometric; pan, wheel/pinch zoom và click selection.
+- [X] World 256×256, seed/anchor/seat scale đồng bộ, server và client vẫn dùng chung terrain/tỉnh.
+- [X] Terrain thật ở `assets/world3d/meridian-256-v2/terrain-lod0.glb`; thành, cây, đá, chợ, caravan và quân dùng GLB CC0 Kenney. Manifest semantic cho phép thay asset sau mà không đổi gameplay/save ID.
+- [X] Bốn silhouette thành theo faction; thành chưa biết không lộ faction, tên hay owner.
+- [X] Fog khám phá vĩnh viễn trong season bằng bitmask compact; quân địch chưa khám phá bị lọc server-side.
+- [X] Scout report là snapshot có timestamp/accuracy, không phải cửa hậu đọc state live.
+- [X] Click thành chỉ mở thông tin; **Vào thành** hoặc wheel/pinch zoom sâu trên thành mình để vào. Zoom ra quay về world, giữ camera; không tự thoát khi đang đặt/sửa building và không vào thành nước ngoài.
+- [X] Protocol v4 có `world` + `exploration`; season mới lưu `worldId`. Migration 016 ghi phiên bản trong SQL. Server từ chối save khác phiên bản trước khi nạp tọa độ; không tự chuyển save 36×36.
+- [ ] Cutover database 36×36 đang chạy sang mùa 256×256: cần quy trình migration riêng. Bản hiện tại dùng database mới; database cũ tiếp tục dùng release v1.
+- [ ] Asset cuối do art team thay bộ CC0 tạm; thêm LOD/chunk streaming thật và GPU/mobile profiling trước beta.
+
 > Cập nhật lần cuối: 2026-09-03
 
 ## Trạng thái hiện tại
@@ -244,6 +257,33 @@ Hai finding Medium của `docs/SECURITY-REVIEW.md` nằm ở đây: S-3 (`proces
 
 **Tiêu chí hoàn thành:** một command không phát truy vấn nào tỉ lệ với lịch sử season; mọi cấu trúc dedupe có trần; load test 15 phút chạy được và report vào repo.
 
+## Sửa 6 lỗi P1 từ kiểm tra độc lập gameplay (07-09-2026)
+
+**Nguồn:** `test-results/gameplay-review-2026-09-07.md` (phần "Phản hồi sửa lỗi" ở cuối file đó ghi chi tiết từng lỗi). Owner chọn: sửa 6 P1 theo đúng khuyến nghị của report; P2 (mục 7–10: NPC chiến dịch tồn đọng, XP PvP, tuyển tức thời, replay/wounded) và phần "Chưa đủ theo kế hoạch" chưa đụng đến.
+
+- [X] **P1-1 preset lặp binh chủng:** `compositionWithCounts` phân bổ tuần tự trên lượng còn lại — preset 40+40 cùng loại từ 60 bộ binh cho 40/20, dự bị 0. Test `army-management.test.ts`.
+- [X] **P1-2 NPC rơi về combat cũ:** mixed engine chạy khi **một trong hai** bên có composition (bên thiếu được tổng hợp thành squad legacy); strength lệch được sửa theo composition trước trận, không fallback cho dữ liệu lệch; attrition đi qua `applyCompositionLosses`; NPC spawn có composition + chỉ huy. Test `combat.test.ts` + `store.test.ts`.
+- [X] **P1-3 chỉ huy mắc kẹt:** nhánh hồi phục giải phóng chỉ huy khi hết `recoveryAt` kể cả khi quân đã về thành; `destroy()` gọi `releaseCommander()` ở mọi nhánh, gồm PvP (clear `assignedArmyId`). Test `army-management.test.ts` + `combat.test.ts`.
+- [X] **P1-4 đổi chỉ huy bỏ qua capacity:** `assignCommander` chặn bằng `commanderCapacity` của chỉ huy mới → `ARMY_CAPACITY_EXCEEDED`. Test `army-management.test.ts`.
+- [X] **P1-5 nhiệm vụ đầu bất khả thắng:** đối thủ dựng theo ngân sách diệt thật của engine — ch1 17+8, ch2 45+15, ch3 30+10+10 thủ thế; sweep 88%/85%/90% thắng, 0 thua (`scripts/balance-sim.mts`, chạy bằng `node --import tsx scripts/balance-sim.mts`); `progression.test.ts` viết lại đi đường người chơi thật (recruit → `updateComposition`, không bơm quân/XP), walkthrough 12 mission thắng bằng seed xác định từ trạng thái tài khoản mới.
+- [X] **P1-6 chuyển mùa xóa caravan:** `persistSeasonReset` giữ nguyên tuyến, caravan đang chạy, cargo, mốc đến, hộ tống; logistics chỉ reset bộ đếm mùa. Test `season.test.ts`.
+- [X] **OQ #16 — `defenseModifier` "đảo dấu"? — RÚT LẠI.** Kiểm tra lại chiều áp dụng: `defenseModifier` **nhân vào power của phía đánh vào** (`mixed-battle-engine.ts`: `* defenseModifier(...) / targetDefense`), nên −0.1 cho squad shield/spear của chỉ huy infantry làm **giảm damage nhận vào** — bonus phòng thủ đối xứng với `+0.1` attack của chỉ huy archer/cavalry trong `attackModifier`. Engine đúng thiết kế như ghi chú thiết kế cũ; phát biểu "đảo dấu… dễ trúng đòn hơn" trong review 07-09 là đọc nhầm chiều. Không sửa engine, cân bằng P1-5 giữ nguyên.
+
+Sau sửa: typecheck đạt; `npm test` shared **25**, server **184 pass/0 fail** (15 PostgreSQL skip khi không có DB), client **163**; `test:postgres` local **14 pass/0 fail**; full Playwright **32/32 trong 7,9 phút**. Test matrix ở mục Phase tương ứng cần cộng thêm các test mới khi đóng phase.
+
+## Sửa 4 lỗi P2 + đính chính OQ #16 (07-09-2026, tiếp theo đợt P1)
+
+**Nguồn:** mục 7–10 của `test-results/gameplay-review-2026-09-07.md` (phần "Phản hồi sửa lỗi — P2" ở cuối file đó ghi chi tiết). Owner chọn sửa cả bốn theo khuyến nghị; OQ #16 kiểm tra lại thì **rút lại** (xem dưới).
+
+- [X] **P2-7 NPC chiến dịch tồn đọng khi retry:** NPC mission/patrol giờ **transient tới cùng** — sau `resolveEncounter`, `completeMission` và `patrol` lọc NPC khỏi `state.armies` bất kể thắng/hòa/thua (thắng thì filter là no-op vì `destroy()` đã xóa). Tag NPC đổi từ `mission.id` trần sang `${commandId}:${mission.id}` — squad id và `sourceWorldEventId` duy nhất theo lần thử, hết trùng lặp giữa các retry. Test: "an unresolved mission leaves no campaign NPC behind, even on retry" + "an unresolved patrol also leaves no NPC behind" (`progression.test.ts`).
+- [X] **P2-8 PvP vẫn cấp XP:** `awardPvEXp` thêm kiểm tra phía thua là NPC (`loser.ownerType !== "npc"` → return) — XP chỉ đến từ đánh mission/world NPC, hai tài khoản của cùng người không farm XP cho nhau được nữa. Test: "PvP victories award no commander XP while PvE victories still do" — đủ 4 hướng: PvP attacker thắng, PvP defender thắng (0 XP), PvE attacker/defender thắng (+25) (`combat.test.ts`).
+- [X] **P2-9 tuyển tức thời bỏ qua hàng đợi:** thân `recruitReserve` delegate sang `train` — cùng giá, cùng `TRAINING_QUEUE_FULL`, cùng `completesAt`; tick vẫn đổ quân vào `reserve.available`. Client bỏ nút tuyển tức thời ở thẻ "Tuyển và lập đạo quân" (chỉ còn hàng đợi Doanh trại — hết hai đường song song), `PendingChip` đổi sang `train_troops`. Endpoint `/api/commands/recruit-reserve` giữ nguyên schema cho tương thích API (`docs/API.md` cập nhật mô tả). **Phạm vi cố ý bỏ lại:** `/api/commands/recruit` (v1, `combat.recruit`) vẫn cấp quân tức thời — đường pre-composition legacy, review không đánh dấu, không có caller client; cân nhắc bỏ hẳn khi dọn API v1. Test: "recruiting reserve goes through the training queue and creating an army is a separate transaction" (`army-management.test.ts`).
+- [X] **P2-10 replay/wounded hai nguồn:** (a) một nguồn phân bổ tổn thất — `allocateCasualties(rounds, side)` (per-troop-type, killed = floor(losses × 0.2)) thay ba chỗ tính 20/80 lệch nhau; `recordWounded` giờ ghi `army.wounded` cho **mọi** army player có composition (PvP có thương binh thật, khớp report), `sideReport` và engine output cùng lấy từ allocation. (b) replay một con trỏ — phần "Phối quân" trong BattleReportModal slice theo `replayRound` như thang sức mạnh cổ điển; "Xem lại" điều khiển cả hai view. Không đổi damage/cân bằng. Test: "wounded cargo matches the report for both PvP and PvE losses" (`combat.test.ts`) + e2e replay pointer (`e2e/campaign.spec.ts`).
+- [X] **OQ #16 — RÚT LẠI** (đính chính ở trên): không sửa engine, cân bằng P1-5 giữ nguyên.
+- [X] **E2e regression mới** (`e2e/campaign.spec.ts`): tuyển quân qua hàng đợi (không cấp tức thời), lập đạo quân + mẫu đội hình + xuất quân chiến dịch (không sót NPC `campaign:*` sau trận, mọi kết quả), replay mixed theo con trỏ. Tài khoản mới có food 0 nên test tự trồng nông trại trước khi huấn luyện — đúng đường người chơi thật. Sortie đứng **trước** trận đánh world trong test: quân thua trận world sẽ về thành hồi phục 120 giây và bị chặn `ARMY_IN_TRANSIT`; ngược lại quân 20 lính đánh NPC ch1 không bao giờ bị wipe (mô phỏng 800 tổ hợp seed×địa hình ở `scripts/sortie-wipe-check.mts`: toàn hòa, 0 wipe).
+
+Sau sửa: typecheck đạt; `npm test` shared **25**, server **188 pass / 0 fail** (15 PostgreSQL skip khi không có DB), client **163**; `test:postgres` local **14 pass / 0 fail**; full Playwright **34/34 trong 11,8 phút** (32 cũ + 2 mới).
+
 ## Cải tổ HUD — Situation Room vòng 2
 
 **Mục tiêu:** mọi bề mặt HUD nói cùng một ngôn ngữ thị giác, mọi control nói cho người chơi biết *vì sao* nó khoá và *lệnh của họ đang ở đâu*. Không thêm gameplay, **không sửa file nào** trong `apps/server` hoặc `packages/shared` — nên server unit đứng nguyên 141. Số phase để owner đặt.
@@ -262,6 +302,10 @@ Vòng 1 (Phase 7C, Situation Room) tự để lại ba mốc trong code nói rõ
 **Test:** client unit **78 → 146**, e2e **19 → 28** (mọi logic mới là module thuần vì runner client là bare `node --test`, không DOM/canvas/WebGL; contract CSS assert bằng cách đọc stylesheet như text). Bốn spec Playwright mới, **9 test**: activity feed (empty state → đúng một hàng sau một lệnh → click nhảy tới panel), command tray (chiều cao đo trước/sau bằng nhau; band 900px thấy nhóm lệnh và mở được cột đóng), HUD gate (nút khoá kèm lý do và **không** HTTP request nào bay đi), chrome/a11y (toast đóng bằng chuột và Escape, `elementFromPoint` chứng minh thân toast cho click xuyên qua mà nút thì không).
 
 **Tiêu chí hoàn thành:** hai slot đặt chỗ của vòng 1 không còn placeholder nào trong code, rule bridge đã xoá và có test khoá lại, không nút khoá nào thiếu lý do — **đạt**. Còn lại là phiên manual acceptance của Phase 7C (mục ở trên), vốn không phải gate tự động.
+
+**Rà soát sau merge bản đồ 36×36 (2026-09-04):** full E2E xanh **29/29**. Test chip pending thôi dùng thời gian chờ cố định 1,5 giây (có thể hết trước khi assertion được chạy khi full suite chịu tải), chuyển sang cổng request do test chủ động nhả; case đích xanh 5 lần liên tiếp rồi xanh trong full suite. Nhãn tại ô vừa là thương cảng vừa là tỉnh được chia ba lane với thành phố gần đó; client unit tăng **157 → 158** và khoá khoảng cách của cụm seed trung tâm. Kiểm tự động/ảnh chụp ở 1920/1440/1280/1024/900 không có console error hay tràn ngang; mục manual acceptance vẫn chưa tick vì độ mượt và khả năng đọc phải do người chơi xác nhận.
+
+**Nội thành isometric (2026-09-04):** thành phố của người chơi giờ mở được thành một cảnh nội thành có phối cảnh, landmark Tòa thị chính, đường, cổng, tường, cây và sprite riêng cho bốn công trình; click công trình để nâng cấp hoặc chọn ô đất để đặt công trình mới. Layout là state server-authoritative (`buildingPlots`), giữ ô ngay khi vào queue, che với người chơi khác, tương thích save cũ và nút xây nhanh. Tòa thị chính mở phạm vi từ **5×5** tới **9×9**. Đã kiểm bằng ảnh thật trên desktop và 390×844; typecheck, build, bundle, unit, PostgreSQL integration và full E2E **31/31** đều xanh.
 
 ## Phase 8 — Đa nền tảng và phát hành
 
@@ -292,6 +336,7 @@ Vòng 1 (Phase 7C, Situation Room) tự để lại ba mốc trong code nói rõ
 - [X] `assets/heroes/`, `units/`, `buildings/`, `icons/`.
 - [X] License policy trong `assets/CREDITS.md`.
 - [X] PixiJS Graphics placeholder.
+- [X] Bộ sprite nội thành nguyên bản cho Tòa thị chính, Nhà kho, Trạm tiếp tế và Doanh trại.
 - [ ] Chọn pack cụ thể từ nguồn có license rõ ràng.
 - [ ] Ghi URL, tác giả, license và version cho từng file.
 - [ ] Art style guide cho hero/unit/building/icon.

@@ -20,14 +20,23 @@ export function buildLegacyRecords(state: GameState, seasonId: string, rankings:
 
 export function hardReset(state: GameState, nextSeason: GameState["season"]): void {
   for (const player of state.players) player.crossSeasonReputation += Math.trunc((state.diplomacyThroughput[player.id]?.reputation ?? 0) * 0.5);
-  for (const city of state.cities) { city.resources = { food: 0, wood: 500, stone: 500, iron: 500 }; city.buildings = { town_hall: 1 }; city.queues = []; city.starterGranted = true; }
+  // A season changes goals and scoreboards, not the player's town or army roster.
+  // Orders, wounded troops, reserves and research therefore cross the boundary intact.
   for (const alliance of state.alliances) for (const member of alliance.members) member.contribution = 0;
-  state.season = nextSeason; state.armies = []; state.heroes = []; state.caravans = []; state.scores = Object.fromEntries(state.players.map(player => [player.id, zeroScores()]));
-  state.battleReports = []; state.militaryThroughput = {}; state.treaties = []; state.diplomacyThroughput = {};
-  // Armies were just cleared, so nobody holds anything; leaving the old map here would paint
-  // last season's owners until the next tick recomputed it.
+  state.season = nextSeason;
+  // Seasonal NPC encounters are regenerated; player armies and their orders remain.
+  state.armies = state.armies.filter(army => army.ownerType === "player");
+  state.scores = Object.fromEntries(state.players.map(player => [player.id, zeroScores()]));
+  state.militaryThroughput = {};
+  state.diplomacyThroughput = {};
+  state.treaties = [];
+  state.allianceVotes = [];
+  state.spyMissions = [];
+  state.worldEvents = [];
+  state.counterIntelActive = {};
+  state.seasonMetrics = { resourcesProduced: {} };
+  // Territory is recalculated on the next tick from the preserved army positions.
   state.regionControl = {};
-  state.spyMissions = []; state.worldEvents = []; state.counterIntelActive = {}; state.allianceVotes = []; state.seasonMetrics = { resourcesProduced: {} };
 }
 
 export function reputationCosmetic(score: number): { title: string | null; badge: string | null; cityGlow: boolean } {

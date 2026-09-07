@@ -7,10 +7,14 @@ test.beforeEach(async ({ request }) => { await request.post(`${api}/api/dev/rese
 // Army panel: build the barracks, recruit cavalry, attack a wandering mob
 // (battle report modal), then cancel the pursuit via the HUD.
 test("recruit, attack mob, battle report and cancel pursuit", async ({ page, request }, testInfo) => {
+  // Building completes on the server clock and the 3D map loads in parallel;
+  // this flow legitimately takes longer than the suite's 30s default.
+  test.setTimeout(60_000);
   test.skip(testInfo.project.name === "mobile", "desktop-sized HUD interaction");
   await page.goto("/");
   await page.getByPlaceholder("Tên người chơi").fill(`Army E2E ${testInfo.project.name} ${Date.now()}`);
   await page.getByRole("button", { name: "Vào kingdom" }).click();
+  await page.getByRole("button", { name: "Vương quốc", exact: true }).click();
   await expect(page.getByRole("complementary", { name: "Bảng điều khiển" })).toBeVisible();
 
   // --- Build the barracks (~15s) ---

@@ -19,6 +19,7 @@ async function login(page: Page, name: string): Promise<{ token: string; player:
   const devResponse = page.waitForResponse(response => response.url().endsWith("/api/auth/dev"));
   await page.getByRole("button", { name: "Vào kingdom" }).click();
   await devResponse;
+  await page.getByRole("button", { name: "Vương quốc", exact: true }).click();
   await expect(hud(page)).toBeVisible();
   return page.evaluate(() => JSON.parse(sessionStorage.getItem("kingdoms-session")!) as { token: string; player: { id: string } });
 }
@@ -91,6 +92,7 @@ test("a pending command survives reload as uncertain and retries with the same i
   await page.getByRole("button", { name: "Xây kho" }).click();
   await expect(page.getByTestId("pending-command").filter({ hasText: "Xây kho" })).toContainText("chưa xác nhận");
   await page.reload();
+  await page.getByRole("button", { name: "Vương quốc", exact: true }).click();
   await expect(page.getByTestId("city-name")).toBeVisible();
   // restorePending downgrades the persisted entry; the id must survive reload.
   const restored = page.getByTestId("pending-command").filter({ hasText: "Xây kho" }).first();

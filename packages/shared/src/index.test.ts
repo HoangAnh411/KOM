@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { overallScore, militaryScore, gameRules, recruitmentCost, snapshotSchema, PROTOCOL_VERSION, regionTileCounts, regions } from "./index.js";
+import { overallScore, militaryScore, gameRules, recruitmentCost, snapshotSchema, PROTOCOL_VERSION, regionTileCounts, regions, buildCommandSchema, cityGridSize, buildingDimensions, validatePlacements, migrateCityLayoutV1toV2 } from "./index.js";
 
 test("season score uses the published weights", () => {
   assert.equal(overallScore({ military: 1000, economy: 1000, diplomacy: 1000 }), 1000);
@@ -13,7 +13,8 @@ test("military score calculation", () => {
   // provinces — so the fixture for "everything maxed" is now the tile count that actually means
   // maxed: a quarter of the world.
   assert.equal(militaryScore({ victories: 10, draws: 0, tilesControlled: gameRules.territory.fullScoreTiles, successfulDefenses: 10 }), 1000);
-  assert.equal(militaryScore({ victories: 2, draws: 1, tilesControlled: 81, successfulDefenses: 1 }), 225); // 110 + 75 (one province) + 40
+  const oneProvince = gameRules.territory.fullScoreTiles / 4;
+  assert.equal(militaryScore({ victories: 2, draws: 1, tilesControlled: oneProvince, successfulDefenses: 1 }), 225); // 110 + 75 (one province) + 40
 });
 
 // The scale, checked against the map it is scaled against. Holding one of the sixteen provinces
@@ -39,6 +40,67 @@ test("recruitment is priced per 10-troop pack, matching the server charge", () =
   assert.equal(gameRules.recruitment.infantry.cost.wood, 50);
 });
 
+test("town hall levels expand the authoritative city grid up to its cap", () => {
+  assert.equal(cityGridSize(1), 12);
+  assert.equal(cityGridSize(2), 14);
+  assert.equal(cityGridSize(5), 20);
+  assert.equal(cityGridSize(99), 20);
+});
+
+test("a build plot must provide both coordinates, and rotation only with coordinates", () => {
+  const base = { commandId: "command-plot-1", cityId: "city-1", buildingId: "warehouse", queueType: "build" };
+  assert.equal(buildCommandSchema.safeParse({ ...base, plotX: 1 }).success, false);
+  assert.equal(buildCommandSchema.safeParse({ ...base, plotX: 1, plotY: 3 }).success, true);
+  assert.equal(buildCommandSchema.safeParse({ ...base, plotX: 1, plotY: 3, plotRotation: 90 }).success, true);
+  assert.equal(buildCommandSchema.safeParse({ ...base, plotRotation: 90 }).success, false);
+  assert.equal(buildCommandSchema.safeParse({ ...base, plotX: 1, plotY: 3, plotRotation: 45 }).success, false);
+});
+
+test("footprint dimensions and rotation swap width and height for 90 and 270 degrees", () => {
+  assert.deepEqual(buildingDimensions("road_depot", 0), { width: 3, height: 2 });
+  assert.deepEqual(buildingDimensions("road_depot", 90), { width: 2, height: 3 });
+  assert.deepEqual(buildingDimensions("road_depot", 180), { width: 3, height: 2 });
+  assert.deepEqual(buildingDimensions("road_depot", 270), { width: 2, height: 3 });
+  assert.deepEqual(buildingDimensions("town_hall", 90), { width: 3, height: 3 });
+});
+
+test("validatePlacements detects out-of-bounds, overlaps, and invalid rotations", () => {
+  const valid = [
+    { buildingId: "town_hall" as const, x: 4, y: 4, rotation: 0 as const },
+    { buildingId: "warehouse" as const, x: 0, y: 0, rotation: 0 as const },
+    { buildingId: "road_depot" as const, x: 8, y: 4, rotation: 90 as const }, // 2 wide, 3 high -> x: 8..9, y: 4..6
+  ];
+  assert.deepEqual(validatePlacements(valid, 12), { valid: true });
+
+  // Out of bounds
+  const outOfBounds = [{ buildingId: "barracks" as const, x: 10, y: 10, rotation: 0 as const }]; // 3x3 at 10 -> reaches 13 > 12
+  assert.equal(validatePlacements(outOfBounds, 12).error, "CITY_PLOT_OUT_OF_BOUNDS");
+
+  // Overlap
+  const overlap = [
+    { buildingId: "town_hall" as const, x: 4, y: 4, rotation: 0 as const },
+    { buildingId: "warehouse" as const, x: 5, y: 5, rotation: 0 as const },
+  ];
+  assert.equal(validatePlacements(overlap, 12).error, "CITY_PLOT_OCCUPIED");
+});
+
+test("migrateCityLayoutV1toV2 deterministically projects v1 layout into v2 grid", () => {
+  const legacyCity = {
+    buildings: { town_hall: 1, warehouse: 1 },
+    buildingPlots: [
+      { buildingId: "town_hall" as const, x: 2, y: 2 },
+      { buildingId: "warehouse" as const, x: 1, y: 2 },
+    ],
+  };
+  const migrated = migrateCityLayoutV1toV2(legacyCity);
+  assert.equal(migrated.length, 2);
+  const th = migrated.find(p => p.buildingId === "town_hall")!;
+  assert.deepEqual(th, { buildingId: "town_hall", x: 4, y: 4, rotation: 0 });
+  const wh = migrated.find(p => p.buildingId === "warehouse")!;
+  assert.ok(wh.x >= 0 && wh.y >= 0 && wh.rotation === 0);
+  assert.deepEqual(validatePlacements(migrated, 12), { valid: true });
+});
+
 // The snapshot used to carry the world tile by tile. Both sides now import the authored
 // map from `world-map.ts`, so the contract only has to *name* which world it is
 // (`worldMapDigest`) and list what the DB says differs from it (`terrainOverrides`).
@@ -46,16 +108,9 @@ test("the snapshot contract names the world instead of carrying it", () => {
   const keys = Object.keys(snapshotSchema.shape);
   assert.ok(!keys.includes("terrainMap"), "the tile-by-tile grid is off the wire");
   assert.ok(keys.includes("worldMapDigest") && keys.includes("terrainOverrides"), "what replaced it");
+  assert.ok(keys.includes("world") && keys.includes("exploration"), "the 3D asset world and seasonal fog are explicit protocol fields");
 });
 
-// Why the bump is not optional. Zod strips unknown keys, so a v1 payload parses
-// *cleanly* against the v2 contract and simply arrives without its terrain — and a
-// missing tile reads as plains on the client. Nothing throws, nothing logs: the
-// mismatch would show up as a world that is quietly all grassland while the server
-// resolves battles on hills and swamp. `PROTOCOL_VERSION` is what turns that silence
-// into a message, which is why it moved with the field and not after it.
-test("a v1 payload loses its terrain silently, which is what PROTOCOL_VERSION 2 exists to stop", () => {
-  const terrainOnly = snapshotSchema.pick({ protocolVersion: true, worldMapDigest: true, terrainOverrides: true });
-  assert.deepEqual(terrainOnly.parse({ protocolVersion: 1, terrainMap: { "3,4": "swamp" } }), { protocolVersion: 1 });
-  assert.equal(PROTOCOL_VERSION, 2, "the version terrain left the wire on");
+test("PROTOCOL_VERSION is 4 for the 256 world descriptor and seasonal exploration", () => {
+  assert.equal(PROTOCOL_VERSION, 4);
 });

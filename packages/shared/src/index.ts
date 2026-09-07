@@ -34,11 +34,68 @@ const placementMargin = 2;
 export const resourceSchema = z.object({ food: z.number().int().nonnegative(), wood: z.number().int().nonnegative(), stone: z.number().int().nonnegative(), iron: z.number().int().nonnegative() });
 export type Resources = z.infer<typeof resourceSchema>;
 
+export const buildingIds = ["town_hall", "warehouse", "road_depot", "barracks", "farm", "lumber_mill", "stone_quarry", "academy", "hospital"] as const;
+export type BuildingId = (typeof buildingIds)[number];
+
+export const cityRotations = [0, 90, 180, 270] as const;
+export type CityRotation = (typeof cityRotations)[number];
+export const cityRotationSchema = z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]);
+
+export const buildingPlacementSchema = z.object({
+  buildingId: z.enum(buildingIds),
+  x: z.number().int().nonnegative(),
+  y: z.number().int().nonnegative(),
+  rotation: cityRotationSchema.default(0),
+});
+export type BuildingPlacement = z.infer<typeof buildingPlacementSchema>;
+
 export const scoreSchema = z.object({ military: z.number().int().min(0).max(1000), economy: z.number().int().min(0).max(1000), diplomacy: z.number().int().min(0).max(1000), overall: z.number().min(0) });
 export type Scores = z.infer<typeof scoreSchema>;
 
-export const citySchema = z.object({ id: z.string(), playerId: z.string(), playerName: z.string(), name: z.string(), x: z.number().int(), y: z.number().int(), resources: resourceSchema, buildings: z.record(z.number().int().positive()), queues: z.array(z.object({ id: z.string(), type: z.enum(["build", "research"]), buildingId: z.string(), targetLevel: z.number().int(), completesAt: z.string() })), frozen: z.boolean().optional(), frozenAt: z.string().optional() });
+export const cityQueueItemSchema = z.object({
+  id: z.string(),
+  type: z.enum(["build", "research"]),
+  buildingId: z.string(),
+  targetLevel: z.number().int(),
+  completesAt: z.string(),
+  startedAt: z.string().optional(),
+  plotX: z.number().int().nonnegative().optional(),
+  plotY: z.number().int().nonnegative().optional(),
+  plotRotation: cityRotationSchema.optional(),
+});
+export type CityQueueItem = z.infer<typeof cityQueueItemSchema>;
+
+export const citySchema = z.object({
+  id: z.string(),
+  playerId: z.string(),
+  playerName: z.string(),
+  name: z.string(),
+  x: z.number().int(),
+  y: z.number().int(),
+  resources: resourceSchema,
+  buildings: z.record(z.number().int().positive()),
+  cityLayoutVersion: z.literal(2).default(2),
+  cityLayoutRevision: z.number().int().nonnegative().default(0),
+  buildingPlots: z.array(buildingPlacementSchema).default([]),
+  queues: z.array(cityQueueItemSchema),
+  productionAt: z.string().optional(),
+  frozen: z.boolean().optional(),
+  frozenAt: z.string().optional(),
+  factionId: z.enum(factionIds).optional(),
+  visibility: z.enum(["own", "unknown", "scouted"]).optional(),
+  intel: z.object({
+    observedAt: z.string(),
+    accuracy: z.number().min(0).max(1),
+    resources: resourceSchema.optional(),
+    buildings: z.record(z.number().int().nonnegative()).optional(),
+    armies: z.array(z.object({
+      id: z.string(), x: z.number(), y: z.number(), strength: z.number().nonnegative(),
+    })).optional(),
+  }).optional(),
+});
 export type City = z.infer<typeof citySchema>;
+export type CityVisibility = NonNullable<City["visibility"]>;
+export type CityIntel = NonNullable<City["intel"]>;
 
 export const destinationKinds = ["city", "market"] as const;
 export type DestinationKind = (typeof destinationKinds)[number];
@@ -88,6 +145,165 @@ export const formationModifiers: Record<Formation, { attack: number; defense: nu
   square: { attack: 0.8, defense: 1.3 },
 };
 
+// === COMMANDER / MIXED ARMY TYPES ===
+// These types are additive so old saves and reports can continue to use the
+// legacy single-unit army fields while the new army flow is introduced.
+export const commanderSpecialties = ["infantry", "archer", "cavalry", "logistics"] as const;
+export type CommanderSpecialty = (typeof commanderSpecialties)[number];
+
+export const commanderSchema = z.object({
+  id: z.string(),
+  ownerPlayerId: z.string(),
+  name: z.string(),
+  specialty: z.enum(commanderSpecialties),
+  level: z.number().int().min(1).max(10),
+  xp: z.number().int().nonnegative(),
+  assignedArmyId: z.string().nullable().optional(),
+  neutral: z.boolean().optional(),
+});
+export type Commander = z.infer<typeof commanderSchema>;
+
+export const initialCommanderCatalog: ReadonlyArray<Pick<Commander, "id" | "name" | "specialty">> = [
+  { id: "commander-logistics", name: "Mara the Quartermaster", specialty: "logistics" },
+  { id: "commander-infantry", name: "Darius the Shield", specialty: "infantry" },
+  { id: "commander-archer", name: "Elena Hawkeye", specialty: "archer" },
+  { id: "commander-cavalry", name: "Rovan Swiftmane", specialty: "cavalry" },
+];
+export const commanderUnlockChapter: Readonly<Record<CommanderSpecialty, number>> = {
+  logistics: 0,
+  infantry: 1,
+  archer: 2,
+  cavalry: 3,
+};
+
+export const troopTypes = ["shield_infantry", "spearmen", "archers", "cavalry"] as const;
+export type TroopType = (typeof troopTypes)[number];
+export const armyPositions = ["frontline", "backline", "flank"] as const;
+export type ArmyPosition = (typeof armyPositions)[number];
+export const battleStances = ["balanced", "raid", "defensive"] as const;
+export type BattleStance = (typeof battleStances)[number];
+
+export const troopCountsSchema = z.object({
+  shield_infantry: z.number().int().nonnegative().default(0),
+  spearmen: z.number().int().nonnegative().default(0),
+  archers: z.number().int().nonnegative().default(0),
+  cavalry: z.number().int().nonnegative().default(0),
+});
+export type TroopCounts = z.infer<typeof troopCountsSchema>;
+
+export const armySquadSchema = z.object({
+  id: z.string(),
+  troopType: z.enum(troopTypes),
+  position: z.enum(armyPositions),
+  count: z.number().int().positive(),
+});
+export type ArmySquad = z.infer<typeof armySquadSchema>;
+
+export const armyCompositionSchema = z.object({
+  frontline: armySquadSchema.nullable(),
+  backline: armySquadSchema.nullable(),
+  flank: armySquadSchema.nullable(),
+}).superRefine((composition, ctx) => {
+  for (const position of armyPositions) {
+    const squad = composition[position];
+    if (squad && squad.position !== position) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: [position, "position"], message: "SQUAD_POSITION_MISMATCH" });
+    }
+  }
+});
+export type ArmyComposition = z.infer<typeof armyCompositionSchema>;
+
+export const formationPresetSchema = z.object({
+  id: z.string(),
+  ownerPlayerId: z.string(),
+  name: z.string().min(1).max(40),
+  composition: armyCompositionSchema,
+  stance: z.enum(battleStances),
+});
+export type FormationPreset = z.infer<typeof formationPresetSchema>;
+
+export const troopReserveSchema = z.object({
+  cityId: z.string(),
+  ownerPlayerId: z.string(),
+  available: troopCountsSchema,
+  wounded: troopCountsSchema,
+});
+export type TroopReserve = z.infer<typeof troopReserveSchema>;
+
+export const trainingQueueItemSchema = z.object({
+  id: z.string(),
+  cityId: z.string(),
+  troopType: z.enum(troopTypes),
+  amount: z.number().int().positive(),
+  startedAt: z.string(),
+  completesAt: z.string(),
+});
+export type TrainingQueueItem = z.infer<typeof trainingQueueItemSchema>;
+export const trainingQueueSchema = z.object({ cityId: z.string(), items: z.array(trainingQueueItemSchema) });
+export type TrainingQueue = z.infer<typeof trainingQueueSchema>;
+
+export const hospitalQueueItemSchema = z.object({
+  id: z.string(),
+  cityId: z.string(),
+  troopType: z.enum(troopTypes),
+  amount: z.number().int().positive(),
+  startedAt: z.string(),
+  completesAt: z.string(),
+  foodCost: z.number().int().nonnegative(),
+});
+export type HospitalQueueItem = z.infer<typeof hospitalQueueItemSchema>;
+export const hospitalQueueSchema = z.object({ cityId: z.string(), items: z.array(hospitalQueueItemSchema) });
+export type HospitalQueue = z.infer<typeof hospitalQueueSchema>;
+
+export const technologyBranches = ["production", "transport", "military_logistics"] as const;
+export type TechnologyBranch = (typeof technologyBranches)[number];
+export const technologyIds = ["crop_rotation", "sawmill_blades", "road_engineering", "relay_stations", "field_medicine", "quartermaster_drills"] as const;
+export type TechnologyId = (typeof technologyIds)[number];
+export const technologyCatalog: Readonly<Record<TechnologyId, { id: TechnologyId; branch: TechnologyBranch; name: string; description: string; prerequisite?: TechnologyId; durationSeconds: number }>> = {
+  crop_rotation: { id: "crop_rotation", branch: "production", name: "Luân canh", description: "Tăng sản lượng nông trại.", durationSeconds: 20 },
+  sawmill_blades: { id: "sawmill_blades", branch: "production", name: "Lưỡi cưa", description: "Tăng sản lượng xưởng gỗ và mỏ đá.", prerequisite: "crop_rotation", durationSeconds: 35 },
+  road_engineering: { id: "road_engineering", branch: "transport", name: "Kỹ thuật đường", description: "Giảm thời gian hành quân.", durationSeconds: 20 },
+  relay_stations: { id: "relay_stations", branch: "transport", name: "Trạm chuyển tiếp", description: "Tăng bán kính phục hồi tiếp tế.", prerequisite: "road_engineering", durationSeconds: 35 },
+  field_medicine: { id: "field_medicine", branch: "military_logistics", name: "Quân y dã chiến", description: "Giảm thời gian chữa thương.", durationSeconds: 20 },
+  quartermaster_drills: { id: "quartermaster_drills", branch: "military_logistics", name: "Huấn luyện hậu cần", description: "Giảm tiêu hao tiếp tế.", prerequisite: "field_medicine", durationSeconds: 35 },
+};
+export const technologyProgressSchema = z.object({ playerId: z.string(), unlocked: z.array(z.enum(technologyIds)) });
+export type TechnologyProgress = z.infer<typeof technologyProgressSchema>;
+export const researchQueueItemSchema = z.object({ id: z.string(), playerId: z.string(), technologyId: z.enum(technologyIds), startedAt: z.string(), completesAt: z.string() });
+export type ResearchQueueItem = z.infer<typeof researchQueueItemSchema>;
+export const researchQueueSchema = z.object({ playerId: z.string(), items: z.array(researchQueueItemSchema) });
+export type ResearchQueue = z.infer<typeof researchQueueSchema>;
+
+export const campaignMissionSchema = z.object({ id: z.string(), chapter: z.number().int().min(1).max(3), title: z.string(), description: z.string(), lesson: z.string(), terrain: z.enum(terrainTypes), rewardXp: z.number().int().positive() });
+export type CampaignMission = z.infer<typeof campaignMissionSchema>;
+export const campaignProgressSchema = z.object({ playerId: z.string(), completedMissionIds: z.array(z.string()), claimedFirstClearIds: z.array(z.string()), unlockedChapter: z.number().int().min(1).max(3) });
+export type CampaignProgress = z.infer<typeof campaignProgressSchema>;
+export const campaignMissions: ReadonlyArray<CampaignMission> = [
+  { id: "chapter-1-ruins", chapter: 1, title: "Phế tích đầu tiên", description: "Khôi phục nguồn lực quanh thành.", lesson: "Giữ tiền tuyến để bảo vệ cung thủ.", terrain: "plains", rewardXp: 25 },
+  { id: "chapter-1-raiders", chapter: 1, title: "Trại cướp ven đường", description: "Đối đầu một đội quân hỗn hợp.", lesson: "Giáo binh làm chậm kỵ binh.", terrain: "hills", rewardXp: 30 },
+  { id: "chapter-1-scout", chapter: 1, title: "Dấu chân trong rừng", description: "Trinh sát trước khi ra quân.", lesson: "Dữ liệu chưa trinh sát là chưa biết.", terrain: "forest", rewardXp: 30 },
+  { id: "chapter-1-chief", chapter: 1, title: "Thủ lĩnh cướp", description: "Đánh trận đầu có chủ đích.", lesson: "Chọn thế trận theo địa hình.", terrain: "plains", rewardXp: 40 },
+  { id: "chapter-2-road", chapter: 2, title: "Mở đường", description: "Bảo vệ tuyến vận tải.", lesson: "Tiếp tế quyết định sức bền.", terrain: "hills", rewardXp: 40 },
+  { id: "chapter-2-marsh", chapter: 2, title: "Đầm lầy phía nam", description: "Đánh trong địa hình bất lợi cho kỵ binh.", lesson: "Đừng dùng kỵ binh mù quáng trong đầm.", terrain: "swamp", rewardXp: 45 },
+  { id: "chapter-2-escort", chapter: 2, title: "Hộ tống đoàn xe", description: "Giữ quân hỗn hợp sống sót.", lesson: "Phối hợp ba vị trí thay vì dồn một loại quân.", terrain: "forest", rewardXp: 45 },
+  { id: "chapter-2-fort", chapter: 2, title: "Cổng đá", description: "Phá tuyến phòng thủ.", lesson: "Cung thủ cần tiền tuyến còn sống.", terrain: "hills", rewardXp: 50 },
+  { id: "chapter-3-camp", chapter: 3, title: "Bình định trại bắc", description: "Tấn công có trinh sát đầy đủ.", lesson: "Báo cáo phải giải thích nguyên nhân thắng thua.", terrain: "plains", rewardXp: 50 },
+  { id: "chapter-3-forest", chapter: 3, title: "Kẻ mai phục", description: "Đánh vòng qua rừng.", lesson: "Giáo binh có thể chặn cánh kỵ binh.", terrain: "forest", rewardXp: 55 },
+  { id: "chapter-3-swamp-chief", chapter: 3, title: "Thủ lĩnh đầm lầy", description: "Kết hợp cung và bộ binh.", lesson: "Thế phòng thủ giúp giữ quân.", terrain: "swamp", rewardXp: 60 },
+  { id: "chapter-3-meridian", chapter: 3, title: "Bình định Meridian", description: "Hoàn tất chiến dịch đầu mùa.", lesson: "Không có lực chiến cam kết; hãy đọc từng hiệp.", terrain: "plains", rewardXp: 75 },
+];
+
+export const commanderCapacity = (level: number): number => Math.min(500, 100 + 50 * (Math.max(1, Math.min(10, Math.floor(level))) - 1));
+export const armyCompositionTotal = (composition: ArmyComposition): number => armyPositions.reduce((total, position) => total + (composition[position]?.count ?? 0), 0);
+export const emptyTroopCounts = (): TroopCounts => ({ shield_infantry: 0, spearmen: 0, archers: 0, cavalry: 0 });
+
+export const armyV2FieldsSchema = z.object({
+  commanderId: z.string(),
+  composition: armyCompositionSchema,
+  stance: z.enum(battleStances),
+  wounded: troopCountsSchema.default(emptyTroopCounts()),
+});
+
 export const npcKinds = ["raider", "migration"] as const;
 export type NpcKind = (typeof npcKinds)[number];
 
@@ -115,10 +331,19 @@ export const armySchema = z.object({
   targetY: z.number().int().optional(),
   attackOrder: attackOrderSchema.optional(),
   lastSupplyAt: z.string().optional(),
+  // New armies use these fields; the legacy fields above remain during save migration.
+  commanderId: z.string().optional(),
+  composition: armyCompositionSchema.optional(),
+  stance: z.enum(battleStances).optional(),
+  wounded: troopCountsSchema.optional(),
+  homeCityId: z.string().optional(),
+  recoveryAt: z.string().optional(),
+  returningHome: z.boolean().optional(),
   frozen: z.boolean().optional(),
   frozenAt: z.string().optional()
 });
 export type Army = z.infer<typeof armySchema>;
+export const armyTotal = (army: Pick<Army, "strength" | "composition">): number => army.composition ? armyCompositionTotal(army.composition) : army.strength;
 
 export const heroSchema = z.object({ id: z.string(), ownerPlayerId: z.string(), name: z.string(), x: z.number().int(), y: z.number().int() });
 export type Hero = z.infer<typeof heroSchema>;
@@ -140,6 +365,44 @@ const battleParticipantSchema = z.object({
   npcKind: z.enum(npcKinds).optional(),
 });
 
+const mixedBattleGroupResultSchema = z.object({
+  squadId: z.string(),
+  troopType: z.enum(troopTypes),
+  position: z.enum(armyPositions),
+  countBefore: z.number().int().nonnegative(),
+  countAfter: z.number().int().nonnegative(),
+  casualties: z.number().int().nonnegative(),
+});
+const mixedBattleActionSchema = z.object({
+  sourceSquadId: z.string(),
+  targetSquadId: z.string(),
+  skill: z.string().optional(),
+});
+const mixedBattleSideReportSchema = z.object({
+  commanderId: z.string(),
+  commanderSpecialty: z.enum(commanderSpecialties),
+  commanderLevel: z.number().int().min(1).max(10),
+  stance: z.enum(battleStances),
+  composition: armyCompositionSchema,
+  totalBefore: z.number().int().nonnegative(),
+  totalAfter: z.number().int().nonnegative(),
+  killed: z.number().int().nonnegative(),
+  wounded: z.number().int().nonnegative(),
+});
+export const mixedBattleReportSchema = z.object({
+  rulesVersion: z.literal(1),
+  attacker: mixedBattleSideReportSchema,
+  defender: mixedBattleSideReportSchema,
+  rounds: z.array(z.object({
+    round: z.number().int(),
+    attacker: z.array(mixedBattleGroupResultSchema),
+    defender: z.array(mixedBattleGroupResultSchema),
+    actions: z.array(mixedBattleActionSchema).optional(),
+    explanations: z.array(z.string()),
+  })),
+});
+export type MixedBattleReport = z.infer<typeof mixedBattleReportSchema>;
+
 export const battleReportSchema = z.object({
   id: z.string(),
   kingdomId: z.string(),
@@ -158,6 +421,7 @@ export const battleReportSchema = z.object({
   })),
   victor: z.enum(["attacker", "defender", "draw"]),
   seed: z.number().int(),
+  mixed: mixedBattleReportSchema.optional(),
   resolvedAt: z.string(),
 });
 export type BattleReport = z.infer<typeof battleReportSchema>;
@@ -274,6 +538,93 @@ export type OnboardingProgress = z.infer<typeof onboardingProgressSchema>;
 export const onboardingAckCommandSchema = z.object({ commandId: z.string().min(8), step: z.enum(onboardableSteps) });
 export type OnboardingAckCommand = z.infer<typeof onboardingAckCommandSchema>;
 
+// === PLAYER HUB / COSMETICS ===
+// Cosmetic ownership is deliberately separate from resources and combat state.
+// The server still validates every price and entitlement; these definitions only
+// make the catalog and the hub response stable for clients.
+export const cosmeticSlots = ["avatar_frame", "flag_color", "nameplate"] as const;
+export type CosmeticSlot = (typeof cosmeticSlots)[number];
+
+export const cosmeticCatalogItemSchema = z.object({
+  id: z.string(),
+  slot: z.enum(cosmeticSlots),
+  name: z.string(),
+  description: z.string(),
+  price: z.number().int().positive(),
+  preview: z.string(),
+});
+export type CosmeticCatalogItem = z.infer<typeof cosmeticCatalogItemSchema>;
+
+export const cosmeticWalletSchema = z.object({ badges: z.number().int().nonnegative() });
+export type CosmeticWallet = z.infer<typeof cosmeticWalletSchema>;
+
+export const ownedCosmeticSchema = z.object({ itemId: z.string(), acquiredAt: z.string() });
+export type OwnedCosmetic = z.infer<typeof ownedCosmeticSchema>;
+
+export const equippedCosmeticsSchema = z.object({
+  avatar_frame: z.string().nullable(),
+  flag_color: z.string().nullable(),
+  nameplate: z.string().nullable(),
+});
+export type EquippedCosmetics = z.infer<typeof equippedCosmeticsSchema>;
+
+export const claimableCosmeticRewardSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  amount: z.number().int().positive(),
+  eligible: z.boolean(),
+  claimed: z.boolean(),
+});
+export type ClaimableCosmeticReward = z.infer<typeof claimableCosmeticRewardSchema>;
+
+export const playerHubSchema = z.object({
+  catalogVersion: z.string(),
+  currencyLabel: z.literal("Huy hieu"),
+  catalog: z.array(cosmeticCatalogItemSchema),
+  wallet: cosmeticWalletSchema,
+  owned: z.array(ownedCosmeticSchema),
+  equipped: equippedCosmeticsSchema,
+  rewards: z.array(claimableCosmeticRewardSchema),
+  profile: z.object({
+    displayName: z.string(),
+    factionId: z.enum(factionIds),
+    scores: scoreSchema,
+    crossSeasonReputation: z.number().int(),
+    title: z.string().nullable(),
+  }),
+});
+export type PlayerHub = z.infer<typeof playerHubSchema>;
+
+export const cosmeticClaimCommandSchema = z.object({ commandId: z.string().min(8), rewardId: z.string() });
+export type CosmeticClaimCommand = z.infer<typeof cosmeticClaimCommandSchema>;
+export const cosmeticPurchaseCommandSchema = z.object({ commandId: z.string().min(8), itemId: z.string() });
+export type CosmeticPurchaseCommand = z.infer<typeof cosmeticPurchaseCommandSchema>;
+export const cosmeticEquipCommandSchema = z.object({
+  commandId: z.string().min(8),
+  slot: z.enum(cosmeticSlots),
+  itemId: z.string().nullable(),
+});
+export type CosmeticEquipCommand = z.infer<typeof cosmeticEquipCommandSchema>;
+
+export const cosmeticCatalog: CosmeticCatalogItem[] = [
+  { id: "frame_meridian", slot: "avatar_frame", name: "Khung Meridian", description: "Khung cơ bản của liên minh Meridian.", price: 75, preview: "frame-meridian" },
+  { id: "frame_sentinel", slot: "avatar_frame", name: "Khung Sentinel", description: "Khung đá dành cho người canh giới.", price: 75, preview: "frame-sentinel" },
+  { id: "flag_sea", slot: "flag_color", name: "Cờ Hải Lam", description: "Màu cờ xanh biển của Meridian.", price: 100, preview: "flag-sea" },
+  { id: "flag_ember", slot: "flag_color", name: "Cờ Ember", description: "Màu cờ đỏ ấm cho đạo quân tiên phong.", price: 100, preview: "flag-ember" },
+  { id: "nameplate_brass", slot: "nameplate", name: "Bảng tên Brass", description: "Bảng tên kim loại sáng.", price: 125, preview: "nameplate-brass" },
+  { id: "nameplate_slate", slot: "nameplate", name: "Bảng tên Slate", description: "Bảng tên đá xanh trầm.", price: 125, preview: "nameplate-slate" },
+];
+
+export const cosmeticRewards: Array<{ id: string; title: string; amount: number; step?: OnboardingStep }> = [
+  { id: "welcome", title: "Phần thưởng chào mừng", amount: 100 },
+  { id: "onboarding_depot", title: "Xây trạm tiếp tế", amount: 100, step: "depot_built" },
+  { id: "onboarding_barracks", title: "Xây doanh trại", amount: 100, step: "barracks_built" },
+  { id: "onboarding_recruit", title: "Tuyển quân", amount: 100, step: "army_recruited" },
+  { id: "onboarding_harvest", title: "Thu hoạch", amount: 100, step: "resource_harvested" },
+  { id: "onboarding_export", title: "Xuất hàng", amount: 100, step: "market_exported" },
+  { id: "onboarding_raider", title: "Thắng raider", amount: 100, step: "raider_defeated" },
+];
+
 // Protocol version of the world snapshot contract. Clients lock game commands
 // and ask for a refresh when the server speaks a different version.
 //
@@ -290,7 +641,7 @@ export type OnboardingAckCommand = z.infer<typeof onboardingAckCommandSchema>;
 // `regionControl` joined the same bump rather than earning a third version: v2 has not
 // shipped yet, and a client that cannot read territory would draw an unheld world — quiet
 // in exactly the way this comment is about.
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 4;
 export const battleHistoryResponseSchema = z.object({ items: z.array(battleReportSchema), nextCursor: z.string().optional() });
 export type BattleHistoryResponse = z.infer<typeof battleHistoryResponseSchema>;
 
@@ -303,7 +654,23 @@ export type BattleHistoryResponse = z.infer<typeof battleHistoryResponseSchema>;
 // replayed from an older ledger row has no opinion about territory.
 export const regionControlSchema = z.record(z.string());
 
-export const snapshotSchema = z.object({ protocolVersion: z.number().int().default(PROTOCOL_VERSION), kingdom: z.object({ id: z.string(), name: z.string() }), season: z.object({ id: z.string(), status: z.enum(["SCHEDULED", "ACTIVE", "FINALIZING", "CLOSED"]), endsAt: z.string() }), cities: z.array(citySchema), caravans: z.array(caravanSchema), armies: z.array(armySchema), heroes: z.array(heroSchema), scores: z.record(scoreSchema), factionCatalog: z.record(z.object({ name: z.string(), description: z.string() })), logistics: logisticsSnapshotSchema, battleReports: z.array(battleReportSchema).optional(), worldMapDigest: z.string().optional(), terrainOverrides: z.record(z.enum(terrainTypes)).optional(), regionControl: regionControlSchema.optional(), alliances: z.array(allianceSchema).optional(), allianceVotes: z.array(allianceVoteSchema).optional(), treaties: z.array(treatySchema).optional(), spyMissions: z.array(spyMissionSchema).optional(), worldEvents: z.array(worldEventSchema).optional(), onboarding: onboardingProgressSchema.optional() });
+export const worldDescriptorSchema = z.object({
+  id: z.string(),
+  extent: z.number().int().positive(),
+  chunkSize: z.number().int().positive(),
+  digest: z.string(),
+  assetManifestUrl: z.string(),
+});
+export type WorldDescriptor = z.infer<typeof worldDescriptorSchema>;
+
+export const explorationSchema = z.object({
+  resolution: z.number().int().positive(),
+  revision: z.number().int().nonnegative(),
+  encodedMask: z.string(),
+});
+export type Exploration = z.infer<typeof explorationSchema>;
+
+export const snapshotSchema = z.object({ protocolVersion: z.number().int().default(PROTOCOL_VERSION), kingdom: z.object({ id: z.string(), name: z.string() }), season: z.object({ id: z.string(), status: z.enum(["SCHEDULED", "ACTIVE", "FINALIZING", "CLOSED"]), endsAt: z.string() }), world: worldDescriptorSchema, exploration: explorationSchema, cities: z.array(citySchema), caravans: z.array(caravanSchema), armies: z.array(armySchema), heroes: z.array(heroSchema), scores: z.record(scoreSchema), factionCatalog: z.record(z.object({ name: z.string(), description: z.string() })), commanderCatalog: z.array(z.object({ id: z.string(), name: z.string(), specialty: z.enum(commanderSpecialties) })).optional(), logistics: logisticsSnapshotSchema, commanders: z.array(commanderSchema).optional(), troopReserves: z.record(troopReserveSchema).optional(), formationPresets: z.array(formationPresetSchema).optional(), trainingQueues: z.record(trainingQueueSchema).optional(), hospitalQueues: z.record(hospitalQueueSchema).optional(), technologyProgress: z.record(technologyProgressSchema).optional(), researchQueues: z.record(researchQueueSchema).optional(), campaignProgress: z.record(campaignProgressSchema).optional(), battleReports: z.array(battleReportSchema).optional(), worldMapDigest: z.string().optional(), terrainOverrides: z.record(z.enum(terrainTypes)).optional(), regionControl: regionControlSchema.optional(), alliances: z.array(allianceSchema).optional(), allianceVotes: z.array(allianceVoteSchema).optional(), treaties: z.array(treatySchema).optional(), spyMissions: z.array(spyMissionSchema).optional(), worldEvents: z.array(worldEventSchema).optional(), onboarding: onboardingProgressSchema.optional() });
 export type WorldSnapshot = z.infer<typeof snapshotSchema>;
 
 // === PHASE 7B: COMMAND RESPONSE CONTRACT ===
@@ -320,8 +687,29 @@ export type CommandResponse<T = unknown> = {
 };
 export type CommandOutput<T> = { result: "accepted" | "already_processed"; data?: T };
 
-export const buildCommandSchema = z.object({ commandId: z.string().min(8), cityId: z.string(), buildingId: z.enum(["town_hall", "warehouse", "road_depot", "barracks"]), queueType: z.enum(["build", "research"]).default("build") });
+export const buildCommandSchema = z.object({
+  commandId: z.string().min(8),
+  cityId: z.string(),
+  buildingId: z.enum(buildingIds),
+  queueType: z.enum(["build", "research"]).default("build"),
+  plotX: z.number().int().nonnegative().safe().optional(),
+  plotY: z.number().int().nonnegative().safe().optional(),
+  plotRotation: cityRotationSchema.optional(),
+}).refine(command => (command.plotX === undefined) === (command.plotY === undefined), {
+  message: "plotX and plotY must be provided together",
+}).refine(command => command.plotX !== undefined || command.plotRotation === undefined, {
+  message: "plotRotation cannot be provided without plotX and plotY",
+});
 export type BuildCommand = z.infer<typeof buildCommandSchema>;
+
+export const cityLayoutCommandSchema = z.object({
+  commandId: z.string().min(8),
+  cityId: z.string(),
+  layoutVersion: z.literal(2),
+  expectedRevision: z.number().int().nonnegative(),
+  placements: z.array(buildingPlacementSchema),
+});
+export type CityLayoutCommand = z.infer<typeof cityLayoutCommandSchema>;
 export const harvestCommandSchema = z.object({ commandId: z.string().min(8), nodeId: z.string(), cityId: z.string(), amount: z.number().int().positive().max(50) });
 export const routeCommandSchema = z.object({ commandId: z.string().min(8), sourceCityId: z.string(), destinationKind: z.enum(destinationKinds).optional(), destinationId: z.string().optional(), destinationCityId: z.string().optional() }).superRefine((value, ctx) => {
   const kind = value.destinationKind ?? (value.destinationCityId ? "city" : undefined);
@@ -346,6 +734,30 @@ export const mergeArmyCommandSchema = z.object({ commandId: z.string().min(8), s
 export type MergeArmyCommand = z.infer<typeof mergeArmyCommandSchema>;
 export const cancelArmyOrderCommandSchema = z.object({ commandId: z.string().min(8), armyId: z.string() });
 export type CancelArmyOrderCommand = z.infer<typeof cancelArmyOrderCommandSchema>;
+export const assignCommanderCommandSchema = z.object({ commandId: z.string().min(8), armyId: z.string(), commanderId: z.string() });
+export type AssignCommanderCommand = z.infer<typeof assignCommanderCommandSchema>;
+export const updateArmyCompositionCommandSchema = z.object({ commandId: z.string().min(8), armyId: z.string(), composition: armyCompositionSchema, stance: z.enum(battleStances) });
+export type UpdateArmyCompositionCommand = z.infer<typeof updateArmyCompositionCommandSchema>;
+export const saveFormationPresetCommandSchema = z.object({ commandId: z.string().min(8), name: z.string().trim().min(1).max(40), composition: armyCompositionSchema, stance: z.enum(battleStances) });
+export type SaveFormationPresetCommand = z.infer<typeof saveFormationPresetCommandSchema>;
+export const applyFormationPresetCommandSchema = z.object({ commandId: z.string().min(8), armyId: z.string(), presetId: z.string() });
+export type ApplyFormationPresetCommand = z.infer<typeof applyFormationPresetCommandSchema>;
+export const startResearchCommandSchema = z.object({ commandId: z.string().min(8), technologyId: z.enum(technologyIds) });
+export type StartResearchCommand = z.infer<typeof startResearchCommandSchema>;
+export const completeCampaignMissionCommandSchema = z.object({ commandId: z.string().min(8), missionId: z.string(), armyId: z.string() });
+export type CompleteCampaignMissionCommand = z.infer<typeof completeCampaignMissionCommandSchema>;
+export const patrolCampaignCommandSchema = z.object({ commandId: z.string().min(8), missionId: z.string(), armyId: z.string() });
+export type PatrolCampaignCommand = z.infer<typeof patrolCampaignCommandSchema>;
+export const recruitReserveCommandSchema = z.object({ commandId: z.string().min(8), cityId: z.string(), troopType: z.enum(troopTypes), amount: z.number().int().min(10).max(50) });
+export type RecruitReserveCommand = z.infer<typeof recruitReserveCommandSchema>;
+export const createArmyCommandSchema = z.object({ commandId: z.string().min(8), cityId: z.string(), commanderId: z.string(), composition: armyCompositionSchema, stance: z.enum(battleStances).default("balanced") });
+export type CreateArmyCommand = z.infer<typeof createArmyCommandSchema>;
+export const reinforceArmyCommandSchema = z.object({ commandId: z.string().min(8), armyId: z.string(), troopType: z.enum(troopTypes), amount: z.number().int().positive(), position: z.enum(armyPositions) });
+export type ReinforceArmyCommand = z.infer<typeof reinforceArmyCommandSchema>;
+export const transferArmyCommandSchema = z.object({ commandId: z.string().min(8), sourceArmyId: z.string(), targetArmyId: z.string(), troopType: z.enum(troopTypes), amount: z.number().int().positive(), sourcePosition: z.enum(armyPositions), targetPosition: z.enum(armyPositions) });
+export type TransferArmyCommand = z.infer<typeof transferArmyCommandSchema>;
+export const returnArmyHomeCommandSchema = z.object({ commandId: z.string().min(8), armyId: z.string() });
+export type ReturnArmyHomeCommand = z.infer<typeof returnArmyHomeCommandSchema>;
 
 // === PHASE 4: ALLIANCE & DIPLOMACY COMMAND SCHEMAS ===
 export const createAllianceCommandSchema = z.object({ commandId: z.string().min(8), name: z.string().min(2).max(30), tag: z.string().min(2).max(5) });
@@ -377,12 +789,19 @@ export type BreakTreatyCommand = z.infer<typeof breakTreatyCommandSchema>;export
 export type LaunchSpyCommand = z.infer<typeof launchSpyCommandSchema>;
 export const counterIntelCommandSchema = z.object({ commandId: z.string().min(8) });
 export type CounterIntelCommand = z.infer<typeof counterIntelCommandSchema>;
+export const trainTroopsCommandSchema = z.object({ commandId: z.string().min(8), cityId: z.string(), troopType: z.enum(troopTypes), amount: z.number().int().min(10).max(50) });
+export type TrainTroopsCommand = z.infer<typeof trainTroopsCommandSchema>;
+export const healTroopsCommandSchema = z.object({ commandId: z.string().min(8), cityId: z.string(), troopType: z.enum(troopTypes), amount: z.number().int().positive().max(500) });
+export type HealTroopsCommand = z.infer<typeof healTroopsCommandSchema>;
 
 export type ClientMessage = { type: "BUILD_START"; payload: BuildCommand }
   | { type: "ATTACK"; payload: AttackCommand }
   | { type: "MOVE_ARMY"; payload: MoveArmyCommand }
   | { type: "RECRUIT"; payload: RecruitCommand }
   | { type: "SET_FORMATION"; payload: SetFormationCommand }
+  | { type: "ASSIGN_COMMANDER"; payload: AssignCommanderCommand }
+  | { type: "UPDATE_ARMY_COMPOSITION"; payload: UpdateArmyCompositionCommand }
+  | { type: "PATROL_CAMPAIGN"; payload: PatrolCampaignCommand }
   | { type: "MERGE_ARMY"; payload: MergeArmyCommand }
   | { type: "CREATE_ALLIANCE"; payload: CreateAllianceCommand }
   | { type: "JOIN_ALLIANCE"; payload: JoinAllianceCommand }
@@ -392,7 +811,8 @@ export type ClientMessage = { type: "BUILD_START"; payload: BuildCommand }
   | { type: "RESPOND_TREATY"; payload: RespondTreatyCommand }
   | { type: "BREAK_TREATY"; payload: BreakTreatyCommand }
   | { type: "LAUNCH_SPY"; payload: LaunchSpyCommand }
-  | { type: "COUNTER_INTEL"; payload: CounterIntelCommand };
+  | { type: "COUNTER_INTEL"; payload: CounterIntelCommand }
+  | { type: "CITY_LAYOUT"; payload: CityLayoutCommand };
   
 export type ServerMessage = { type: "SNAPSHOT"; payload: WorldSnapshot } 
   | { type: "ERROR"; code: string; message: string } 
@@ -436,21 +856,53 @@ export function diplomacyScore(stats: {
 
 // === PHASE 7B: GAME RULES CATALOG (server authoritative, client for display) ===
 export const gameRules = {
+  cityInterior: {
+    baseSize: 12,
+    maxSize: 20,
+    sizePerTownHallLevel: 2,
+  } as const,
   buildings: {
-    town_hall: { id: "town_hall", name: "Tòa thị chính", description: "Trung tâm thành phố; nâng cấp mở rộng kho chứa.", cost: { food: 0, wood: 100, stone: 50, iron: 0 }, durationSeconds: 10 },
+    town_hall: { id: "town_hall", name: "Tòa thị chính", description: "Trung tâm thành phố; mỗi cấp mở rộng thêm hai hàng và hai cột nội thành.", cost: { food: 0, wood: 100, stone: 50, iron: 0 }, durationSeconds: 10 },
     warehouse: { id: "warehouse", name: "Nhà kho", description: "Tăng sức chứa nguyên liệu của thành phố.", cost: { food: 0, wood: 80, stone: 25, iron: 0 }, durationSeconds: 8 },
     road_depot: { id: "road_depot", name: "Trạm tiếp tế", description: "Mở tuyến vận tải; tăng hồi phục tiếp tế quân đội gần khu.", cost: { food: 0, wood: 120, stone: 80, iron: 20 }, durationSeconds: 12 },
     barracks: { id: "barracks", name: "Doanh trại", description: "Cho phép tuyển mộ quân đội trong thành phố.", cost: { food: 0, wood: 150, stone: 100, iron: 50 }, durationSeconds: 15 },
+    farm: { id: "farm", name: "Nông trại", description: "Sản xuất lương thực tự động và tăng kho lương của thành phố.", cost: { food: 0, wood: 90, stone: 30, iron: 0 }, durationSeconds: 12 },
+    lumber_mill: { id: "lumber_mill", name: "Xưởng gỗ", description: "Sản xuất gỗ tự động cho xây dựng và huấn luyện.", cost: { food: 0, wood: 110, stone: 35, iron: 0 }, durationSeconds: 14 },
+    stone_quarry: { id: "stone_quarry", name: "Mỏ đá", description: "Sản xuất đá tự động cho công trình phòng thủ.", cost: { food: 0, wood: 100, stone: 45, iron: 10 }, durationSeconds: 14 },
+    academy: { id: "academy", name: "Học viện", description: "Mở hàng đợi nghiên cứu công nghệ và đào tạo chỉ huy.", cost: { food: 0, wood: 180, stone: 140, iron: 80 }, durationSeconds: 18 },
+    hospital: { id: "hospital", name: "Quân y viện", description: "Chữa thương binh theo hàng đợi bằng lương thực.", cost: { food: 0, wood: 140, stone: 120, iron: 60 }, durationSeconds: 18 },
   } as const,
   recruitment: {
     infantry: { id: "infantry", name: "Bộ binh", description: "Cân bằng, mạnh chống cung thủ.", cost: { wood: 50, stone: 30, iron: 10 } },
     cavalry: { id: "cavalry", name: "Kỵ binh", description: "Nhanh nhẹn, mạnh chống bộ binh.", cost: { wood: 30, stone: 20, iron: 40 } },
     archer: { id: "archer", name: "Cung thủ", description: "Tầm xa, mạnh chống kỵ binh.", cost: { wood: 40, stone: 10, iron: 20 } },
   } as const,
+  production: {
+    catchUpLimitSeconds: 8 * 60 * 60,
+    warehouseBaseCapacity: 1000,
+    warehouseCapacityPerLevel: 500,
+    perMinute: { farm: 10, lumber_mill: 8, stone_quarry: 6 },
+  } as const,
   army: {
     maxStrengthPerArmy: 500,
     recruitAmountStep: 10, recruitAmountMin: 10, recruitAmountMax: 50,
     formationCost: 0,
+  } as const,
+  training: {
+    queueLimit: 1,
+    amountMin: 10,
+    amountMax: 50,
+    durationSecondsPerTroop: 1,
+    costPerTroop: {
+      shield_infantry: { food: 1, wood: 1, stone: 1, iron: 0 },
+      spearmen: { food: 1, wood: 1, stone: 1, iron: 1 },
+      archers: { food: 1, wood: 2, stone: 0, iron: 1 },
+      cavalry: { food: 2, wood: 1, stone: 0, iron: 2 },
+    },
+  } as const,
+  hospital: {
+    foodPerTroop: 1,
+    durationSecondsPerTroop: 1,
   } as const,
   raiders: {
     targetCount: 3,
@@ -527,6 +979,179 @@ export const gameRules = {
   } as const,
 } as const;
 
+/** Visible square side of a city. Level one starts at 12x12; upgrading the town
+ * hall grows both dimensions until the authored cap of 20x20. Kept in shared so server
+ * validation and the client grid can never disagree about the boundary. */
+export function cityGridSize(townHallLevel: number): number {
+  const level = Number.isFinite(townHallLevel) ? Math.max(1, Math.trunc(townHallLevel)) : 1;
+  return Math.min(gameRules.cityInterior.maxSize, gameRules.cityInterior.baseSize + (level - 1) * gameRules.cityInterior.sizePerTownHallLevel);
+}
+
+export const buildingBaseFootprints: Record<BuildingId, { width: number; height: number }> = {
+  town_hall: { width: 3, height: 3 },
+  warehouse: { width: 2, height: 2 },
+  road_depot: { width: 3, height: 2 },
+  barracks: { width: 3, height: 3 },
+  farm: { width: 2, height: 2 },
+  lumber_mill: { width: 3, height: 2 },
+  stone_quarry: { width: 3, height: 2 },
+  academy: { width: 3, height: 3 },
+  hospital: { width: 3, height: 2 },
+};
+
+export function buildingDimensions(buildingId: BuildingId, rotation: CityRotation = 0): { width: number; height: number } {
+  const base = buildingBaseFootprints[buildingId] ?? { width: 1, height: 1 };
+  if (rotation === 90 || rotation === 270) {
+    return { width: base.height, height: base.width };
+  }
+  return { width: base.width, height: base.height };
+}
+
+export function buildingOccupiedTiles(placement: { buildingId: BuildingId; x: number; y: number; rotation?: CityRotation }): Array<{ x: number; y: number }> {
+  const { width, height } = buildingDimensions(placement.buildingId, placement.rotation ?? 0);
+  const tiles: Array<{ x: number; y: number }> = [];
+  for (let dy = 0; dy < height; dy++) {
+    for (let dx = 0; dx < width; dx++) {
+      tiles.push({ x: placement.x + dx, y: placement.y + dy });
+    }
+  }
+  return tiles;
+}
+
+export function isPlacementWithinBounds(
+  placement: { buildingId: BuildingId; x: number; y: number; rotation?: CityRotation },
+  size: number
+): boolean {
+  const { width, height } = buildingDimensions(placement.buildingId, placement.rotation ?? 0);
+  return (
+    Number.isInteger(placement.x) &&
+    Number.isInteger(placement.y) &&
+    placement.x >= 0 &&
+    placement.y >= 0 &&
+    placement.x + width <= size &&
+    placement.y + height <= size
+  );
+}
+
+export function validatePlacements(
+  placements: BuildingPlacement[],
+  gridSize: number
+): { valid: boolean; error?: "CITY_PLOT_OUT_OF_BOUNDS" | "CITY_PLOT_OCCUPIED" | "INVALID_BUILDING_ROTATION" } {
+  const occupied = new Set<string>();
+  for (const placement of placements) {
+    if (!cityRotations.includes(placement.rotation)) {
+      return { valid: false, error: "INVALID_BUILDING_ROTATION" };
+    }
+    if (!isPlacementWithinBounds(placement, gridSize)) {
+      return { valid: false, error: "CITY_PLOT_OUT_OF_BOUNDS" };
+    }
+    const tiles = buildingOccupiedTiles(placement);
+    for (const tile of tiles) {
+      const key = `${tile.x},${tile.y}`;
+      if (occupied.has(key)) {
+        return { valid: false, error: "CITY_PLOT_OCCUPIED" };
+      }
+      occupied.add(key);
+    }
+  }
+  return { valid: true };
+}
+
+/** Deterministic migration from v1 layout (5-9 grid, 1x1 plots) to v2 layout (12-20 grid, multi-tile footprints). */
+export function migrateCityLayoutV1toV2(city: {
+  buildings?: Record<string, number>;
+  buildingPlots?: Array<{ buildingId: BuildingId; x: number; y: number; rotation?: CityRotation }>;
+  queues?: Array<{ buildingId: string; plotX?: number; plotY?: number; plotRotation?: CityRotation }>;
+}): BuildingPlacement[] {
+  const townHallLevel = city.buildings?.town_hall ?? 1;
+  const oldSize = Math.min(9, 5 + (townHallLevel - 1) * 1);
+  const newSize = cityGridSize(townHallLevel);
+
+  const required = new Set<BuildingId>();
+  for (const id of buildingIds) {
+    if ((city.buildings?.[id] ?? 0) > 0) required.add(id);
+  }
+  for (const q of city.queues ?? []) {
+    if (buildingIds.includes(q.buildingId as BuildingId)) required.add(q.buildingId as BuildingId);
+  }
+  if (!required.has("town_hall")) required.add("town_hall");
+
+  const occupiedTiles = new Set<string>();
+  const results: BuildingPlacement[] = [];
+
+  const canPlace = (bId: BuildingId, px: number, py: number, rot: CityRotation = 0): boolean => {
+    if (!isPlacementWithinBounds({ buildingId: bId, x: px, y: py, rotation: rot }, newSize)) return false;
+    const tiles = buildingOccupiedTiles({ buildingId: bId, x: px, y: py, rotation: rot });
+    return tiles.every(t => !occupiedTiles.has(`${t.x},${t.y}`));
+  };
+
+  const commitPlacement = (placement: BuildingPlacement) => {
+    results.push(placement);
+    for (const t of buildingOccupiedTiles(placement)) {
+      occupiedTiles.add(`${t.x},${t.y}`);
+    }
+  };
+
+  // 1. Process town_hall first
+  const existingTh = (city.buildingPlots ?? []).find(p => p.buildingId === "town_hall");
+  const thBaseCenter = Math.floor((newSize - 3) / 2);
+  let thTargetX = thBaseCenter;
+  let thTargetY = thBaseCenter;
+  if (existingTh && Number.isInteger(existingTh.x) && Number.isInteger(existingTh.y)) {
+    const relX = (existingTh.x + 0.5) / oldSize;
+    const relY = (existingTh.y + 0.5) / oldSize;
+    thTargetX = Math.max(0, Math.min(newSize - 3, Math.floor(relX * newSize - 1.5)));
+    thTargetY = Math.max(0, Math.min(newSize - 3, Math.floor(relY * newSize - 1.5)));
+  }
+  commitPlacement({ buildingId: "town_hall", x: thTargetX, y: thTargetY, rotation: 0 });
+
+  // 2. Process other required buildings in stable buildingIds order
+  for (const buildingId of buildingIds) {
+    if (buildingId === "town_hall" || !required.has(buildingId)) continue;
+    const existing = (city.buildingPlots ?? []).find(p => p.buildingId === buildingId);
+    const { width, height } = buildingDimensions(buildingId, 0);
+
+    let idealX: number;
+    let idealY: number;
+    if (existing && Number.isInteger(existing.x) && Number.isInteger(existing.y)) {
+      const relX = (existing.x + 0.5) / oldSize;
+      const relY = (existing.y + 0.5) / oldSize;
+      idealX = Math.max(0, Math.min(newSize - width, Math.floor(relX * newSize - width / 2)));
+      idealY = Math.max(0, Math.min(newSize - height, Math.floor(relY * newSize - height / 2)));
+    } else {
+      idealX = Math.max(0, Math.min(newSize - width, thTargetX));
+      idealY = Math.max(0, Math.min(newSize - height, thTargetY));
+    }
+
+    if (canPlace(buildingId, idealX, idealY, 0)) {
+      commitPlacement({ buildingId, x: idealX, y: idealY, rotation: 0 });
+      continue;
+    }
+
+    // Find closest Manhattan valid position, tie-break y then x
+    let bestX = -1;
+    let bestY = -1;
+    let bestDist = Number.POSITIVE_INFINITY;
+    for (let y = 0; y <= newSize - height; y++) {
+      for (let x = 0; x <= newSize - width; x++) {
+        if (canPlace(buildingId, x, y, 0)) {
+          const dist = Math.abs(x - idealX) + Math.abs(y - idealY);
+          if (dist < bestDist) {
+            bestDist = dist;
+            bestX = x;
+            bestY = y;
+          }
+        }
+      }
+    }
+    if (bestX >= 0 && bestY >= 0) {
+      commitPlacement({ buildingId, x: bestX, y: bestY, rotation: 0 });
+    }
+  }
+
+  return results;
+}
+
 export type RecruitUnitId = keyof typeof gameRules.recruitment;
 
 // Recruitment is priced per pack of `recruitAmountStep` troops: cost × (amount / step).
@@ -542,4 +1167,3 @@ export function recruitmentCost(unitType: RecruitUnitId, amount: number): { wood
  *  client's terrain bake come through it — which is the mechanism that stops them drifting
  *  apart. Kept at the bottom so `world-map.ts`'s own imports of nothing stay obvious. */
 export * from "./world-map.js";
-

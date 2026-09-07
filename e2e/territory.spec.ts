@@ -1,6 +1,5 @@
 import { test, expect } from "@playwright/test";
 import { gameRules, regionAt, regions, regionTileCounts } from "@kingdoms/shared";
-import { worldPoint } from "../apps/client/src/map-geometry.js";
 
 const api = process.env.PLAYWRIGHT_API ?? "http://127.0.0.1:3000";
 // Fresh world per file: the placement cap would 500 later logins in a shared world.
@@ -39,7 +38,9 @@ test("standing on a seat takes the province, and the feed says so once", async (
   await page.goto("/");
   await page.getByPlaceholder("Tên người chơi").fill(`Territory E2E ${testInfo.project.name} ${Date.now()}`);
   await page.getByRole("button", { name: "Vào kingdom" }).click();
+  await page.getByRole("button", { name: "Vương quốc", exact: true }).click();
   await expect(page.getByRole("complementary", { name: "Bảng điều khiển" })).toBeVisible();
+  await page.getByRole("button", { name: "Nhiệm vụ", exact: true }).click();
   await expect(page.getByRole("complementary", { name: "Dòng hoạt động" })).toBeVisible();
 
   // --- An army of our own. Cavalry covers two tiles a tick, so the march is a tick or
@@ -77,8 +78,12 @@ test("standing on a seat takes the province, and the feed says so once", async (
    *  focused city is the projection of the grid delta — the renderer's own arithmetic,
    *  imported from it rather than restated as 56 and 28. */
   const at = (x: number, y: number): [number, number] => {
-    const [dx, dy] = worldPoint(x - city.x, y - city.y);
-    return [centerX + dx, centerY + dy];
+    const dx = x - city.x;
+    const dy = y - city.y;
+    const pixelsPerWorldUnit = 0.075 * box.height / 55;
+    const screenRight = (dx - dy) * 6 / Math.sqrt(2) * pixelsPerWorldUnit;
+    const screenDown = (dx + dy) * 6 * (1.08 / Math.sqrt(2)) * pixelsPerWorldUnit;
+    return [centerX + screenRight, centerY + screenDown];
   };
 
   // --- The seat before anyone holds it. One tile in eighty decides a province, and

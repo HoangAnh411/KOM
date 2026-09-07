@@ -20,7 +20,7 @@
 import type { Army, City, ResourceNode, WorldSnapshot } from "@kingdoms/shared";
 import { gameRules, regionAt, regions } from "@kingdoms/shared";
 import type { ClientCommand } from "./commands.js";
-import type { MapSelection } from "./map.js";
+import type { MapSelection } from "./map-contract.js";
 import type { PanelAnchorId } from "./panel-anchors.js";
 import type { InteractionMode, PanelId } from "./state.js";
 import type { ButtonVariant, IconName } from "./ui/tokens.js";
@@ -37,6 +37,7 @@ export type TrayIntent =
   | { kind: "cancel-order" }
   | { kind: "command"; command: ClientCommand }
   | { kind: "merge"; armyId: string; candidates: Army[] }
+  | { kind: "enter-city"; cityId: string }
   /** `PanelAnchorId` minus `"hud"`: a tray command jumps to a panel the nav can
    *  also mark, so the component can pass the anchor straight to
    *  `setActivePanel` without narrowing it first. */
@@ -189,11 +190,29 @@ function cityGroup(snapshot: WorldSnapshot, cityId: string, playerId: string): T
     return { id: "city-gone", title: "Không còn gì để ra lệnh", icon: "city", hint: "Chọn một thành phố của bạn trên bản đồ.", commands: [] };
   }
   if (city.playerId !== playerId) {
+    if (city.visibility === "unknown") {
+      return {
+        id: `city-unknown-${city.id}`,
+        title: "Thành chưa xác định",
+        icon: "eye",
+        hint: "Do thám để biết chủ thành và lực lượng đã quan sát.",
+        commands: [{
+          id: "scout-city",
+          label: "Do thám",
+          variant: "primary",
+          intent: {
+            kind: "command",
+            command: { kind: "spy_launch", label: "Do thám thành", path: "/api/commands/spy/launch", body: { targetPlayerId: city.playerId, missionType: "scout" } },
+          },
+          check: { ok: true },
+        }],
+      };
+    }
     return {
       id: `city-foreign-${city.id}`,
       title: "Thành phố của người khác",
       icon: "city",
-      hint: `Của ${city.playerName}. Chọn một quân đội của bạn, bấm Di chuyển rồi nhấp vào đây để tiến quân.`,
+      hint: `Báo cáo: ${city.playerName} · quan sát ${city.intel ? new Date(city.intel.observedAt).toLocaleString("vi-VN") : "không rõ thời điểm"}.`,
       commands: [],
     };
   }
@@ -208,9 +227,9 @@ function cityGroup(snapshot: WorldSnapshot, cityId: string, playerId: string): T
     icon: "city",
     hint: firstReason(notFrozen(city)) ?? "Lệnh của thành phố nằm trong cột vương quốc.",
     commands: [
+      { id: "enter-city", label: "Vào thành", variant: "primary", intent: { kind: "enter-city", cityId: city.id }, check: gate(notFrozen(city)) },
       panelCommand("city", "Mở bảng Thành phố"),
       panelCommand("army", "Mở bảng Quân đội"),
-      panelCommand("logistics", "Mở bảng Vận tải"),
     ],
   };
 }
@@ -312,6 +331,12 @@ export function traySubject(selection: MapSelection | undefined, snapshot: World
   }
   const city = cityIn(snapshot, selection.id);
   if (!city) return { title: "Thành phố không còn", detail: "Thành phố này không còn trong ảnh chụp mới nhất." };
+  if (city.playerId !== playerId && city.visibility === "unknown") {
+    return { title: "Thành chưa xác định", detail: `Chưa có báo cáo tình báo · Vị trí (${city.x},${city.y})` };
+  }
+  if (city.playerId !== playerId && city.visibility === "scouted") {
+    return { title: city.name, detail: `${city.playerName} · tin lúc ${new Date(city.intel?.observedAt ?? "").toLocaleString("vi-VN")} · Vị trí (${city.x},${city.y})` };
+  }
   return { title: city.name, detail: `${city.playerId === playerId ? "Của bạn" : city.playerName} · Vị trí (${city.x},${city.y})` };
 }
 

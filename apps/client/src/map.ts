@@ -1,10 +1,10 @@
-import { Application, Container, Graphics, RenderTexture, Sprite } from "pixi.js";
+import { Application, BlurFilter, Container, Graphics, RenderTexture, Sprite } from "pixi.js";
 import type { WorldSnapshot } from "@kingdoms/shared";
 import { regions, terrainAt } from "@kingdoms/shared";
 import type { InteractionMode } from "./state.js";
 import {
   armyGeometrySig, cityGeometrySig, eventSig, isoDepth, mapExtent, maxZoom, minZoom,
-  originAt, overlayGeometrySig, pickAt, regionLabelsVisible, seatSig, terrainBounds, terrainPad,
+  mapLabelOffsetY, originAt, overlayGeometrySig, pickAt, regionLabelsVisible, seatSig, terrainBounds, terrainPad,
   terrainResolution, terrainSig, tileHeight, tileWidth, worldPoint,
 } from "./map-geometry.js";
 import { createLabel, type MapLabel } from "./map-labels.js";
@@ -14,6 +14,7 @@ export type WorldMap = {
   update: (next: WorldSnapshot, selection?: MapSelection) => void;
   focusCity: (x: number, y: number) => void;
   setInteraction: (mode: InteractionMode) => void;
+  setActive?: (active: boolean) => void;
   destroy: () => void;
 };
 
@@ -34,6 +35,7 @@ export type WorldMap = {
 export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, ownPlayerId: string, onSelect: (selection: MapSelection | undefined) => void): WorldMap {
   const app = new Application({ resizeTo: container, backgroundColor: 0x0e1b2d, antialias: true });
   const canvas = app.view as HTMLCanvasElement;
+  canvas.dataset.worldTerrainStyle = "continuous-v1";
   container.appendChild(canvas);
 
   const camera = new Container();
@@ -161,21 +163,90 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
     if (sig === bakedTerrain && terrainSprite) return;
     bakedTerrain = sig;
     const field = new Graphics();
-    for (let y = 0; y < mapExtent; y += 1) for (let x = 0; x < mapExtent; x += 1) {
+    const localPoint = (x: number, y: number) => {
       const [wx, wy] = worldPoint(x, y);
+      return [wx - bounds.x + terrainPad, wy - bounds.y + terrainPad] as const;
+    };
+    const last = mapExtent - 1;
+    const top = localPoint(0, 0);
+    const right = localPoint(last, 0);
+    const bottom = localPoint(last, last);
+    const left = localPoint(0, last);
+
+    // Gameplay still resolves against integer tiles, but the player sees one
+    // continuous land mass. Terrain types below are overlapping organic patches,
+    // never individually outlined cells.
+    field.beginFill(0x31583a);
+    field.drawPolygon([
+      top[0], top[1] - tileHeight / 2,
+      right[0] + tileWidth / 2, right[1],
+      bottom[0], bottom[1] + tileHeight / 2,
+      left[0] - tileWidth / 2, left[1],
+    ]);
+    field.endFill();
+
+    const colors = { forest: 0x1d4428, hills: 0x65563a, swamp: 0x314b4b } as const;
+    for (let y = 0; y < mapExtent; y += 1) for (let x = 0; x < mapExtent; x += 1) {
       const terrain = state.terrainOverrides?.[`${x},${y}`] ?? terrainAt(x, y);
-      let color = 0x21423f;
-      if (terrain === "forest") color = 0x1a3f20;
-      else if (terrain === "hills") color = 0x4a3f2a;
-      else if (terrain === "swamp") color = 0x2a3540;
-      field.beginFill(color);
-      field.lineStyle(1, 0x39645b, 0.5);
-      diamond(field, wx - bounds.x + terrainPad, wy - bounds.y + terrainPad);
-      field.endFill();
+      const [cx, cy] = localPoint(x, y);
+      const noise = ((x * 73856093) ^ (y * 19349663)) >>> 0;
+      if (terrain !== "plains") {
+        const width = tileWidth * (0.53 + (noise % 9) / 100);
+        const height = tileHeight * (0.62 + ((noise >>> 4) % 11) / 100);
+        field.beginFill(colors[terrain], 0.9);
+        field.drawEllipse(cx, cy, width, height);
+        field.endFill();
+      } else if (noise % 5 === 0) {
+        field.beginFill(noise % 2 ? 0x3b6540 : 0x496b3d, 0.22);
+        field.drawEllipse(cx + (noise % 7) - 3, cy, tileWidth * 0.34, tileHeight * 0.3);
+        field.endFill();
+      }
     }
+
     if (!terrainTexture) terrainTexture = RenderTexture.create({ width: bounds.width + terrainPad * 2, height: bounds.height + terrainPad * 2, resolution: terrainResolution });
+    field.filters = [new BlurFilter(3.5, 2)];
     app.renderer.render(field, { renderTexture: terrainTexture, clear: true });
     field.destroy();
+
+    const details = new Graphics();
+
+    // Sparse cartographic silhouettes give terrain meaning at a glance without
+    // exposing the simulation grid beneath it.
+    for (let y = 0; y < mapExtent; y += 1) for (let x = 0; x < mapExtent; x += 1) {
+      const terrain = state.terrainOverrides?.[`${x},${y}`] ?? terrainAt(x, y);
+      const markerSeed = ((x * 83492791) ^ (y * 2971215073)) >>> 0;
+      if (markerSeed % 4 !== 0) continue;
+      const [cx, cy] = localPoint(x, y);
+      if (terrain === "forest") {
+        details.beginFill(0x102f1d, 0.72);
+        details.drawCircle(cx - 5, cy - 2, 4.2);
+        details.drawCircle(cx + 1, cy - 5, 5.2);
+        details.drawCircle(cx + 7, cy - 1, 3.8);
+        details.endFill();
+      } else if (terrain === "hills") {
+        details.beginFill(0x3e3527, 0.68);
+        details.drawPolygon([cx - 12, cy + 5, cx - 3, cy - 7, cx + 4, cy + 5]);
+        details.drawPolygon([cx - 1, cy + 5, cx + 7, cy - 4, cx + 14, cy + 5]);
+        details.endFill();
+      } else if (terrain === "swamp") {
+        details.lineStyle(1.5, 0x172f31, 0.72);
+        for (const offset of [-7, 0, 7]) {
+          details.moveTo(cx + offset, cy + 5);
+          details.lineTo(cx + offset - 1, cy - 4 - Math.abs(offset) * 0.2);
+        }
+      }
+    }
+
+    // One coastline contour defines the world; there are deliberately no
+    // internal cell borders.
+    details.lineStyle(2.5, 0x7fa16a, 0.72);
+    details.moveTo(top[0], top[1] - tileHeight / 2);
+    details.lineTo(right[0] + tileWidth / 2, right[1]);
+    details.lineTo(bottom[0], bottom[1] + tileHeight / 2);
+    details.lineTo(left[0] - tileWidth / 2, left[1]);
+    details.closePath();
+    app.renderer.render(details, { renderTexture: terrainTexture, clear: false });
+    details.destroy();
     if (!terrainSprite) {
       terrainSprite = new Sprite(terrainTexture);
       terrainSprite.position.set(bounds.x - terrainPad, bounds.y - terrainPad);
@@ -198,9 +269,9 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
       const border = event.eventType === "gold_rush" ? 0x7dff72 : event.eventType === "plague" ? 0xc26cff : 0xff5c57;
       for (const tile of event.affectedTiles) {
         const [wx, wy] = worldPoint(tile.x, tile.y);
-        eventField.beginFill(color, 0.55);
-        eventField.lineStyle(3, border, 0.95);
-        diamond(eventField, wx, wy);
+        eventField.beginFill(color, 0.48);
+        eventField.lineStyle(2, border, 0.82);
+        eventField.drawEllipse(wx, wy, tileWidth * 0.48, tileHeight * 0.58);
         eventField.endFill();
       }
     }
@@ -262,11 +333,11 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
         marker.beginFill(0xf0d15a); marker.drawRoundedRect(-12, -12, 24, 24, 4); marker.endFill();
         marker.lineStyle(2, 0x8a6d1a); marker.moveTo(5, -5); marker.lineTo(-5, 5); // anchor cross
         root.addChild(marker);
-        view = { root, label: addLabel(root, hub.name, 11, 0xffe9a3, 0, 21), text: hub.name };
+        view = { root, label: addLabel(root, hub.name, 11, 0xffe9a3, 0, mapLabelOffsetY("market")), text: hub.name };
         hubs.set(hub.id, view);
         hubLayer.addChild(root);
       }
-      if (view.text !== hub.name) { view.text = hub.name; view.label = setLabel(view.root, view.label, hub.name, 11, 0xffe9a3, 0, 21); }
+      if (view.text !== hub.name) { view.text = hub.name; view.label = setLabel(view.root, view.label, hub.name, 11, 0xffe9a3, 0, mapLabelOffsetY("market")); }
       const [wx, wy] = worldPoint(hub.x, hub.y);
       view.root.position.set(wx, wy);
       view.root.zIndex = isoDepth(hub.x, hub.y);
@@ -297,8 +368,8 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
         root.addChild(ring);
         const [wx, wy] = worldPoint(region.seatX, region.seatY);
         root.position.set(wx, wy);
-        // Below the label the hubs use (y 21) so a port's two labels do not collide.
-        view = { root, ring, label: addLabel(root, region.name, 10, 0xc8d6e8, 0, 34), sig: "" };
+        const sharesMarket = state.logistics.marketHubs.some(hub => hub.x === region.seatX && hub.y === region.seatY);
+        view = { root, ring, label: addLabel(root, region.name, 10, 0xc8d6e8, 0, mapLabelOffsetY("region", sharesMarket)), sig: "" };
         view.label.view.visible = regionLabelsVisible(camera.scale.x);
         seats.set(region.code, view);
         regionLayer.addChild(root);
@@ -340,7 +411,7 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
         root.cullable = true;
         const body = new Graphics();
         root.addChild(body);
-        view = { root, body, label: addLabel(root, city.name, 12, 0xffffff, 0, -42), geometry: "", text: city.name };
+        view = { root, body, label: addLabel(root, city.name, 12, 0xffffff, 0, mapLabelOffsetY("city")), geometry: "", text: city.name };
         cities.set(city.id, view);
         cityLayer.addChild(root);
       }
@@ -355,7 +426,7 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
         if (city.frozen && !view.lock) view.lock = addLabel(view.root, "KHÓA", 9, 0xff7676, 0, 32);
         else if (!city.frozen && view.lock) { view.lock.view.destroy(); view.lock = undefined; }
       }
-      if (view.text !== city.name) { view.text = city.name; view.label = setLabel(view.root, view.label, city.name, 12, 0xffffff, 0, -42); }
+      if (view.text !== city.name) { view.text = city.name; view.label = setLabel(view.root, view.label, city.name, 12, 0xffffff, 0, mapLabelOffsetY("city")); }
       const [wx, wy] = worldPoint(city.x, city.y);
       view.root.position.set(wx, wy);
       view.root.zIndex = isoDepth(city.x, city.y);
@@ -533,6 +604,15 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
     update: (next, nextSelection) => { if (destroyed) return; update(next, nextSelection); },
     focusCity,
     setInteraction: (mode) => { if (!destroyed) setInteraction(mode); },
+    setActive: (active: boolean) => {
+      if (destroyed) return;
+      if (active) {
+        app.start();
+        app.renderer.resize(container.clientWidth, container.clientHeight);
+      } else {
+        app.stop();
+      }
+    },
     destroy: () => {
       if (destroyed) return;
       destroyed = true;

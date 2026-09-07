@@ -30,7 +30,7 @@ const AT = "2026-09-03T00:00:00.000Z";
 const city = (over: Partial<City> = {}): City => ({
   id: "city-me", playerId: ME, playerName: "Ember", name: "Hoa Lư", x: 5, y: 5,
   resources: { food: 200, wood: 200, stone: 200, iron: 200 },
-  buildings: { town_hall: 1 }, queues: [], ...over,
+  buildings: { town_hall: 1 }, cityLayoutVersion: 2, cityLayoutRevision: 0, buildingPlots: [{ buildingId: "town_hall", x: 2, y: 2, rotation: 0 }], queues: [], ...over,
 });
 
 const foeCity = (over: Partial<City> = {}): City =>
@@ -97,6 +97,8 @@ const world = (over: Partial<WorldSnapshot> = {}): WorldSnapshot => ({
   protocolVersion: 1,
   kingdom: { id: "kingdom-1", name: "Meridian" },
   season: { id: "season-1", status: "ACTIVE", endsAt: AT },
+  world: { id: "meridian-256-v2", extent: 256, chunkSize: 16, digest: "test", assetManifestUrl: "/assets/world3d/meridian-256-v2/manifest.json" },
+  exploration: { resolution: 64, revision: 0, encodedMask: "" },
   cities: [city(), foeCity()],
   caravans: [], armies: [], heroes: [], scores: {}, factionCatalog: {},
   logistics: { resourceNodes: [], depots: [], tradeRoutes: [], marketHubs: [], throughput: {} },
