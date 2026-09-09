@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { GameStore } from "./store.js";
-import { armyCompositionTotal, type Army } from "@kingdoms/shared";
+import { armyCompositionTotal, type Army, type BattleReport } from "@kingdoms/shared";
+import { battleReportMemoryLimit } from "./combat.js";
 
 test("recruit creates an army if barracks present and deducts resources", () => {
   const store = new GameStore();
@@ -280,6 +281,36 @@ test("a PvP loss releases the losing commander instead of leaving them stuck", (
   assert.equal(store.snapshot.armies.some(a => a.id === army2.id), false, "the losing army is destroyed");
   assert.equal(commander2.assignedArmyId, undefined, "the losing commander is released for reassignment");
   assert.equal(commander1.assignedArmyId, army1.id, "the winner keeps leading");
+});
+
+test("canonical battle reports keep only the newest in-memory window", () => {
+  const store = new GameStore();
+  const player = store.snapshot.players[0]!;
+  const attacker = store.snapshot.armies.find(item => item.ownerPlayerId === player.id)!;
+  const defender = store.snapshot.armies.find(item => item.ownerType === "npc")!;
+  attacker.x = defender.x;
+  attacker.y = defender.y;
+  const oldReports = Array.from({ length: battleReportMemoryLimit }, (_, index) => ({
+    id: `old-report-${index}`,
+    kingdomId: store.snapshot.kingdom.id,
+    seasonId: store.snapshot.season.id,
+    tileX: 0,
+    tileY: 0,
+    terrain: "plains" as const,
+    victor: "draw" as const,
+    seed: index,
+    resolvedAt: new Date(index).toISOString(),
+    rounds: [],
+    attacker: { ownerType: "npc" as const, playerId: null, armyId: `old-a-${index}`, unitType: "infantry" as const, formation: "line" as const, strengthBefore: 1, strengthAfter: 1, moraleBefore: 100, moraleAfter: 100, supplyBefore: 100 },
+    defender: { ownerType: "npc" as const, playerId: null, armyId: `old-d-${index}`, unitType: "infantry" as const, formation: "line" as const, strengthBefore: 1, strengthAfter: 1, moraleBefore: 100, moraleAfter: 100, supplyBefore: 100 },
+  })) satisfies BattleReport[];
+  store.snapshot.battleReports = oldReports;
+
+  const newest = store.combat.attack("report-cap-1", attacker.id, defender.id, player.id, store.snapshot) as BattleReport;
+
+  assert.equal(store.snapshot.battleReports.length, battleReportMemoryLimit);
+  assert.equal(store.snapshot.battleReports[0]!.id, "old-report-1");
+  assert.equal(store.snapshot.battleReports.at(-1)!.id, newest.id);
 });
 
 test("world NPCs carry the composition model so battles against them produce mixed reports", () => {

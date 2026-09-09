@@ -21,6 +21,25 @@ test("REST auth, bootstrap, validation and build command flow", async () => {
   await server.app.close();
 });
 
+test("operation commands are viewer-scoped and idempotent", async () => {
+  const server = createServer();
+  try {
+    const first = (await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Lan", factionId: "meridian" } })).json() as { token: string; player: { id: string } };
+    const second = (await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Operation B", factionId: "bastion" } })).json() as { token: string; player: { id: string } };
+    const army = server.store.snapshot.armies.find(item => item.ownerPlayerId === first.player.id)!;
+    const headers = { authorization: `Bearer ${first.token}` };
+    const payload = { commandId: "operation-api-start-1", armyId: army.id, templateId: "border_expedition" };
+    const started = await server.app.inject({ method: "POST", url: "/api/commands/operation/start", headers, payload });
+    assert.equal(started.statusCode, 200, started.body);
+    const body = started.json() as { snapshot: { activeOperation?: { id: string; currentDecision?: { id: string } } } };
+    assert.equal(body.snapshot.activeOperation?.currentDecision?.id, "route");
+    const replay = await server.app.inject({ method: "POST", url: "/api/commands/operation/start", headers, payload });
+    assert.equal((replay.json() as { result: string }).result, "already_processed");
+    const other = await server.app.inject({ method: "GET", url: "/api/bootstrap", headers: { authorization: `Bearer ${second.token}` } });
+    assert.equal((other.json() as { snapshot: { activeOperation?: unknown } }).snapshot.activeOperation, undefined);
+  } finally { await server.app.close(); }
+});
+
 test("accepted commands are recorded in the event ledger", async () => {
   const server = createServer();
   const response = await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Ledger Player", factionId: "meridian" } });
@@ -259,6 +278,64 @@ test("authenticated read routes share one read bucket and stay open for a normal
   await server.app.close();
 });
 
+test("legacy recruit queues mapped v2 training without creating an army", async () => {
+  const server = createServer();
+  try {
+    const session = (await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Legacy Recruit", factionId: "meridian" } })).json() as { token: string; player: { id: string } };
+    const city = server.store.snapshot.cities.find(item => item.playerId === session.player.id)!;
+    city.buildings.barracks = 1;
+    city.resources = { food: 5_000, wood: 5_000, stone: 5_000, iron: 5_000 };
+    const armyCount = server.store.snapshot.armies.filter(item => item.ownerPlayerId === session.player.id).length;
+    const payload = { commandId: "legacy-recruit-1", cityId: city.id, unitType: "archer", amount: 10 };
+    const first = await server.app.inject({ method: "POST", url: "/api/commands/recruit", headers: { authorization: `Bearer ${session.token}` }, payload });
+    assert.equal(first.statusCode, 200);
+    assert.equal(server.store.snapshot.armies.filter(item => item.ownerPlayerId === session.player.id).length, armyCount);
+    assert.equal(server.store.snapshot.trainingQueues[city.id]!.items[0]!.troopType, "archers");
+    const replay = await server.app.inject({ method: "POST", url: "/api/commands/recruit", headers: { authorization: `Bearer ${session.token}` }, payload });
+    assert.equal(replay.json().result, "already_processed");
+    assert.equal(server.store.snapshot.trainingQueues[city.id]!.items.length, 1);
+  } finally { await server.app.close(); }
+});
+
+test("dev army-v2 fixture is authenticated, valid, and idempotent", async () => {
+  const server = createServer();
+  try {
+    assert.equal((await server.app.inject({ method: "POST", url: "/api/dev/army-v2" })).statusCode, 401);
+    const session = (await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Army Fixture", factionId: "bastion" } })).json() as { token: string; player: { id: string } };
+    const headers = { authorization: `Bearer ${session.token}` };
+    const first = await server.app.inject({ method: "POST", url: "/api/dev/army-v2", headers });
+    const second = await server.app.inject({ method: "POST", url: "/api/dev/army-v2", headers });
+    assert.equal(first.statusCode, 200);
+    assert.equal(second.json().armyId, first.json().armyId);
+    const city = server.store.snapshot.cities.find(item => item.playerId === session.player.id)!;
+    const army = server.store.snapshot.armies.find(item => item.id === first.json().armyId)!;
+    assert.deepEqual({ x: army.x, y: army.y, homeCityId: army.homeCityId, strength: army.strength, troopType: army.composition?.frontline?.troopType, count: army.composition?.frontline?.count }, { x: city.x, y: city.y, homeCityId: city.id, strength: 10, troopType: "shield_infantry", count: 10 });
+    assert.equal(army.commanderId, `commander-logistics-${session.player.id}`);
+  } finally { await server.app.close(); }
+});
+
+test("inactive seasons reject new gameplay over HTTP but preserve retries and bypass commands", async () => {
+  const server = createServer();
+  try {
+    const session = (await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Season Gate", factionId: "meridian" } })).json() as { token: string; player: { id: string } };
+    const headers = { authorization: `Bearer ${session.token}` };
+    const city = server.store.snapshot.cities.find(item => item.playerId === session.player.id)!;
+    city.buildings.barracks = 1;
+    city.resources = { food: 5_000, wood: 5_000, stone: 5_000, iron: 5_000 };
+    const committed = { commandId: "season-http-committed", cityId: city.id, unitType: "infantry", amount: 10 };
+    assert.equal((await server.app.inject({ method: "POST", url: "/api/commands/recruit", headers, payload: committed })).statusCode, 200);
+    server.store.snapshot.season.status = "FINALIZING";
+    const replay = await server.app.inject({ method: "POST", url: "/api/commands/recruit", headers, payload: committed });
+    assert.equal(replay.json().result, "already_processed");
+    const blocked = await server.app.inject({ method: "POST", url: "/api/commands/recruit", headers, payload: { ...committed, commandId: "season-http-blocked" } });
+    assert.deepEqual({ statusCode: blocked.statusCode, code: blocked.json().code }, { statusCode: 400, code: "SEASON_NOT_ACTIVE" });
+    const onboarding = await server.app.inject({ method: "POST", url: "/api/commands/onboarding/ack", headers, payload: { commandId: "season-http-onboarding", step: "city_inspected" } });
+    assert.equal(onboarding.statusCode, 200);
+    const cosmetic = await server.app.inject({ method: "POST", url: "/api/commands/cosmetics/equip", headers, payload: { commandId: "season-http-cosmetic", slot: "avatar_frame", itemId: null } });
+    assert.equal(cosmetic.statusCode, 200);
+  } finally { await server.app.close(); }
+});
+
 test("logistics REST flow supports retry-safe commands", async () => {
   const server = createServer();
   const login = await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "Logistics Player", factionId: "meridian" } });
@@ -277,6 +354,7 @@ test("logistics REST flow supports retry-safe commands", async () => {
     .sort((a, b) => (Math.abs(a.x - city.x) + Math.abs(a.y - city.y)) - (Math.abs(b.x - city.x) + Math.abs(b.y - city.y)))[0]!;
   const harvest = await server.app.inject({ method: "POST", url: "/api/commands/harvest", headers, payload: { commandId: "rest-harvest-1", nodeId: node.id, cityId: city.id, amount: 50 } });
   assert.equal(harvest.statusCode, 200);
+  assert.deepEqual(harvest.json().data, { status: "accepted", requestedAmount: 50, receivedAmount: 50, modifier: 1, eventIds: [] });
   const retry = await server.app.inject({ method: "POST", url: "/api/commands/harvest", headers, payload: { commandId: "rest-harvest-1", nodeId: node.id, cityId: city.id, amount: 50 } });
   assert.equal(retry.statusCode, 200);
   assert.equal(server.store.snapshot.cities.find(item => item.id === city.id)!.resources.wood, 550);

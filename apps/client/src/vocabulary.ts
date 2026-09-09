@@ -145,6 +145,7 @@ export const unitLabel = (unitType: UnitType): string => gameRules.recruitment[u
 export const npcLabels: Record<NpcKind, string> = {
   raider: "Băng cướp",
   migration: "Đám di cư",
+  rival: "Quân đối địch",
 };
 
 /** Bare, like `treatyLabels`: the call site supplies "Đội hình" where the

@@ -23,6 +23,48 @@ test("loading an old world rejects before repositories can write or replace its 
   assert.equal(legacy.cities[0]!.x, 8);
 });
 
+test("inactive seasons gate gameplay after idempotency while allowing onboarding and cosmetics", async () => {
+  const store = new GameStore();
+  const player = store.snapshot.players[0]!;
+  let calls = 0;
+  const committed = { eventType: "build.accepted", aggregateType: "build", aggregateId: player.id, commandId: "season-retry", actorPlayerId: player.id };
+  await store.executeCommand(committed, () => { calls += 1; return "accepted"; });
+  store.snapshot.season.status = "FINALIZING";
+  const replay = await store.executeCommand(committed, () => { calls += 1; return "accepted"; });
+  assert.equal(replay.alreadyApplied, true);
+  assert.equal(calls, 1);
+  await assert.rejects(store.executeCommand({ ...committed, commandId: "season-blocked" }, () => "accepted"), /SEASON_NOT_ACTIVE/);
+  const bypass = await store.executeCommand({ ...committed, aggregateType: "onboarding_ack", commandId: "season-onboarding" }, () => "accepted");
+  assert.equal(bypass.result, "accepted");
+  const cosmetic = await store.executeCommand({ ...committed, aggregateType: "cosmetics_equip", commandId: "season-cosmetic" }, () => "accepted");
+  assert.equal(cosmetic.result, "accepted");
+});
+
+test("store tick completes research exactly once", () => {
+  const store = new GameStore();
+  const player = store.snapshot.players[0]!;
+  store.snapshot.researchQueues[player.id] = { playerId: player.id, items: [{ id: "done", playerId: player.id, technologyId: "crop_rotation", startedAt: new Date(0).toISOString(), completesAt: new Date(0).toISOString() }] };
+  store.tick();
+  assert.deepEqual(store.snapshot.technologyProgress[player.id]?.unlocked, ["crop_rotation"]);
+  assert.equal(store.snapshot.researchQueues[player.id]!.items.length, 0);
+  store.tick();
+  assert.deepEqual(store.snapshot.technologyProgress[player.id]?.unlocked, ["crop_rotation"]);
+});
+
+test("territory revision advances only when controller map changes", () => {
+  const store = new GameStore();
+  for (const army of store.snapshot.armies.filter(item => item.ownerType === "player")) { army.x = 0; army.y = 0; }
+  store.recalculateScores();
+  const first = store.snapshot.regionControlRevision;
+  store.recalculateScores();
+  assert.equal(store.snapshot.regionControlRevision, first);
+  const province = regions.find(region => region.name === "Cửa Chợ Meridian")!;
+  store.snapshot.armies[0]!.x = province.seatX;
+  store.snapshot.armies[0]!.y = province.seatY;
+  store.recalculateScores();
+  assert.ok(store.snapshot.regionControlRevision > first);
+});
+
 test("build commands enforce ownership, costs, and the two-queue limit", () => {
   const store = new GameStore();
   const player = store.snapshot.players[0];

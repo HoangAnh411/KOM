@@ -114,17 +114,10 @@ test("battle reports reach only participants, not a spectator", async ({ browser
   const attackerSession = await login(attackerPage, attacker);
   await login(spectatorPage, spectator);
 
-  // --- Attacker: barracks, infantry, mob assault (same flow as army.spec) ---
-  const barracksResponse = attackerPage.waitForResponse(response => response.url().endsWith("/api/commands/build"));
-  await attackerPage.getByRole("button", { name: "Xây trại lính" }).click();
-  expect((await barracksResponse).ok()).toBeTruthy();
-  await expect(attackerPage.getByText("Hàng đợi xây: 0/2")).toBeVisible({ timeout: 25000 });
-  await attackerPage.getByRole("button", { name: "Tuyển quân mới" }).click();
-  const recruitModal = attackerPage.getByRole("dialog", { name: "Tuyển quân" });
-  await recruitModal.getByRole("radio", { name: /^Bộ binh/ }).check();
-  const recruitResponse = attackerPage.waitForResponse(response => response.url().endsWith("/api/commands/recruit"));
-  await recruitModal.getByRole("button", { name: /^Tuyển 10/ }).click();
-  expect((await recruitResponse).ok()).toBeTruthy();
+  // --- Attacker: provision a v2 army, then launch the same deterministic mob
+  // assault used by army.spec. Campaign E2E owns the training timer itself. ---
+  const provisioned = await attackerPage.request.post(`${api}/api/dev/army-v2`, { headers: { authorization: `Bearer ${attackerSession.token}` } });
+  expect(provisioned.ok()).toBeTruthy();
   const armyRow = attackerPage.getByTestId("army-row").first();
   await expect(armyRow).toContainText("Bộ binh · 10");
   const prepared = await attackerPage.request.post(`${api}/api/dev/battle-target`, { headers: { authorization: `Bearer ${attackerSession.token}` } });

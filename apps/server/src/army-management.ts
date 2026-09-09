@@ -35,6 +35,7 @@ function editableArmy(state: GameState, armyId: string, playerId: string): Army 
   const army = state.armies.find(item => item.id === armyId);
   if (!army || army.ownerPlayerId !== playerId) throw new Error("ARMY_ACCESS_DENIED");
   if (army.strength <= 0) throw new Error("ARMY_DESTROYED");
+  if (army.deployedOperationId) throw new Error("ARMY_DEPLOYED_OPERATION");
   if (activeOrder(army)) throw new Error("ARMY_IN_TRANSIT");
   if (army.homeCityId) {
     const city = state.cities.find(item => item.id === army.homeCityId && item.playerId === playerId);
@@ -364,14 +365,6 @@ export class ArmyManagementRepository {
         releaseCommander(state, army);
         state.armies = state.armies.filter(item => item.id !== army.id);
       }
-      changed = true;
-    }
-    for (const [playerId, queue] of Object.entries(state.researchQueues)) {
-      const finished = queue.items.filter(item => Date.parse(item.completesAt) <= now);
-      if (!finished.length) continue;
-      const progress = state.technologyProgress[playerId] ??= { playerId, unlocked: [] };
-      for (const item of finished) if (!progress.unlocked.includes(item.technologyId)) progress.unlocked.push(item.technologyId);
-      queue.items = queue.items.filter(item => Date.parse(item.completesAt) > now);
       changed = true;
     }
     return changed;

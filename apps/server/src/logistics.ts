@@ -4,12 +4,15 @@ import type { Caravan, Depot, DestinationKind, LogisticsSnapshot, MarketHub, Res
 import { anchors, gameRules, regionAt, worldId } from "@kingdoms/shared";
 import type { CityState, GameState } from "./types.js";
 import { CommandRegistry } from "./command-registry.js";
+import { activeHarvestEffect } from "./world-events.js";
 
 type Throughput = { wood: number; stone: number; iron: number };
 type LogisticsData = LogisticsSnapshot & { caravans: Caravan[] };
 // Claimed command ids used to be copied in here too, twice per command. They live in the shared
 // `CommandRegistry` now, which the store rolls back in one call; this capture is the real state.
 type LogisticsCapture = { data: LogisticsData };
+export type HarvestResult = { status: "accepted"; requestedAmount: number; receivedAmount: number; modifier: number; eventIds: string[] };
+
 const resourceKeys = ["wood", "stone", "iron"] as const;
 const emptyThroughput = (): Throughput => ({ wood: 0, stone: 0, iron: 0 });
 const depotCapacity = (level: number) => level * 100;
@@ -190,7 +193,7 @@ export class LogisticsRepository {
   }
   private claim(commandId: string): boolean { return this.commands.claim(commandId); }
 
-  harvest(commandId: string, nodeId: string, cityId: string, playerId: string, amount: number, state: GameState): string {
+  harvest(commandId: string, nodeId: string, cityId: string, playerId: string, amount: number, state: GameState): HarvestResult | "already_processed" {
     assertActivePlayer(state, playerId);
     const city = state.cities.find(item => item.id === cityId); const node = this.data.resourceNodes.find(item => item.id === nodeId);
     if (!city || city.playerId !== playerId) throw new Error("CITY_ACCESS_DENIED");
@@ -198,10 +201,12 @@ export class LogisticsRepository {
     if ((city.buildings.road_depot ?? 0) < 1) throw new Error("DEPOT_REQUIRED");
     if (Math.abs(city.x - node.x) + Math.abs(city.y - node.y) > gameRules.logistics.harvestRange) throw new Error("HARVEST_OUT_OF_RANGE");
     if (!this.claim(commandId)) return "already_processed";
-    city.resources[node.resourceType] += amount; node.remaining -= amount;
-    const produced = state.seasonMetrics.resourcesProduced[playerId] ??= { wood: 0, stone: 0, iron: 0 }; produced[node.resourceType] += amount;
+    const effect = activeHarvestEffect(node.x, node.y, state);
+    const receivedAmount = amount * effect.modifier;
+    city.resources[node.resourceType] += receivedAmount; node.remaining -= amount;
+    const produced = state.seasonMetrics.resourcesProduced[playerId] ??= { wood: 0, stone: 0, iron: 0 }; produced[node.resourceType] += receivedAmount;
     state.logisticsCounters.harvests[playerId] = (state.logisticsCounters.harvests[playerId] ?? 0) + 1;
-    return "accepted";
+    return { status: "accepted", requestedAmount: amount, receivedAmount, modifier: effect.modifier, eventIds: effect.eventIds };
   }
 
   createRoute(commandId: string, sourceCityId: string, destination: { kind: DestinationKind; id: string }, playerId: string, state: GameState): TradeRoute {

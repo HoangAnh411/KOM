@@ -11,7 +11,7 @@ import { CITY_ASSET_SET_ID, cityBuildingVisuals, type CityAssetKey } from "./man
 import { cloneCityAsset, getLoadedAsset } from "./loader.js";
 import { graphicsDpr } from "../graphics.js";
 import { isModalOpen } from "../ui/Modal.js";
-import type { CityBuildingState, CitySceneInstance, CitySceneOptions } from "./types.js";
+import { citySceneContentSignatures, type CityBuildingState, type CitySceneInstance, type CitySceneOptions } from "./types.js";
 
 const CELL_SIZE = 2;
 const ROAD_Y = 0.045;
@@ -506,16 +506,6 @@ export function createCityScene(container: HTMLElement, initialOptions: CityScen
       colliders.push(collider);
 
       if (building.isUpgrading) createScaffold(placement, Math.max(baseDims.width, baseDims.height) * 0.7);
-      if (building.buildingId === options.selectedBuildingId) {
-        const ring = markOwned(new THREE.Mesh(
-          new THREE.RingGeometry(Math.max(baseDims.width, baseDims.height) * 0.84, Math.max(baseDims.width, baseDims.height) * 1.04, 40),
-          new THREE.MeshBasicMaterial({ color: 0xffd76b, transparent: true, opacity: 0.82, side: THREE.DoubleSide }),
-        ));
-        ring.rotation.x = -Math.PI / 2;
-        ring.position.y = 0.075;
-        placement.add(ring);
-      }
-      if (options.mode === "edit" && options.placementDraft?.buildingId === building.buildingId) visual.visible = false;
       buildingsGroup.add(placement);
       buildingMeshes.set(building.buildingId, placement);
     }
@@ -671,6 +661,23 @@ export function createCityScene(container: HTMLElement, initialOptions: CityScen
     renderer.domElement.dataset.cityGrid = options.mode === "view" ? "hidden" : "local-only";
     const boundary = groundGroup.getObjectByName("build-boundary");
     if (boundary) boundary.visible = options.mode !== "view";
+    const selectedBuildingId = options.selectedBuildingId;
+    const selected = selectedBuildingId ? buildingMeshes.get(selectedBuildingId) : undefined;
+    if (selected && selectedBuildingId) {
+      const dims = buildingDimensions(selectedBuildingId, 0);
+      const ring = markOwned(new THREE.Mesh(
+        new THREE.RingGeometry(Math.max(dims.width, dims.height) * 0.84, Math.max(dims.width, dims.height) * 1.04, 40),
+        new THREE.MeshBasicMaterial({ color: 0xffd76b, transparent: true, opacity: 0.82, side: THREE.DoubleSide }),
+      ));
+      ring.rotation.x = -Math.PI / 2;
+      ring.position.copy(selected.position);
+      ring.position.y = 0.075;
+      overlayGroup.add(ring);
+    }
+    for (const building of options.buildings) {
+      const visual = buildingMeshes.get(building.buildingId)?.children[0];
+      if (visual) visual.visible = !(options.mode === "edit" && options.placementDraft?.buildingId === building.buildingId);
+    }
     const draft = options.placementDraft;
     if (options.mode === "view" || !draft) return;
     placementIsValid = validatePlacement(draft);
@@ -706,16 +713,32 @@ export function createCityScene(container: HTMLElement, initialOptions: CityScen
     overlayGroup.add(footprint);
   }
 
-  function rebuildWorld(): void {
+  function rebuildStatic(): void {
     buildGround();
     buildWalls();
-    buildBuildings();
+  }
+
+  function rebuildTopology(): void {
     buildRoads();
     buildProps();
     buildCitizens();
+  }
+
+  function rebuildVisuals(): void {
+    buildWalls();
+    buildBuildings();
+    buildProps();
+    buildCitizens();
+  }
+
+  function rebuildWorld(): void {
+    rebuildStatic();
+    buildBuildings();
+    rebuildTopology();
     buildOverlay();
   }
   rebuildWorld();
+  let contentSignatures = citySceneContentSignatures(options);
 
   function groundIntersection(clientX: number, clientY: number, planeY?: number): THREE.Vector3 | null {
     const rect = renderer.domElement.getBoundingClientRect();
@@ -916,10 +939,22 @@ export function createCityScene(container: HTMLElement, initialOptions: CityScen
   window.addEventListener("keydown", onKeyDown);
 
   let animationFrame = 0;
+  let active = true;
   const clock = new THREE.Clock();
-  const animate = () => {
-    if (destroyed || document.hidden) return;
+  const shouldAnimate = () => active && !destroyed && !document.hidden;
+  const stopAnimation = () => {
+    if (animationFrame) cancelAnimationFrame(animationFrame);
+    animationFrame = 0;
+    clock.stop();
+  };
+  const startAnimation = () => {
+    if (!shouldAnimate() || animationFrame) return;
+    clock.start();
     animationFrame = requestAnimationFrame(animate);
+  };
+  function animate() {
+    animationFrame = 0;
+    if (!shouldAnimate()) return;
     const delta = Math.min(clock.getDelta(), 0.05);
     mixers.forEach(mixer => mixer.update(delta));
     for (const citizen of citizens) {
@@ -937,29 +972,47 @@ export function createCityScene(container: HTMLElement, initialOptions: CityScen
       }
     }
     renderer.render(scene, camera);
-  };
+    animationFrame = requestAnimationFrame(animate);
+  }
   const onVisibilityChange = () => {
-    cancelAnimationFrame(animationFrame);
-    if (!document.hidden && !destroyed) { clock.start(); animationFrame = requestAnimationFrame(animate); }
+    if (document.hidden) stopAnimation();
+    else startAnimation();
   };
   document.addEventListener("visibilitychange", onVisibilityChange);
-  animationFrame = requestAnimationFrame(animate);
+  startAnimation();
 
   function updateOptions(next: Partial<CitySceneOptions>): void {
-    const worldChanged = next.gridSize !== undefined && next.gridSize !== options.gridSize
-      || next.cityId !== undefined && next.cityId !== options.cityId
-      || next.factionId !== undefined && next.factionId !== options.factionId
-      || next.equipped !== undefined && next.equipped !== options.equipped
-      || next.buildings !== undefined && next.buildings !== options.buildings;
-    const selectionChanged = next.selectedBuildingId !== undefined && next.selectedBuildingId !== options.selectedBuildingId;
     options = { ...options, ...next };
+    const nextSignatures = citySceneContentSignatures(options);
+    const staticChanged = nextSignatures.static !== contentSignatures.static;
+    const topologyChanged = nextSignatures.topology !== contentSignatures.topology;
+    const visualChanged = nextSignatures.visual !== contentSignatures.visual;
+    const overlayChanged = nextSignatures.overlay !== contentSignatures.overlay;
+    contentSignatures = nextSignatures;
+
     renderer.domElement.dataset.cityFaction = options.factionId;
     renderer.domElement.dataset.cityFlagColor = options.equipped?.flag_color ?? "default";
-    if (worldChanged) rebuildWorld();
-    else {
-      if (selectionChanged) buildBuildings();
-      buildOverlay();
+    if (next.quality !== undefined && visualChanged) {
+      renderer.setPixelRatio(graphicsDpr(options.quality === "medium" ? "balanced" : options.quality));
+      renderer.shadowMap.enabled = options.quality !== "low";
+      sun.castShadow = options.quality !== "low";
+      sun.shadow.mapSize.set(options.quality === "high" ? 2048 : 1024, options.quality === "high" ? 2048 : 1024);
+      updateProjection();
     }
+    if (staticChanged) rebuildStatic();
+    if (staticChanged || topologyChanged) {
+      buildBuildings();
+      rebuildTopology();
+    } else if (visualChanged) {
+      rebuildVisuals();
+    }
+    if (staticChanged || topologyChanged || visualChanged || overlayChanged) buildOverlay();
+  }
+
+  function setActive(nextActive: boolean): void {
+    active = nextActive;
+    if (active) startAnimation();
+    else stopAnimation();
   }
 
   function focusBuilding(buildingId: BuildingId): void {
@@ -979,7 +1032,7 @@ export function createCityScene(container: HTMLElement, initialOptions: CityScen
 
   function destroy(): void {
     destroyed = true;
-    cancelAnimationFrame(animationFrame);
+    stopAnimation();
     document.removeEventListener("visibilitychange", onVisibilityChange);
     window.removeEventListener("resize", onResize);
     window.removeEventListener("keydown", onKeyDown);
@@ -998,7 +1051,12 @@ export function createCityScene(container: HTMLElement, initialOptions: CityScen
 
   return {
     updateOptions,
-    setEditPlacement(placement) { options.placementDraft = placement; buildOverlay(); },
+    setEditPlacement(placement) {
+      options.placementDraft = placement;
+      contentSignatures = citySceneContentSignatures(options);
+      buildOverlay();
+    },
+    setActive,
     rotateSelectedBuilding,
     focusBuilding,
     resetCamera,

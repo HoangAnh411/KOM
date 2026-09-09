@@ -8,6 +8,8 @@ import { resolveBattle } from "./battle-engine.js";
 import { resolveMixedBattle, allocateCasualties, type MixedBattleOutput, type MixedBattleSide } from "./mixed-battle-engine.js";
 import { dropEmptySquads, legacyUnitTypeOf, releaseCommander, specialtyForUnit, troopTypeForUnit } from "./army-model.js";
 
+export const battleReportMemoryLimit = 200;
+
 /** What the ground is at a tile: the authored world, with `map_tiles` overrides on top. Every
  *  reader goes through this — a raw `state.terrainMap[key]` lookup would answer `undefined` for
  *  the 1296 tiles nobody has overridden, which is every tile today. */
@@ -157,6 +159,7 @@ export class CombatRepository {
     assertActivePlayer(state, playerId);
     const army = state.armies.find(a => a.id === armyId);
     if (!army || army.ownerPlayerId !== playerId) throw new Error("ARMY_ACCESS_DENIED");
+    if (army.deployedOperationId) throw new Error("ARMY_DEPLOYED_OPERATION");
     if (army.strength <= 0) throw new Error("ARMY_DESTROYED");
     if (!this.claim(commandId)) return "already_processed";
 
@@ -182,6 +185,7 @@ export class CombatRepository {
     const source = state.armies.find(a => a.id === sourceId);
     const target = state.armies.find(a => a.id === targetId);
     if (!source || !target || source.ownerPlayerId !== playerId || target.ownerPlayerId !== playerId) throw new Error("ARMY_ACCESS_DENIED");
+    if (source.deployedOperationId || target.deployedOperationId) throw new Error("ARMY_DEPLOYED_OPERATION");
     if (source.x !== target.x || source.y !== target.y) throw new Error("NOT_ON_SAME_TILE");
     if (source.composition && target.composition) return this.mergeCompositions(commandId, source, target, state);
     if (source.unitType !== target.unitType) throw new Error("UNIT_TYPE_MISMATCH");
@@ -253,6 +257,7 @@ export class CombatRepository {
     const defender = state.armies.find(a => a.id === defenderArmyId);
 
     if (!attacker || attacker.ownerPlayerId !== playerId) throw new Error("ARMY_ACCESS_DENIED");
+    if (attacker.deployedOperationId) throw new Error("ARMY_DEPLOYED_OPERATION");
     if (!defender) throw new Error("TARGET_NOT_FOUND");
     assertActiveTarget(state, defender.ownerPlayerId, defender.frozen);
     if (attacker.ownerPlayerId === defender.ownerPlayerId) throw new Error("INVALID_TARGET");
@@ -325,6 +330,7 @@ export class CombatRepository {
         stance: army.stance ?? "balanced",
         morale: army.morale,
         supply: army.supply,
+        factionId: army.ownerPlayerId ? state.players.find(player => player.id === army.ownerPlayerId)?.factionId ?? "ravager" : "ravager",
       };
     };
     if (attackerReady || defenderReady) {
@@ -456,6 +462,7 @@ export class CombatRepository {
     }
     
     state.battleReports.push(report);
+    if (state.battleReports.length > battleReportMemoryLimit) state.battleReports.splice(0, state.battleReports.length - battleReportMemoryLimit);
     if (broadcast) this.reportsToBroadcast.push(report);
 
     // Clean up destroyed armies

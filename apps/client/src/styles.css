@@ -4,7 +4,7 @@
 :root { font-family: var(--kom-font-ui); color: var(--kom-text); background: var(--kom-bg-app); font-synthesis: none; }
 * { box-sizing: border-box; }
 body { margin: 0; min-width: 320px; }
-main { height: 100vh; position: relative; overflow: hidden; }
+main { height: 100vh; height: 100dvh; position: relative; overflow: hidden; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
 
 /* ── SITUATION ROOM SHELL ─────────────────────────────────────────────────────
  * Five areas: a header that never collapses, three columns, and a command tray.
@@ -228,7 +228,7 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
    never read. `pointer-events` is the load-bearing part: the layer and the toast
    let clicks through to the HUD underneath, and the dismiss button takes them
    back — a notice about a command must not block the control that issues one. */
-.toast-layer { position: fixed; right: 18px; bottom: 86px; z-index: var(--kom-z-toast); display: flex; flex-direction: column; align-items: flex-end; gap: var(--kom-space-3); pointer-events: none; }
+.toast-layer { position: fixed; right: max(18px, env(safe-area-inset-right)); bottom: max(86px, calc(86px + env(safe-area-inset-bottom))); z-index: var(--kom-z-toast); display: flex; flex-direction: column; align-items: flex-end; gap: var(--kom-space-3); pointer-events: none; }
 .toast { display: flex; align-items: center; gap: var(--kom-space-4); max-width: min(92vw, 420px); padding: 12px 16px; border-radius: 10px; background: var(--kom-state-rejected-fill); color: var(--kom-state-rejected-text); box-shadow: var(--kom-shadow-raised); pointer-events: none; }
 .toast__text { min-width: 0; }
 .toast .toast__close { pointer-events: auto; flex: none; color: inherit; }
@@ -262,7 +262,7 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
 .archive-content { display: flex; flex-direction: column; gap: var(--kom-space-3); }
 .archive-season > summary { cursor: pointer; color: var(--kom-text-heading); font-size: .82rem; }
 .archive-rank { padding: .15rem 0; color: var(--kom-text-body); font-size: .8rem; }
-.modal-backdrop { position: fixed; inset: 0; z-index: var(--kom-z-modal); display: flex; align-items: center; justify-content: center; background: var(--kom-scrim); }
+.modal-backdrop { position: fixed; inset: 0; z-index: var(--kom-z-modal); display: flex; align-items: center; justify-content: center; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); background: var(--kom-scrim); }
 /* Two buttons now, so a row rather than a corner: they are the only chrome that
    floats over the canvas, and stacking is what a third one would need. Sizing is
    `density="compact"` on the primitive, not a rule for a raw <button>. */
@@ -282,6 +282,9 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
   background: var(--kom-ink-900);
   color: var(--kom-text-body);
   overflow: hidden;
+  min-height: 100vh;
+  min-height: 100dvh;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
   animation: city-view-fade-in 450ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
@@ -313,6 +316,22 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
 }
 
 .city-view-fallback-shell { position: absolute; inset: 0; }
+.city-2d-fallback { width: 100%; height: 100%; overflow: auto; display: flex; align-items: center; justify-content: center; padding: 40px 20px; }
+.city-2d-sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.city-2d-grid { position: relative; flex: none; display: grid; border: 4px solid var(--kom-border-strong); border-radius: 8px; background: var(--kom-allied-muted); box-shadow: var(--kom-shadow-modal); }
+.city-2d-row { display: grid; grid-template-columns: repeat(var(--city-grid-size, 1), 1fr); }
+.city-2d-cell { width: 100%; height: 100%; min-width: 0; padding: 0; border: 0; border-right: 1px solid var(--kom-surface-chip); border-bottom: 1px solid var(--kom-surface-chip); border-radius: 0; background: none; color: inherit; }
+.city-2d-cell:hover, .city-2d-cell.is-hovered { background: var(--kom-surface-hover); }
+.city-2d-cell:focus-visible { position: relative; z-index: 40; outline: 3px solid var(--kom-primary); outline-offset: -3px; box-shadow: inset 0 0 0 2px var(--kom-ink-900); }
+.city-2d-cell[aria-selected="true"] { background: var(--kom-primary-tint); }
+.city-2d-building { position: absolute; z-index: 10; overflow: hidden; border: 1px solid var(--kom-border-strong); border-radius: 4px; background: var(--kom-surface); pointer-events: none; transform-origin: center; }
+.city-2d-building.is-selected { outline: 3px solid var(--kom-primary); }
+.city-2d-building img, .city-2d-ghost img { width: 100%; height: 100%; object-fit: contain; pointer-events: none; }
+.city-2d-building span { position: absolute; bottom: 2px; left: 2px; padding: 1px 4px; border-radius: 2px; background: var(--kom-bg-chrome); color: var(--kom-text-heading); font-size: 10px; font-weight: var(--kom-weight-bold); }
+.city-2d-ghost { position: absolute; z-index: 20; border: 3px solid; border-radius: 6px; pointer-events: none; }
+.city-2d-ghost.is-valid { border-color: var(--kom-state-success-border); background: var(--kom-state-success-fill); }
+.city-2d-ghost.is-invalid { border-color: var(--kom-state-hostile-border); background: var(--kom-state-hostile-fill); }
+.city-2d-ghost img { opacity: .72; }
 .city-view-fallback-message {
   position: absolute;
   top: 86px;
@@ -388,7 +407,7 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 12px 20px;
+  padding: max(12px, env(safe-area-inset-top)) max(20px, env(safe-area-inset-right)) 12px max(20px, env(safe-area-inset-left));
   background: linear-gradient(to bottom, var(--kom-ink-900-veil) 0%, transparent 100%);
   pointer-events: auto;
   gap: var(--kom-space-4);
@@ -523,7 +542,7 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
   z-index: 20;
   display: flex;
   justify-content: center;
-  padding: 16px 20px;
+  padding: 16px max(20px, env(safe-area-inset-right)) max(16px, env(safe-area-inset-bottom)) max(20px, env(safe-area-inset-left));
   background: linear-gradient(to top, var(--kom-ink-900-veil) 0%, transparent 100%);
   pointer-events: auto;
 }
@@ -1165,6 +1184,17 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
 }
 
 /* Player hub: compact cards keep the map visible behind one focused modal. */
+.player-menu-modal { width: min(560px, calc(100vw - 32px)); }
+.menu-section + .menu-section { margin-top: var(--kom-space-5); padding-top: var(--kom-space-4); border-top: 1px solid var(--kom-border-subtle); }
+.menu-section h3 { margin: 0 0 var(--kom-space-2); color: var(--kom-text-heading); }
+.menu-section p { margin: 0 0 var(--kom-space-3); }
+.menu-audio-controls { display: flex; align-items: center; gap: var(--kom-space-4); flex-wrap: wrap; }
+.menu-audio-controls label { display: grid; flex: 1 1 220px; gap: var(--kom-space-2); color: var(--kom-text-body); font-size: var(--kom-text-sm); }
+.menu-audio-controls input { width: 100%; padding: 0; accent-color: var(--kom-primary); }
+.menu-shortcuts { display: grid; gap: var(--kom-space-2); margin: 0; }
+.menu-shortcuts div { display: grid; grid-template-columns: minmax(120px, .7fr) 1.3fr; gap: var(--kom-space-3); padding: var(--kom-space-2) 0; border-top: 1px solid var(--kom-border-subtle); }
+.menu-shortcuts dt { color: var(--kom-text-heading); font-weight: var(--kom-weight-bold); }
+.menu-shortcuts dd { margin: 0; color: var(--kom-text-body); }
 .player-hub-modal { width: min(720px, calc(100vw - 32px)); max-height: min(760px, calc(100vh - 32px)); overflow: auto; }
 .hub-tabs { display: flex; gap: var(--kom-space-2); margin-bottom: var(--kom-space-5); border-bottom: 1px solid var(--kom-border-subtle); }
 .hub-tabs .kom-btn { border-radius: var(--kom-radius-sm) var(--kom-radius-sm) 0 0; }
@@ -1193,6 +1223,34 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
   .hub-preview { width: 44px; height: 44px; }
   .hub-score-grid { grid-template-columns: repeat(2, 1fr); }
 }
+.world-map-alternatives { position: absolute; z-index: var(--kom-z-map-overlay); right: max(var(--kom-space-4), env(safe-area-inset-right)); bottom: max(var(--kom-space-4), env(safe-area-inset-bottom)); width: min(300px, calc(100% - 32px)); max-height: min(50vh, 360px); overflow: auto; padding: var(--kom-space-3); border: 1px solid var(--kom-border-strong); border-radius: var(--kom-radius-md); background: var(--kom-bg-chrome); box-shadow: var(--kom-shadow-raised); }
+.world-map-alternatives > summary { cursor: pointer; color: var(--kom-text-heading); font-weight: var(--kom-weight-bold); }
+.world-map-alternatives > summary:focus-visible { outline: 2px solid var(--kom-primary); outline-offset: 3px; }
+.world-map-alternatives__list { display: grid; gap: var(--kom-space-1); margin-top: var(--kom-space-3); }
+.world-map-alternatives__item { justify-content: flex-start; width: 100%; text-align: left; }
+
+@media (forced-colors: active) {
+  .city-2d-grid, .city-2d-building, .city-view-fallback-message { border-color: CanvasText; forced-color-adjust: auto; }
+  .city-2d-cell { border-color: GrayText; }
+  .city-2d-cell:focus-visible { outline: 3px solid Highlight; box-shadow: none; }
+  .city-2d-cell[aria-selected="true"], .city-2d-building.is-selected { outline: 3px solid Highlight; background: Highlight; }
+  .city-2d-ghost.is-valid { border-color: LinkText; }
+  .city-2d-ghost.is-invalid { border-color: Mark; }
+  .city-2d-ghost { background: Canvas; }
+  .world-map-alternatives { border: 1px solid CanvasText; }
+  .world-map-alternatives > summary:focus-visible { outline: 2px solid Highlight; }
+  .kom-btn:focus-visible, input:focus-visible, select:focus-visible, summary:focus-visible { outline: 2px solid Highlight; outline-offset: 2px; box-shadow: none; }
+}
+
+/* Solo operation director */
+.operation-panel { margin-block: .65rem; }
+.operation-summary, .operation-controls { display: flex; align-items: center; justify-content: space-between; gap: var(--kom-space-3); flex-wrap: wrap; }
+.operation-decision, .operation-debrief { display: grid; gap: var(--kom-space-3); padding: var(--kom-space-3); border: 1px solid var(--kom-border-accent); background: var(--kom-surface-sunken); }
+.operation-decision > div { display: flex; align-items: center; justify-content: space-between; gap: var(--kom-space-3); }
+.operation-decision span { display: grid; gap: var(--kom-space-1); }
+.operation-decision small { color: var(--kom-text-muted); }
+.operation-controls { justify-content: flex-start; }
+
 /* v2 command surfaces: compact rows keep the map-first shell readable at 720px. */
 .army-preparation-panel,
 .progression-panel { margin-block: .65rem; }

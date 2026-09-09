@@ -381,6 +381,17 @@ test("a province changing hands is reported from our own side, once", () => {
   assert.equal(gained[0]!.message.includes(`${A.code} `), false);
 });
 
+test("territory revision preserves a capture after A→B→A", () => {
+  const region = regions[0]!;
+  let ring = deriveActivity([], { source: "snapshot", previous: world({ regionControl: {}, regionControlRevision: 0 }), next: world({ regionControl: { [region.code]: ME }, regionControlRevision: 1 }), playerId: ME }, NOW);
+  ring = deriveActivity(ring, { source: "snapshot", previous: world({ regionControl: { [region.code]: ME }, regionControlRevision: 1 }), next: world({ regionControl: { [region.code]: FOE }, regionControlRevision: 2 }), playerId: ME }, NOW + 1);
+  ring = deriveActivity(ring, { source: "snapshot", previous: world({ regionControl: { [region.code]: FOE }, regionControlRevision: 2 }), next: world({ regionControl: { [region.code]: ME }, regionControlRevision: 3 }), playerId: ME }, NOW + 2);
+  const captures = ring.filter(row => row.kind === "region-captured");
+  assert.equal(captures.length, 2);
+  assert.deepEqual(captures.map(row => row.id), [`region-captured:${region.code}:${ME}:3`, `region-captured:${region.code}:${ME}:1`]);
+  assert.equal(new Set(ring.map(row => row.id)).size, ring.length);
+});
+
 test("a fight is told once, by the report and not also by the army diff", () => {
   const before = world({ armies: [army()] });
   assert.deepEqual(diff(before, world({ armies: [army({ strength: 40, morale: 30, supply: 60 })] })), [],

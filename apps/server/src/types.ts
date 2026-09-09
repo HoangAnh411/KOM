@@ -1,4 +1,4 @@
-import type { Army, Commander, FactionId, Hero, Resources, Scores, BattleReport, TerrainType, SpyMission, WorldEvent, AllianceVote, BuildingPlacement, CityRotation, Exploration, EquippedCosmetics, OwnedCosmetic, FormationPreset, TrainingQueue, HospitalQueue, TroopReserve, TechnologyProgress, ResearchQueue, CampaignProgress } from "@kingdoms/shared";
+import type { Army, Commander, FactionId, Hero, Resources, Scores, BattleReport, TerrainType, SpyMission, WorldEvent, AllianceVote, BuildingPlacement, CityRotation, Exploration, EquippedCosmetics, OwnedCosmetic, FormationPreset, TrainingQueue, HospitalQueue, TroopReserve, TechnologyProgress, ResearchQueue, CampaignProgress, OperationRun } from "@kingdoms/shared";
 
 export type SeasonStatus = "SCHEDULED" | "ACTIVE" | "FINALIZING" | "CLOSED";
 export type QueueType = "build" | "research";
@@ -12,7 +12,7 @@ export type LegacyRecord = { id: string; ownerId: string; seasonId: string; reco
 export type MilitaryStats = { victories: number; defeats: number; draws: number; strengthDestroyed: number; strengthLost: number; tilesControlled: number; successfulDefenses: number };
 export type SeasonMetrics = { resourcesProduced: Record<string, { wood: number; stone: number; iron: number }> };
 export type CosmeticAccount = { badges: number; owned: OwnedCosmetic[]; equipped: EquippedCosmetics; claimedRewardIds: string[] };
-import type { Alliance, Treaty, DiplomacyStats, DailyQuestMetric } from "@kingdoms/shared";
+import type { Alliance, Treaty, DiplomacyStats, DailyQuestMetric, RegionState, RivalIntent } from "@kingdoms/shared";
 
 export type GameState = {
   kingdom: { id: string; name: string };
@@ -29,6 +29,7 @@ export type GameState = {
   technologyProgress: Record<string, TechnologyProgress>;
   researchQueues: Record<string, ResearchQueue>;
   campaignProgress: Record<string, CampaignProgress>;
+  activeOperations: Record<string, OperationRun>;
   heroes: Hero[];
   scores: Record<string, Scores>;
   seasonHistory: Array<{ seasonId: string; rankings: Array<{ playerId: string; rank: number; overall: number; scores: Scores }>; closedAt: string }>;
@@ -51,6 +52,11 @@ export type GameState = {
    *  of one per spectator. Persisted with the rest of the state only incidentally; a load
    *  that predates the field starts empty and the next tick fills it in. */
   regionControl: Record<string, string>;
+  regionStates: Record<string, RegionState>;
+  rivalIntents: RivalIntent[];
+  /** Monotonic identity for public territory transitions. It advances only when
+   * the controller map changes, allowing A→B→A to remain two distinct facts. */
+  regionControlRevision: number;
   spyMissions: SpyMission[];
   worldEvents: WorldEvent[];
   counterIntelActive: Record<string, string>;

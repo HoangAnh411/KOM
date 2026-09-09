@@ -78,7 +78,7 @@ test("research is queued behind an academy and unlocks after completion", () => 
   store.progression.startResearch("research-start-1", "crop_rotation", player.id, store.snapshot);
   assert.equal(store.snapshot.researchQueues[player.id]!.items.length, 1);
   store.snapshot.researchQueues[player.id]!.items[0]!.completesAt = new Date(0).toISOString();
-  store.armyManagement.tick(store.snapshot, Date.now());
+  store.tick();
   assert.deepEqual(store.snapshot.technologyProgress[player.id]!.unlocked, ["crop_rotation"]);
   assert.equal(store.snapshot.researchQueues[player.id]!.items.length, 0);
 });

@@ -5,7 +5,7 @@ import { anchors, misinformationEffectSeconds, spyMissionConfig } from "@kingdom
 import { EspionageRepository } from "./espionage.js";
 import { CommandRegistry } from "./command-registry.js";
 import { EventLedger } from "./event-ledger.js";
-import { WorldEventEngine } from "./world-events.js";
+import { WorldEventEngine, plaguePeriodMs } from "./world-events.js";
 import { createSeedState } from "./store.js";
 
 test("spy launch applies cost, cooldown and veiled bonus", () => {
@@ -161,8 +161,8 @@ test("world event modifiers affect harvest and plague affects armies", () => {
   state.worldEvents.push({ id: "event-1", kingdomId: state.kingdom.id, eventType: "drought", affectedTiles: [{ x: mine.x, y: mine.y }], modifier: { harvest: 0.5 }, startsAt: new Date(now - 1000).toISOString(), endsAt: new Date(now + 100000).toISOString(), severity: 1 });
   assert.equal(engine.harvestModifier(mine.x, mine.y, state), 0.5);
   const army = state.armies[0];
-  state.worldEvents.push({ id: "event-2", kingdomId: state.kingdom.id, eventType: "plague", affectedTiles: [{ x: army.x, y: army.y }], modifier: {}, startsAt: new Date(now - 1000).toISOString(), endsAt: new Date(now + 100000).toISOString(), severity: 1 });
-  engine.tick(state); assert.equal(army.strength, 95);
+  state.worldEvents.push({ id: "event-2", kingdomId: state.kingdom.id, eventType: "plague", affectedTiles: [{ x: army.x, y: army.y }], modifier: {}, startsAt: new Date(now - plaguePeriodMs).toISOString(), endsAt: new Date(now + 100000).toISOString(), severity: 1, lastPlagueAt: new Date(now - plaguePeriodMs).toISOString() });
+  engine.tick(state, now); assert.equal(army.strength, 95);
 });
 
 test("expired world events are removed", () => {

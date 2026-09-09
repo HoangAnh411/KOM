@@ -95,6 +95,7 @@ export function CityView({ city, onClose }: CityViewProps) {
   const { runCommand, addNotice, state, playerHub } = useGame();
   const factionId: FactionId = state.session?.player.factionId ?? "meridian";
   const containerRef = useRef<HTMLDivElement>(null);
+  const viewRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<CitySceneInstance | null>(null);
   const closeRef = useRef(onClose);
   closeRef.current = onClose;
@@ -129,6 +130,17 @@ export function CityView({ city, onClose }: CityViewProps) {
     rotation: (plot.rotation ?? 0) as CityRotation,
     isUpgrading: queuedBuildingIds.has(plot.buildingId),
   })), [activePlacements, city.buildings, queuedBuildingIds]);
+
+  useEffect(() => {
+    const restoreTo = document.activeElement as HTMLElement | null;
+    const frame = window.requestAnimationFrame(() => {
+      viewRef.current?.querySelector<HTMLElement>("button, [href], input, select, textarea, [tabindex]:not([tabindex='-1'])")?.focus();
+    });
+    return () => {
+      window.cancelAnimationFrame(frame);
+      if (restoreTo?.isConnected) restoreTo.focus();
+    };
+  }, []);
 
   useEffect(() => {
     // React StrictMode mounts effects twice in development. Keep the city as a
@@ -248,6 +260,7 @@ export function CityView({ city, onClose }: CityViewProps) {
           onContextLost: () => setFallbackReason("Kết nối WebGL bị gián đoạn."),
           onZoomOutToWorld: requestClose,
         });
+        sceneRef.current.setActive(!hubMode && !menuOpen);
       })
       .catch(error => {
         console.error("Failed to load authored city assets", error);
@@ -280,6 +293,10 @@ export function CityView({ city, onClose }: CityViewProps) {
       onBuildingMoved: handleBuildingMoved,
     });
   }, [buildingStates, city.buildings, city.id, factionId, handleBuildingMoved, handlePlacementPreview, handleSelectBuilding, mode, placementDraft, playerHub?.equipped, quality, selectedBuildingId, size]);
+
+  useEffect(() => {
+    sceneRef.current?.setActive(!hubMode && !menuOpen);
+  }, [hubMode, menuOpen]);
 
   const enterPlacement = (buildingId: BuildingId) => {
     const draft = initialPlacement(buildingId, size, city.buildingPlots);
@@ -419,7 +436,7 @@ export function CityView({ city, onClose }: CityViewProps) {
 
   return (
     <>
-    <div className={`city-view city-view--${mode}`} data-testid="city-view" data-city-mode={mode}>
+    <div ref={viewRef} className={`city-view city-view--${mode}`} data-testid="city-view" data-city-mode={mode}>
       <div ref={containerRef} className="city-view-canvas" data-testid="city-view-canvas">
         {fallbackReason && (
           <div data-testid="city-view-fallback" className="city-view-fallback-shell">
@@ -472,8 +489,8 @@ export function CityView({ city, onClose }: CityViewProps) {
           <span className="city-view-queue-status">Đội thợ <strong className="kom-num">{queuedBuilds.length}/{BUILD_QUEUE_LIMIT}</strong></span>
           <Button variant="ghost" density="compact" onClick={() => setHubMode("profile")}>Hồ sơ</Button>
           <Button variant="ghost" density="compact" onClick={() => setHubMode("inventory")}>Túi</Button>
-          <Button variant="ghost" density="compact" onClick={() => setHubMode("shop")}>Shop</Button>
-          <Button variant="ghost" density="compact" onClick={() => setMenuOpen(true)}>Menu</Button>
+          <Button variant="ghost" density="compact" onClick={() => setHubMode("shop")}>Cửa hàng</Button>
+          <Button variant="ghost" density="compact" onClick={() => setMenuOpen(true)}>Trình đơn</Button>
           {mode === "view" && <Button variant="primary" density="compact" onClick={() => {
             const next = buildingIds.find(buildingId => (city.buildings[buildingId] ?? 0) === 0 && !queuedBuildingIds.has(buildingId));
             if (next) enterPlacement(next);

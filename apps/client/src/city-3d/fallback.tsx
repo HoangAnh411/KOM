@@ -1,11 +1,13 @@
-import React, { useMemo, useState } from "react";
+import React, { useMemo, useRef, useState, type KeyboardEvent } from "react";
 import {
   buildingDimensions,
   buildingOccupiedTiles,
+  gameRules,
   isPlacementWithinBounds,
 } from "@kingdoms/shared";
 import type { BuildingId, BuildingPlacement, CityRotation } from "@kingdoms/shared";
 import type { CityBuildingState, CityInteractionMode } from "./types.js";
+import { Button } from "../ui/Button.js";
 
 interface City2DFallbackProps {
   gridSize: number;
@@ -41,14 +43,22 @@ export const City2DFallback: React.FC<City2DFallbackProps> = ({
   onBuildingMoved,
 }) => {
   const [hoveredCell, setHoveredCell] = useState<{ x: number; y: number } | null>(null);
-
-  // 2D grid cell sizing
+  const [focusedCell, setFocusedCell] = useState(0);
+  const cellRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const cellPixelSize = Math.max(28, Math.min(54, Math.floor(700 / gridSize)));
 
   const selectedBuilding = useMemo(
-    () => buildings.find(b => b.buildingId === selectedBuildingId) ?? null,
-    [buildings, selectedBuildingId]
+    () => buildings.find(building => building.buildingId === selectedBuildingId) ?? null,
+    [buildings, selectedBuildingId],
   );
+
+  const occupiedByCell = useMemo(() => {
+    const result = new Map<string, CityBuildingState>();
+    for (const building of buildings) {
+      for (const tile of buildingOccupiedTiles(building)) result.set(`${tile.x},${tile.y}`, building);
+    }
+    return result;
+  }, [buildings]);
 
   const placementIsValid = (candidate: BuildingPlacement, exclude?: BuildingId) => {
     if (!isPlacementWithinBounds(candidate, gridSize)) return false;
@@ -60,158 +70,125 @@ export const City2DFallback: React.FC<City2DFallbackProps> = ({
     return buildingOccupiedTiles(candidate).every(tile => !occupied.has(`${tile.x},${tile.y}`));
   };
 
-  const handleCellClick = (cellX: number, cellY: number) => {
+  const activateCell = (cellX: number, cellY: number) => {
     const activeBuildingId = placementDraft?.buildingId ?? selectedBuilding?.buildingId;
     if (mode !== "view" && activeBuildingId) {
-      const bId = activeBuildingId;
-      const rot = (placementDraft?.rotation ?? selectedBuilding?.rotation ?? 0) as CityRotation;
-      const dims = buildingDimensions(bId, rot);
-
-      const targetX = Math.max(0, Math.min(gridSize - dims.width, cellX - Math.floor(dims.width / 2)));
-      const targetY = Math.max(0, Math.min(gridSize - dims.height, cellY - Math.floor(dims.height / 2)));
-
-      const candidate = { buildingId: bId, x: targetX, y: targetY, rotation: rot };
-      const valid = placementIsValid(candidate, mode === "edit" ? bId : undefined);
+      const rotation = (placementDraft?.rotation ?? selectedBuilding?.rotation ?? 0) as CityRotation;
+      const dimensions = buildingDimensions(activeBuildingId, rotation);
+      const targetX = Math.max(0, Math.min(gridSize - dimensions.width, cellX - Math.floor(dimensions.width / 2)));
+      const targetY = Math.max(0, Math.min(gridSize - dimensions.height, cellY - Math.floor(dimensions.height / 2)));
+      const candidate = { buildingId: activeBuildingId, x: targetX, y: targetY, rotation };
+      const valid = placementIsValid(candidate, mode === "edit" ? activeBuildingId : undefined);
       onPlacementPreview?.(candidate, valid);
-      if (mode === "edit" && valid) onBuildingMoved?.(bId, targetX, targetY, rot);
+      if (mode === "edit" && valid) onBuildingMoved?.(activeBuildingId, targetX, targetY, rotation);
       return;
     }
+    onSelectBuilding(occupiedByCell.get(`${cellX},${cellY}`)?.buildingId ?? null);
+  };
 
-    // Check if clicked cell contains a building
-    const clickedBuilding = buildings.find(b => {
-      const tiles = buildingOccupiedTiles(b);
-      return tiles.some(t => t.x === cellX && t.y === cellY);
-    });
-
-    onSelectBuilding(clickedBuilding?.buildingId ?? null);
+  const onCellKeyDown = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
+    const x = index % gridSize;
+    const y = Math.floor(index / gridSize);
+    let nextX = x;
+    let nextY = y;
+    if (event.key === "ArrowLeft") nextX = Math.max(0, x - 1);
+    else if (event.key === "ArrowRight") nextX = Math.min(gridSize - 1, x + 1);
+    else if (event.key === "ArrowUp") nextY = Math.max(0, y - 1);
+    else if (event.key === "ArrowDown") nextY = Math.min(gridSize - 1, y + 1);
+    else return;
+    event.preventDefault();
+    const next = nextY * gridSize + nextX;
+    setFocusedCell(next);
+    cellRefs.current[next]?.focus();
   };
 
   return (
-    <div className="city-2d-fallback" style={{ width: "100%", height: "100%", overflow: "auto", display: "flex", alignItems: "center", justifyContent: "center", padding: "40px 20px" }}>
+    <section className="city-2d-fallback" aria-labelledby="city-2d-title" aria-describedby="city-2d-help">
+      <h2 id="city-2d-title" className="city-2d-sr-only">Bản đồ nội thành 2D</h2>
+      <p id="city-2d-help" className="city-2d-sr-only">Dùng các phím mũi tên để di chuyển giữa các ô. Nhấn Enter hoặc Space để chọn ô hoặc công trình.</p>
       <div
         className="city-2d-grid"
+        role="grid"
+        aria-label={`Bản đồ nội thành ${gridSize} hàng, ${gridSize} cột`}
+        aria-rowcount={gridSize}
+        aria-colcount={gridSize}
         style={{
-          position: "relative",
           width: `${gridSize * cellPixelSize}px`,
           height: `${gridSize * cellPixelSize}px`,
-          backgroundColor: "#829f64",
-          border: "4px solid #4a6b82",
-          borderRadius: "8px",
-          boxShadow: "0 12px 36px rgba(0, 0, 0, 0.45)",
-          display: "grid",
-          gridTemplateColumns: `repeat(${gridSize}, ${cellPixelSize}px)`,
           gridTemplateRows: `repeat(${gridSize}, ${cellPixelSize}px)`,
+          ["--city-grid-size" as string]: gridSize,
         }}
       >
-        {/* Render grid tiles */}
-        {Array.from({ length: gridSize * gridSize }).map((_, idx) => {
-          const gx = idx % gridSize;
-          const gy = Math.floor(idx / gridSize);
-          const isHovered = hoveredCell?.x === gx && hoveredCell?.y === gy;
-
-          return (
-            <div
-              key={`${gx},${gy}`}
-              data-x={gx}
-              data-y={gy}
-              onClick={() => handleCellClick(gx, gy)}
-              onMouseEnter={() => setHoveredCell({ x: gx, y: gy })}
-              onMouseLeave={() => setHoveredCell(null)}
-              style={{
-                width: `${cellPixelSize}px`,
-                height: `${cellPixelSize}px`,
-                borderRight: "1px solid rgba(255,255,255,0.15)",
-                borderBottom: "1px solid rgba(255,255,255,0.15)",
-                backgroundColor: isHovered ? "rgba(255,255,255,0.2)" : "transparent",
-                cursor: mode !== "view" ? "crosshair" : "pointer",
-              }}
-            />
-          );
-        })}
+        {Array.from({ length: gridSize }).map((_, y) => (
+          <div className="city-2d-row" role="row" aria-rowindex={y + 1} key={`row-${y}`}>
+            {Array.from({ length: gridSize }).map((__, x) => {
+              const index = y * gridSize + x;
+              const building = occupiedByCell.get(`${x},${y}`);
+              const buildingName = building ? gameRules.buildings[building.buildingId].name : null;
+              return (
+                <Button
+                  ref={element => { cellRefs.current[index] = element; }}
+                  variant="ghost"
+                  role="gridcell"
+                  key={`${x},${y}`}
+                  data-x={x}
+                  data-y={y}
+                  className={`city-2d-cell${hoveredCell?.x === x && hoveredCell.y === y ? " is-hovered" : ""}${building ? " is-occupied" : ""}`}
+                  aria-colindex={x + 1}
+                  aria-label={`Ô hàng ${y + 1}, cột ${x + 1}${building ? `, ${buildingName}, cấp ${building.level}` : ", ô trống"}`}
+                  aria-selected={building?.buildingId === selectedBuildingId}
+                  tabIndex={focusedCell === index ? 0 : -1}
+                  onFocus={() => setFocusedCell(index)}
+                  onClick={() => activateCell(x, y)}
+                  onKeyDown={event => onCellKeyDown(event, index)}
+                  onMouseEnter={() => setHoveredCell({ x, y })}
+                  onMouseLeave={() => setHoveredCell(null)}
+                />
+              );
+            })}
+          </div>
+        ))}
 
         {mode !== "view" && placementDraft && (() => {
-          const dims = buildingDimensions(placementDraft.buildingId, placementDraft.rotation);
+          const dimensions = buildingDimensions(placementDraft.buildingId, placementDraft.rotation);
           const valid = placementIsValid(placementDraft, mode === "edit" ? placementDraft.buildingId : undefined);
           return <div
             data-city-fallback-ghost
+            className={`city-2d-ghost ${valid ? "is-valid" : "is-invalid"}`}
             style={{
-              position: "absolute",
-              pointerEvents: "none",
               left: `${placementDraft.x * cellPixelSize}px`,
               top: `${placementDraft.y * cellPixelSize}px`,
-              width: `${dims.width * cellPixelSize}px`,
-              height: `${dims.height * cellPixelSize}px`,
-              zIndex: 20,
-              border: `3px solid ${valid ? "#73e28a" : "#ff6670"}`,
-              borderRadius: "6px",
-              background: valid ? "rgba(74, 190, 99, .28)" : "rgba(220, 55, 65, .3)",
-              boxShadow: `0 0 18px ${valid ? "rgba(74, 190, 99, .5)" : "rgba(220, 55, 65, .5)"}`,
+              width: `${dimensions.width * cellPixelSize}px`,
+              height: `${dimensions.height * cellPixelSize}px`,
             }}
           >
-            <img src={BUILDING_IMAGES[placementDraft.buildingId]} alt="" style={{ width: "100%", height: "100%", objectFit: "contain", opacity: .72 }} />
+            <img src={BUILDING_IMAGES[placementDraft.buildingId]} alt="" />
           </div>;
         })()}
 
-        {/* Render placed buildings */}
-        {buildings.map(b => {
-          const dims = buildingDimensions(b.buildingId, b.rotation);
-          const isSelected = b.buildingId === selectedBuildingId;
-          const imgSrc = BUILDING_IMAGES[b.buildingId];
-
+        {buildings.map(building => {
+          const dimensions = buildingDimensions(building.buildingId, building.rotation);
+          const isSelected = building.buildingId === selectedBuildingId;
+          const name = gameRules.buildings[building.buildingId].name;
           return (
             <div
-              key={b.buildingId}
-              onClick={e => {
-                e.stopPropagation();
-                onSelectBuilding(b.buildingId);
-              }}
+              key={building.buildingId}
+              className={`city-2d-building${isSelected ? " is-selected" : ""}`}
+              aria-hidden="true"
               style={{
-                position: "absolute",
-                left: `${b.x * cellPixelSize}px`,
-                top: `${b.y * cellPixelSize}px`,
-                width: `${dims.width * cellPixelSize}px`,
-                height: `${dims.height * cellPixelSize}px`,
-                outline: isSelected ? "3px solid #ffd54f" : "1px solid rgba(0,0,0,0.3)",
-                borderRadius: "4px",
-                overflow: "hidden",
-                cursor: "pointer",
-                zIndex: 10,
-                backgroundColor: "rgba(0,0,0,0.15)",
-                transform: `rotate(${b.rotation}deg)`,
-                transformOrigin: "center center",
-                transition: "outline 0.15s ease",
+                left: `${building.x * cellPixelSize}px`,
+                top: `${building.y * cellPixelSize}px`,
+                width: `${dimensions.width * cellPixelSize}px`,
+                height: `${dimensions.height * cellPixelSize}px`,
+                transform: `rotate(${building.rotation}deg)`,
               }}
-              title={`${b.buildingId} (Cấp ${b.level})`}
             >
-              <img
-                src={imgSrc}
-                alt={b.buildingId}
-                style={{
-                  width: "100%",
-                  height: "100%",
-                  objectFit: "contain",
-                  pointerEvents: "none",
-                }}
-              />
-              <div
-                style={{
-                  position: "absolute",
-                  bottom: 2,
-                  left: 2,
-                  background: "rgba(0,0,0,0.75)",
-                  color: "#fff",
-                  fontSize: "10px",
-                  padding: "1px 4px",
-                  borderRadius: "2px",
-                  fontWeight: "bold",
-                }}
-              >
-                Lv.{b.level}
-              </div>
+              <img src={BUILDING_IMAGES[building.buildingId]} alt="" />
+              <span title={`${name}, cấp ${building.level}`}>Cấp {building.level}</span>
             </div>
           );
         })}
       </div>
-    </div>
+    </section>
   );
 };

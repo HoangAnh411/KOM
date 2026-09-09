@@ -1,0 +1,707 @@
+# Instructions
+
+- Following Playwright test failed.
+- Explain why, be concise, respect Playwright best practices.
+- Provide a snippet of code with the fix, if possible.
+
+# Test info
+
+- Name: territory.spec.ts >> standing on a seat takes the province, and the feed says so once
+- Location: e2e\territory.spec.ts:27:5
+
+# Error details
+
+```
+Error: expect(received).toContain(expected) // indexOf
+
+Expected substring: "Vùng Thượng Nguyên · bạn đang giữ"
+Received string:    "Không thuộc người chơi nào · Đội hình Hàng ngang · Nhuệ khí 100 · Tiếp tế 100% · Vị trí (98,32)"
+
+Call Log:
+- Timeout 15000ms exceeded while waiting on the predicate
+```
+
+# Page snapshot
+
+```yaml
+- main [ref=e3]:
+  - generic [ref=e5]:
+    - banner:
+      - button "Mo ho so chi huy" [ref=e6] [cursor=pointer]:
+        - generic [ref=e7]: T
+        - generic [ref=e8]:
+          - heading "Territory E2E chromium 1788808916652" [level=1] [ref=e9]
+          - generic [ref=e10]: Meridian League
+      - generic "Tai nguyen" [ref=e11]:
+        - 'button "Lương thực: 0" [ref=e12] [cursor=pointer]':
+          - generic [ref=e15]: Lương thực
+          - strong [ref=e16]: "0"
+        - 'button "Gỗ: 320" [ref=e17] [cursor=pointer]':
+          - generic [ref=e20]: Gỗ
+          - strong [ref=e21]: "320"
+        - 'button "Đá: 380" [ref=e22] [cursor=pointer]':
+          - generic [ref=e25]: Đá
+          - strong [ref=e26]: "380"
+        - 'button "Sắt: 410" [ref=e27] [cursor=pointer]':
+          - generic [ref=e30]: Sắt
+          - strong [ref=e31]: "410"
+      - generic [ref=e32]:
+        - text: Mùa còn
+        - strong [ref=e33]: 20158m 49s
+        - generic [ref=e34]:
+          - img "Điểm quân sự" [ref=e35]
+          - strong [ref=e37]: "77"
+        - generic [ref=e38]:
+          - img "Điểm kinh tế" [ref=e39]
+          - strong [ref=e41]: "0"
+        - generic [ref=e42]:
+          - img "Điểm ngoại giao" [ref=e43]
+          - strong [ref=e45]: "0"
+      - status [ref=e46]: Trực tuyến
+      - generic [ref=e48]:
+        - button "Hồ sơ" [ref=e49] [cursor=pointer]
+        - button "Sự kiện" [ref=e53] [cursor=pointer]
+        - button "Đội hình" [ref=e57] [cursor=pointer]
+        - button "Túi" [ref=e61] [cursor=pointer]
+        - button "Shop" [ref=e65] [cursor=pointer]
+        - button "Liên minh" [ref=e69] [cursor=pointer]
+        - button "Báo cáo" [ref=e73] [cursor=pointer]
+        - button "Menu" [ref=e77] [cursor=pointer]
+        - button "Vương quốc" [expanded] [ref=e81] [cursor=pointer]
+        - button "Nhiệm vụ" [expanded] [ref=e85] [cursor=pointer]
+        - button "Thoát" [ref=e89] [cursor=pointer]
+    - complementary "Bảng điều khiển" [ref=e93]:
+      - generic [ref=e94]:
+        - generic [ref=e95]:
+          - generic [ref=e96]:
+            - heading "Meridian League City" [level=2] [ref=e97]
+            - generic [ref=e98]: Trung tâm chỉ huy
+          - button "Đóng bảng Vương quốc" [ref=e99] [cursor=pointer]: ×
+        - navigation "Điều hướng" [ref=e100]:
+          - button "Thành phố" [ref=e101] [cursor=pointer]
+          - button "Quân đội" [ref=e105] [cursor=pointer]
+          - button "Vận tải" [ref=e109] [cursor=pointer]
+          - button "Ngoại giao" [ref=e113] [cursor=pointer]
+      - region "Nhiệm vụ giới thiệu" [ref=e117]:
+        - heading "Bắt đầu chiến lược gia" [level=2] [ref=e119]
+        - generic [ref=e120]:
+          - paragraph [ref=e121]:
+            - text: Đi từng bước để nắm cách chơi · còn
+            - generic [ref=e122]: 6/8
+            - text: bước
+          - list [ref=e123]:
+            - listitem [ref=e124]:
+              - generic [ref=e125]: "1"
+              - generic [ref=e126]: Thăm quan thành phố
+              - generic [ref=e127]:
+                - button "Đi tới" [ref=e128] [cursor=pointer]
+                - button "Hoàn tất bước" [ref=e129] [cursor=pointer]
+            - listitem [ref=e130]:
+              - generic [ref=e131]: "2"
+              - generic [ref=e132]: Xây trạm tiếp tế
+              - button "Đi tới" [ref=e134] [cursor=pointer]
+            - listitem [ref=e135]:
+              - generic [ref=e136]: "3"
+              - generic [ref=e137]: Khai thác tài nguyên
+              - button "Đi tới" [ref=e139] [cursor=pointer]
+            - listitem [ref=e140]:
+              - generic [ref=e141]: "4"
+              - generic [ref=e142]: Xuất khẩu hàng hóa
+              - button "Đi tới" [ref=e144] [cursor=pointer]
+            - listitem [ref=e145]:
+              - generic [ref=e146]: ✓
+              - generic [ref=e147]: Xây doanh trại
+              - generic [ref=e148]: xong
+            - listitem [ref=e149]:
+              - generic [ref=e150]: ✓
+              - generic [ref=e151]: Tuyển mộ quân đội
+              - generic [ref=e152]: xong
+            - listitem [ref=e153]:
+              - generic [ref=e154]: "7"
+              - generic [ref=e155]: Đánh bại kẻ cướp
+              - button "Đi tới" [ref=e157] [cursor=pointer]
+            - listitem [ref=e158]:
+              - generic [ref=e159]: "8"
+              - generic [ref=e160]: Xem điểm mùa
+              - generic [ref=e161]:
+                - button "Đi tới" [ref=e162] [cursor=pointer]
+                - button "Hoàn tất bước" [ref=e163] [cursor=pointer]
+      - region "Chiến dịch và nghiên cứu" [ref=e164]:
+        - heading "Chiến dịch & nghiên cứu" [level=2] [ref=e166]
+        - generic [ref=e167]:
+          - generic [ref=e168]:
+            - strong [ref=e169]: Nhiệm vụ hằng ngày
+            - paragraph [ref=e170]:
+              - text: Hôm nay · 0/10 điểm · làm mới sau
+              - generic [ref=e171]: 276m 54s
+            - progressbar "Điểm nhiệm vụ hằng ngày" [ref=e172]
+            - list [ref=e173]:
+              - listitem [ref=e174]:
+                - generic [ref=e175]: 1đ
+                - generic [ref=e176]:
+                  - strong [ref=e177]: Người của thương lộ
+                  - generic [ref=e178]: Đưa 2 caravan tới đích trong ngày. · 0/2 · thưởng 60 Gỗ · 40 Đá · 15 Sắt
+                - generic [ref=e180]:
+                  - button "Nhận" [disabled] [ref=e181]
+                  - generic [ref=e182]: Chưa hoàn thành.
+              - listitem [ref=e183]:
+                - generic [ref=e184]: 1đ
+                - generic [ref=e185]:
+                  - strong [ref=e186]: Chuẩn bị xây dựng
+                  - generic [ref=e187]: Hoàn tất 2 cấp công trình trong ngày. · 1/2 · thưởng 60 Gỗ · 40 Đá · 15 Sắt
+                - generic [ref=e189]:
+                  - button "Nhận" [disabled] [ref=e190]
+                  - generic [ref=e191]: Chưa hoàn thành.
+              - listitem [ref=e192]:
+                - generic [ref=e193]: 1đ
+                - generic [ref=e194]:
+                  - strong [ref=e195]: Vào rừng lấy gỗ
+                  - generic [ref=e196]: Khai thác tài nguyên 3 lần trong ngày. · 0/3 · thưởng 60 Gỗ · 40 Đá · 15 Sắt
+                - generic [ref=e198]:
+                  - button "Nhận" [disabled] [ref=e199]
+                  - generic [ref=e200]: Chưa hoàn thành.
+              - listitem [ref=e201]:
+                - generic [ref=e202]: 2đ
+                - generic [ref=e203]:
+                  - strong [ref=e204]: Trận đánh đầu ngày
+                  - generic [ref=e205]: Thắng 1 trận đánh bất kỳ trong ngày. · 0/1 · thưởng 120 Gỗ · 80 Đá · 30 Sắt
+                - generic [ref=e207]:
+                  - button "Nhận" [disabled] [ref=e208]
+                  - generic [ref=e209]: Chưa hoàn thành.
+              - listitem [ref=e210]:
+                - generic [ref=e211]: 2đ
+                - generic [ref=e212]:
+                  - strong [ref=e213]: Mệnh lệnh từ chỉ huy
+                  - generic [ref=e214]: Hoàn tất 1 nhiệm vụ chiến dịch hoặc thắng 1 lượt tuần tra trong ngày. · 0/1 · thưởng 120 Gỗ · 80 Đá · 30 Sắt
+                - generic [ref=e216]:
+                  - button "Nhận" [disabled] [ref=e217]
+                  - generic [ref=e218]: Chưa hoàn thành.
+              - listitem [ref=e219]:
+                - generic [ref=e220]: 3đ
+                - generic [ref=e221]:
+                  - strong [ref=e222]: Mắt trong bóng tối
+                  - generic [ref=e223]: Thành công 1 điệp vụ tình báo trong ngày. · 0/1 · thưởng 200 Gỗ · 140 Đá · 50 Sắt
+                - generic [ref=e225]:
+                  - button "Nhận" [disabled] [ref=e226]
+                  - generic [ref=e227]: Chưa hoàn thành.
+            - generic [ref=e228]:
+              - generic [ref=e229]:
+                - generic [ref=e230]: Mốc 5 điểm · 150 Gỗ · 100 Đá · 40 Sắt
+                - generic [ref=e232]:
+                  - button "Nhận mốc 5đ" [disabled] [ref=e233]
+                  - generic [ref=e234]: Cần 5 điểm.
+              - generic [ref=e235]:
+                - generic [ref=e236]: Mốc 10 điểm · 400 Gỗ · 280 Đá · 100 Sắt
+                - generic [ref=e238]:
+                  - button "Nhận mốc 10đ" [disabled] [ref=e239]
+                  - generic [ref=e240]: Cần 10 điểm.
+          - generic [ref=e241]:
+            - strong [ref=e242]: Chiến dịch
+            - paragraph [ref=e243]: Chương 1 · 0/12 nhiệm vụ hoàn tất
+            - generic [ref=e244]:
+              - strong [ref=e245]:
+                - text: Phế tích đầu tiên
+                - generic [ref=e246]: · Chiến đấu
+              - generic [ref=e247]: "Hành quân tới phế tích mỏ sắt phía bắc và quét sạch. · Bài học: Giữ tiền tuyến để bảo vệ cung thủ."
+              - generic [ref=e248]: "Mục tiêu: 117,51 · Thượng Nguyên"
+              - button "Đi tới mục tiêu" [ref=e249] [cursor=pointer]
+              - generic [ref=e250]:
+                - button "Xuất quân" [disabled] [ref=e251]
+                - generic [ref=e252]: Đạo quân chưa tới mục tiêu (còn 41 ô).
+          - generic [ref=e253]:
+            - strong [ref=e254]: Nghiên cứu
+            - paragraph [ref=e255]: Cần xây Học viện.
+            - generic [ref=e256]:
+              - generic [ref=e257]:
+                - generic [ref=e258]:
+                  - strong [ref=e259]: Luân canh
+                  - generic [ref=e260]: · Sản xuất
+                - generic [ref=e261]:
+                  - button "Nghiên cứu" [disabled] [ref=e262]
+                  - generic [ref=e263]: Học viện hoặc hàng đợi đang bận.
+              - generic [ref=e264]:
+                - generic [ref=e265]:
+                  - strong [ref=e266]: Lưỡi cưa
+                  - generic [ref=e267]: · Sản xuất
+                - generic [ref=e268]:
+                  - button "Nghiên cứu" [disabled] [ref=e269]
+                  - generic [ref=e270]: Cần Luân canh.
+              - generic [ref=e271]:
+                - generic [ref=e272]:
+                  - strong [ref=e273]: Kỹ thuật đường
+                  - generic [ref=e274]: · Vận tải
+                - generic [ref=e275]:
+                  - button "Nghiên cứu" [disabled] [ref=e276]
+                  - generic [ref=e277]: Học viện hoặc hàng đợi đang bận.
+              - generic [ref=e278]:
+                - generic [ref=e279]:
+                  - strong [ref=e280]: Trạm chuyển tiếp
+                  - generic [ref=e281]: · Vận tải
+                - generic [ref=e282]:
+                  - button "Nghiên cứu" [disabled] [ref=e283]
+                  - generic [ref=e284]: Cần Kỹ thuật đường.
+              - generic [ref=e285]:
+                - generic [ref=e286]:
+                  - strong [ref=e287]: Quân y dã chiến
+                  - generic [ref=e288]: · Hậu cần quân đội
+                - generic [ref=e289]:
+                  - button "Nghiên cứu" [disabled] [ref=e290]
+                  - generic [ref=e291]: Học viện hoặc hàng đợi đang bận.
+              - generic [ref=e292]:
+                - generic [ref=e293]:
+                  - strong [ref=e294]: Huấn luyện hậu cần
+                  - generic [ref=e295]: · Hậu cần quân đội
+                - generic [ref=e296]:
+                  - button "Nghiên cứu" [disabled] [ref=e297]
+                  - generic [ref=e298]: Cần Quân y dã chiến.
+      - group [ref=e299]:
+        - region "Thành phố & công trình" [ref=e300]:
+          - heading "Thành phố & công trình" [level=2] [ref=e302]
+          - generic [ref=e305]:
+            - button "Xem nội thành" [ref=e306] [cursor=pointer]
+            - paragraph [ref=e307]: Mở sơ đồ ô đất để xem kích thước thành và chọn vị trí xây.
+            - generic [ref=e308]:
+              - button "Xây kho" [ref=e310] [cursor=pointer]
+              - button "Xây trạm trung chuyển" [ref=e312] [cursor=pointer]
+              - button "Xây trại lính" [ref=e314] [cursor=pointer]
+            - paragraph [ref=e315]: "Hàng đợi xây: 0/2"
+            - generic [ref=e316]:
+              - generic [ref=e317]:
+                - generic [ref=e318]:
+                  - strong [ref=e319]: Tòa thị chính
+                  - generic [ref=e320]: Cấp 1
+                - paragraph [ref=e321]: Trung tâm thành phố; mỗi cấp mở rộng thêm hai hàng và hai cột nội thành.
+                - button "Xây · 100 Gỗ · 50 Đá" [ref=e323] [cursor=pointer]
+              - generic [ref=e324]:
+                - generic [ref=e325]:
+                  - strong [ref=e326]: Nhà kho
+                  - generic [ref=e327]: Chưa xây
+                - paragraph [ref=e328]: Tăng sức chứa nguyên liệu của thành phố.
+                - button "Xây · 80 Gỗ · 25 Đá" [ref=e330] [cursor=pointer]
+              - generic [ref=e331]:
+                - generic [ref=e332]:
+                  - strong [ref=e333]: Trạm tiếp tế
+                  - generic [ref=e334]: Chưa xây
+                - paragraph [ref=e335]: Mở tuyến vận tải; tăng hồi phục tiếp tế quân đội gần khu.
+                - button "Xây · 120 Gỗ · 80 Đá · 20 Sắt" [ref=e337] [cursor=pointer]
+              - generic [ref=e338]:
+                - generic [ref=e339]:
+                  - strong [ref=e340]: Doanh trại
+                  - generic [ref=e341]: Cấp 1
+                - paragraph [ref=e342]: Cho phép tuyển mộ quân đội trong thành phố.
+                - button "Xây · 150 Gỗ · 100 Đá · 50 Sắt" [ref=e344] [cursor=pointer]
+              - generic [ref=e345]:
+                - generic [ref=e346]:
+                  - strong [ref=e347]: Nông trại
+                  - generic [ref=e348]: Chưa xây
+                - paragraph [ref=e349]: Sản xuất lương thực tự động và tăng kho lương của thành phố.
+                - button "Xây · 90 Gỗ · 30 Đá" [ref=e351] [cursor=pointer]
+              - generic [ref=e352]:
+                - generic [ref=e353]:
+                  - strong [ref=e354]: Xưởng gỗ
+                  - generic [ref=e355]: Chưa xây
+                - paragraph [ref=e356]: Sản xuất gỗ tự động cho xây dựng và huấn luyện.
+                - button "Xây · 110 Gỗ · 35 Đá" [ref=e358] [cursor=pointer]
+              - generic [ref=e359]:
+                - generic [ref=e360]:
+                  - strong [ref=e361]: Mỏ đá
+                  - generic [ref=e362]: Chưa xây
+                - paragraph [ref=e363]: Sản xuất đá tự động cho công trình phòng thủ.
+                - button "Xây · 100 Gỗ · 45 Đá · 10 Sắt" [ref=e365] [cursor=pointer]
+              - generic [ref=e366]:
+                - generic [ref=e367]:
+                  - strong [ref=e368]: Học viện
+                  - generic [ref=e369]: Chưa xây
+                - paragraph [ref=e370]: Mở hàng đợi nghiên cứu công nghệ và đào tạo chỉ huy.
+                - button "Xây · 180 Gỗ · 140 Đá · 80 Sắt" [ref=e372] [cursor=pointer]
+              - generic [ref=e373]:
+                - generic [ref=e374]:
+                  - strong [ref=e375]: Quân y viện
+                  - generic [ref=e376]: Chưa xây
+                - paragraph [ref=e377]: Chữa thương binh theo hàng đợi bằng lương thực.
+                - button "Xây · 140 Gỗ · 120 Đá · 60 Sắt" [ref=e379] [cursor=pointer]
+        - region "Kinh tế & vận tải" [ref=e380]:
+          - heading "Kinh tế & vận tải" [level=2] [ref=e382]
+          - generic [ref=e385]:
+            - generic [ref=e386]:
+              - heading "Mỏ tài nguyên" [level=3] [ref=e387]
+              - paragraph [ref=e388]: Khai thác đưa tài nguyên về kho thành phố — mỏ hồi phục dần theo thời gian.
+              - generic [ref=e389]:
+                - text: "Lượng khai thác:"
+                - combobox "Lượng khai thác:" [ref=e390]:
+                  - option "10"
+                  - option "25" [selected]
+                  - option "50"
+              - generic [ref=e391]:
+                - generic [ref=e392]:
+                  - generic [ref=e393]:
+                    - strong [ref=e394]: Rừng
+                    - text: (44,58)
+                  - generic [ref=e395]: 1000/1000
+                  - button "Khai thác" [ref=e397] [cursor=pointer]
+                - generic [ref=e398]:
+                  - generic [ref=e399]:
+                    - strong [ref=e400]: Rừng
+                    - text: (22,22)
+                  - generic [ref=e401]: 1000/1000
+                  - button "Khai thác" [ref=e403] [cursor=pointer]
+                - generic [ref=e404]:
+                  - generic [ref=e405]:
+                    - strong [ref=e406]: Rừng
+                    - text: (95,29)
+                  - generic [ref=e407]: 1000/1000
+                  - button "Khai thác" [ref=e409] [cursor=pointer]
+                - generic [ref=e410]:
+                  - generic [ref=e411]:
+                    - strong [ref=e412]: Mỏ sắt
+                    - text: (117,51)
+                  - generic [ref=e413]: 1000/1000
+                  - button "Khai thác" [ref=e415] [cursor=pointer]
+                - generic [ref=e416]:
+                  - generic [ref=e417]:
+                    - strong [ref=e418]: Mỏ đá
+                    - text: (160,22)
+                  - generic [ref=e419]: 1000/1000
+                  - button "Khai thác" [ref=e421] [cursor=pointer]
+                - generic [ref=e422]:
+                  - generic [ref=e423]:
+                    - strong [ref=e424]: Mỏ đá
+                    - text: (182,44)
+                  - generic [ref=e425]: 1000/1000
+                  - button "Khai thác" [ref=e427] [cursor=pointer]
+                - generic [ref=e428]:
+                  - generic [ref=e429]:
+                    - strong [ref=e430]: Rừng
+                    - text: (233,22)
+                  - generic [ref=e431]: 1000/1000
+                  - button "Khai thác" [ref=e433] [cursor=pointer]
+                - generic [ref=e434]:
+                  - generic [ref=e435]:
+                    - strong [ref=e436]: Rừng
+                    - text: (211,44)
+                  - generic [ref=e437]: 1000/1000
+                  - button "Khai thác" [ref=e439] [cursor=pointer]
+            - generic [ref=e440]:
+              - heading "Tuyến vận tải" [level=3] [ref=e441]
+              - paragraph [ref=e442]: Cần trạm tiếp tế trước khi lập tuyến. Kho tăng sức chứa cho các chuyến.
+              - generic [ref=e443]:
+                - paragraph [ref=e444]: Tuyến vận tải trong alpha chỉ đến chợ (thành phố → thành phố sẽ mở khi có nhiều thành phố mỗi người chơi).
+                - combobox "Điểm đến" [ref=e445]:
+                  - option "Chọn điểm đến…" [selected]
+                  - option "Thương cảng Meridian"
+                  - option "Thương cảng Hải Đông"
+                  - option "Thương cảng Nam Giang"
+                  - option "Thương cảng Trấn Hải"
+                - generic [ref=e446]:
+                  - button "Lập tuyến" [disabled] [ref=e447]
+                  - generic [ref=e448]: Cần xây Trạm tiếp tế trước khi lập tuyến.
+              - paragraph [ref=e449]: Chưa có tuyến nào.
+            - generic [ref=e450]:
+              - heading "Caravan đang chạy" [level=3] [ref=e451]
+              - paragraph [ref=e452]: Không có caravan nào đang di chuyển.
+            - generic [ref=e453]:
+              - heading "Xuất khẩu là gì?" [level=3] [ref=e454]
+              - paragraph [ref=e455]:
+                - text: Lập tuyến đến
+                - strong [ref=e456]: một thương cảng
+                - text: "và gửi caravan. Khi hàng cập bến, lượng gỗ/đá/sắt được tính là xuất khẩu — góp vào điểm kinh tế và mục tiêu “Đã xuất khẩu” trong phần giới thiệu. Băng cướp có thể phục kích trên đường: cử quân hộ tống đem theo caravan để bảo vệ."
+        - region "Chuẩn bị quân" [ref=e457]:
+          - heading "Chuẩn bị quân" [level=2] [ref=e459]
+          - generic [ref=e460]:
+            - paragraph [ref=e461]: "Quân dự bị tại thành: Bộ binh khiên 0 · Giáo binh 0 · Cung thủ 0 · Kỵ binh 0"
+            - generic [ref=e462]:
+              - strong [ref=e463]: Tuyển và lập đạo quân
+              - paragraph [ref=e464]: Tuyển vào dự bị qua hàng đợi ở Doanh trại bên dưới, sau đó chọn chỉ huy để tạo đạo quân.
+              - generic [ref=e465]:
+                - generic [ref=e466]:
+                  - text: Chỉ huy
+                  - combobox "Chỉ huy" [disabled] [ref=e467]:
+                    - option "Mara the Quartermaster · cấp 1" [selected]
+                - generic [ref=e468]:
+                  - text: Loại quân
+                  - combobox "Loại quân" [ref=e469]:
+                    - option "Bộ binh khiên" [selected]
+                    - option "Giáo binh"
+                    - option "Cung thủ"
+                    - option "Kỵ binh"
+                - generic [ref=e470]:
+                  - text: Số lượng
+                  - spinbutton "Số lượng" [ref=e471]: "10"
+                - generic [ref=e472]:
+                  - button "Lập đạo quân" [disabled] [ref=e473]
+                  - generic [ref=e474]: Dự bị không đủ quân.
+            - generic [ref=e475]:
+              - generic [ref=e476]:
+                - strong [ref=e477]: Đạo quân 10799302
+                - generic [ref=e478]: 10/500 lính · Nhuệ khí 100 · Tiếp tế 100%
+              - paragraph [ref=e479]: "Chỉ huy: Chỉ huy chuyển đổi · cấp 10 · XP 0/1000"
+              - paragraph [ref=e480]: "Quân: Bộ binh khiên 0 · Giáo binh 0 · Cung thủ 0 · Kỵ binh 10"
+              - generic [ref=e481]:
+                - text: Chỉ huy
+                - combobox "Chỉ huy" [ref=e482]:
+                  - option "Chưa chọn"
+                  - option "Mara the Quartermaster · logistics · cấp 1"
+                  - option "Chỉ huy chuyển đổi · logistics · cấp 10" [selected]
+              - generic [ref=e483]:
+                - generic [ref=e484]:
+                  - strong [ref=e485]: Tiền tuyến
+                  - combobox [ref=e486]:
+                    - option "Bộ binh khiên"
+                    - option "Giáo binh"
+                    - option "Cung thủ"
+                    - option "Kỵ binh" [selected]
+                  - spinbutton "Tiền tuyến số lượng" [ref=e487]: "10"
+                - generic [ref=e488]:
+                  - strong [ref=e489]: Hậu tuyến
+                  - combobox [ref=e490]:
+                    - option "Bộ binh khiên" [selected]
+                    - option "Giáo binh"
+                    - option "Cung thủ"
+                    - option "Kỵ binh"
+                  - spinbutton "Hậu tuyến số lượng" [ref=e491]: "0"
+                - generic [ref=e492]:
+                  - strong [ref=e493]: Cánh
+                  - combobox [ref=e494]:
+                    - option "Bộ binh khiên" [selected]
+                    - option "Giáo binh"
+                    - option "Cung thủ"
+                    - option "Kỵ binh"
+                  - spinbutton "Cánh số lượng" [ref=e495]: "0"
+              - generic [ref=e496]:
+                - generic [ref=e497]:
+                  - text: Thế trận
+                  - combobox "Thế trận" [ref=e498]:
+                    - option "Cân bằng" [selected]
+                    - option "Đột kích"
+                    - option "Phòng thủ"
+                - button "Về thành" [ref=e499] [cursor=pointer]
+                - button "Lưu bố trí" [ref=e500] [cursor=pointer]
+              - generic [ref=e501]:
+                - generic [ref=e502]:
+                  - text: Mẫu đội hình
+                  - combobox "Mẫu đội hình 10799302" [ref=e503]:
+                    - option "Chọn mẫu" [selected]
+                - generic [ref=e504]:
+                  - button "Áp dụng mẫu" [disabled] [ref=e505]
+                  - generic [ref=e506]: Chọn một mẫu trước khi áp dụng.
+                - generic [ref=e507]:
+                  - text: Tên mẫu
+                  - textbox "Tên mẫu" [ref=e508]:
+                    - /placeholder: "Ví dụ: Cung thủ phòng thủ"
+                - generic [ref=e509]:
+                  - button "Lưu mẫu" [disabled] [ref=e510]
+                  - generic [ref=e511]: Nhập tên mẫu trước khi lưu.
+              - paragraph [ref=e512]: "Thương binh: Bộ binh khiên 0 · Giáo binh 0 · Cung thủ 0 · Kỵ binh 0"
+              - paragraph [ref=e513]: "Buff: Giảm 15% tiêu hao tiếp tế; đầu hiệp 3 hồi 10 nhuệ khí."
+            - generic [ref=e514]:
+              - strong [ref=e515]: Doanh trại
+              - generic [ref=e516]: Hàng đợi 0/1
+              - generic [ref=e517]:
+                - button "+10 Bộ binh khiên" [ref=e518] [cursor=pointer]
+                - button "+10 Giáo binh" [ref=e519] [cursor=pointer]
+                - button "+10 Cung thủ" [ref=e520] [cursor=pointer]
+                - button "+10 Kỵ binh" [ref=e521] [cursor=pointer]
+              - strong [ref=e522]: Quân y viện
+              - generic [ref=e523]: Hàng đợi 0/1
+        - region "Quân đội" [ref=e524]:
+          - heading "Quân đội" [level=2] [ref=e526]
+          - generic [ref=e529]:
+            - paragraph [ref=e530]: Tiếp tế rút xuống dưới 25% gây hao mòn (mất sức mạnh & nhuệ khí). Quân đứng gần thành phố (bán kính 2) hoặc trạm tiếp tế hồi phục tiếp tế.
+            - generic [ref=e531]:
+              - generic [ref=e532]:
+                - strong [ref=e533]: Kỵ binh · 10
+                - generic [ref=e534]: Chờ lệnh
+              - paragraph [ref=e535]:
+                - generic [ref=e536]: Nhuệ khí 100
+                - generic [ref=e537]: Tiếp tế 100%
+                - generic [ref=e538]: Vị trí (95,29)
+              - generic [ref=e539]:
+                - combobox "Đội hình" [ref=e540]:
+                  - option "Hàng ngang" [selected]
+                  - option "Nêm"
+                  - option "Phòng ngự"
+                - button "Xem trên bản đồ" [ref=e541] [cursor=pointer]
+                - generic [ref=e542]:
+                  - button "Hủy lệnh" [disabled] [ref=e543]
+                  - generic [ref=e544]: Quân này chưa có lệnh nào để hủy.
+                - button "Tấn công" [ref=e545] [cursor=pointer]
+          - button "Tuyển quân mới" [ref=e547] [cursor=pointer]
+        - group [ref=e548]:
+          - generic "Nâng cao (liên minh · tình báo · sự kiện · ngoại giao)" [ref=e549] [cursor=pointer]
+    - generic [ref=e550]:
+      - generic [ref=e551]:
+        - button "Về thành phố của tôi" [ref=e552] [cursor=pointer]
+        - button "Về giữa map" [ref=e555] [cursor=pointer]
+      - complementary "Minimap" [ref=e558]:
+        - generic [ref=e559]:
+          - strong [ref=e560]: Minimap
+          - generic [ref=e561]: 98, 32
+        - img "Định vị trên bản đồ" [ref=e562]
+    - complementary "Dòng hoạt động" [ref=e4664]:
+      - generic [ref=e4665]:
+        - generic [ref=e4666]:
+          - text: NHẬT KÝ CHIẾN TRƯỜNG
+          - heading "Nhiệm vụ & hoạt động" [level=2] [ref=e4668]
+        - button "Đóng bảng Nhiệm vụ" [ref=e4669] [cursor=pointer]: ×
+      - region "Cần chú ý" [ref=e4670]:
+        - heading "Cần chú ý" [level=3] [ref=e4672]
+        - paragraph [ref=e4676]: Chưa có gì cần chú ý.
+      - region "Hoạt động gần đây" [ref=e4677]:
+        - heading "Hoạt động gần đây" [level=3] [ref=e4679]
+        - list [ref=e4683]:
+          - listitem [ref=e4684]:
+            - button "Đã kiểm soát Thượng Nguyên — 4222 ô. Chiếm được vùng 02:22" [ref=e4685] [cursor=pointer]:
+              - generic [ref=e4688]: Đã kiểm soát Thượng Nguyên — 4222 ô.
+              - generic [ref=e4689]:
+                - generic [ref=e4690]: Chiếm được vùng
+                - time [ref=e4691]: 02:22
+          - listitem [ref=e4692]:
+            - generic [ref=e4693]:
+              - generic [ref=e4696]: Lệnh di chuyển — máy chủ đã nhận.
+              - generic [ref=e4697]:
+                - generic [ref=e4698]: Đã xác nhận
+                - time [ref=e4699]: 02:22
+          - listitem [ref=e4700]:
+            - generic [ref=e4701]:
+              - generic [ref=e4704]: Tuyển quân — máy chủ đã nhận.
+              - generic [ref=e4705]:
+                - generic [ref=e4706]: Đã xác nhận
+                - time [ref=e4707]: 02:22
+          - listitem [ref=e4708]:
+            - button "Xây xong Doanh trại cấp 1 ở Meridian League City. Xây xong 02:22" [ref=e4709] [cursor=pointer]:
+              - generic [ref=e4712]: Xây xong Doanh trại cấp 1 ở Meridian League City.
+              - generic [ref=e4713]:
+                - generic [ref=e4714]: Xây xong
+                - time [ref=e4715]: 02:22
+          - listitem [ref=e4716]:
+            - generic [ref=e4717]:
+              - generic [ref=e4720]: Xây trại lính — máy chủ đã nhận.
+              - generic [ref=e4721]:
+                - generic [ref=e4722]: Đã xác nhận
+                - time [ref=e4723]: 02:22
+    - region "Lệnh cho lựa chọn" [ref=e4724]:
+      - generic [ref=e4725]:
+        - strong [ref=e4726]: Đám di cư · 60
+        - generic [ref=e4727]: Không thuộc người chơi nào · Đội hình Hàng ngang · Nhuệ khí 100 · Tiếp tế 100% · Vị trí (98,32)
+      - group "Quân trung lập" [ref=e4729]:
+        - generic [ref=e4733]: Chọn một quân đội của bạn, bấm Tấn công rồi nhấp vào quân này.
+  - status
+```
+
+# Test source
+
+```ts
+  32  |   // The wide band, and not for coverage: at 1440 both columns are tracks from the start,
+  33  |   // so `focusCity` centres the city in the canvas the map is finally going to have.
+  34  |   // Opening a column later shrinks the map, and the camera compensates for the origin
+  35  |   // shift instead of re-centring — which would leave the city half a column off centre
+  36  |   // and every click below off by the same amount.
+  37  |   await page.setViewportSize({ width: 1440, height: 900 });
+  38  |   await page.goto("/");
+  39  |   await page.getByPlaceholder("Tên người chơi").fill(`Territory E2E ${testInfo.project.name} ${Date.now()}`);
+  40  |   await page.getByRole("button", { name: "Vào kingdom" }).click();
+  41  |   await page.getByRole("button", { name: "Vương quốc", exact: true }).click();
+  42  |   await expect(page.getByRole("complementary", { name: "Bảng điều khiển" })).toBeVisible();
+  43  |   await page.getByRole("button", { name: "Nhiệm vụ", exact: true }).click();
+  44  |   await expect(page.getByRole("complementary", { name: "Dòng hoạt động" })).toBeVisible();
+  45  | 
+  46  |   // --- An army of our own. Cavalry covers two tiles a tick, so the march is a tick or
+  47  |   // two rather than three or four. ---
+  48  |   const barracks = page.waitForResponse(response => response.url().endsWith("/api/commands/build"));
+  49  |   await page.getByRole("button", { name: "Xây trại lính" }).click();
+  50  |   expect((await barracks).ok()).toBeTruthy();
+  51  |   await expect(page.getByText("Hàng đợi xây: 0/2")).toBeVisible({ timeout: 25000 });
+  52  |   await page.getByRole("button", { name: "Tuyển quân mới" }).click();
+  53  |   const recruitModal = page.getByRole("dialog", { name: "Tuyển quân" });
+  54  |   await recruitModal.getByRole("radio", { name: /^Kỵ binh/ }).check();
+  55  |   const recruited = page.waitForResponse(response => response.url().endsWith("/api/commands/recruit"));
+  56  |   await recruitModal.getByRole("button", { name: /^Tuyển 10/ }).click();
+  57  |   expect((await recruited).ok()).toBeTruthy();
+  58  | 
+  59  |   // Where we are, and which seat is nearest: asked of the server and of the authored
+  60  |   // world, never written down here. Placement is deterministic but it is also the thing
+  61  |   // M-4 changed, and a spec that pinned (12,2) would fail for the wrong reason.
+  62  |   const session = await page.evaluate(() => JSON.parse(sessionStorage.getItem("kingdoms-session")!) as { token: string });
+  63  |   const bootstrap = await request.get(`${api}/api/bootstrap`, { headers: { authorization: `Bearer ${session.token}` } });
+  64  |   expect(bootstrap.ok()).toBeTruthy();
+  65  |   const { player, snapshot } = await bootstrap.json() as {
+  66  |     player: { id: string };
+  67  |     snapshot: { cities: { playerId: string; x: number; y: number }[] };
+  68  |   };
+  69  |   const city = snapshot.cities.find(item => item.playerId === player.id)!;
+  70  |   const distance = (x: number, y: number) => Math.abs(x - city.x) + Math.abs(y - city.y);
+  71  |   const seat = [...regions].sort((a, b) => distance(a.seatX, a.seatY) - distance(b.seatX, b.seatY))[0]!;
+  72  | 
+  73  |   const canvas = page.getByTestId("world-map").locator("canvas");
+  74  |   const box = (await canvas.boundingBox())!;
+  75  |   const centerX = box.x + box.width / 2;
+  76  |   const centerY = box.y + box.height / 2;
+  77  |   /** Screen point of a tile. The projection is affine, so the offset of a tile from the
+  78  |    *  focused city is the projection of the grid delta — the renderer's own arithmetic,
+  79  |    *  imported from it rather than restated as 56 and 28. */
+  80  |   const at = (x: number, y: number): [number, number] => {
+  81  |     const dx = x - city.x;
+  82  |     const dy = y - city.y;
+  83  |     const pixelsPerWorldUnit = 0.075 * box.height / 55;
+  84  |     const screenRight = (dx - dy) * 6 / Math.sqrt(2) * pixelsPerWorldUnit;
+  85  |     const screenDown = (dx + dy) * 6 * (1.08 / Math.sqrt(2)) * pixelsPerWorldUnit;
+  86  |     return [centerX + screenRight, centerY + screenDown];
+  87  |   };
+  88  | 
+  89  |   // --- The seat before anyone holds it. One tile in eighty decides a province, and
+  90  |   // until M-6 this one read "Tiến quân tới đây" — the sentence for bare dirt. ---
+  91  |   const tray = page.getByRole("region", { name: "Lệnh cho lựa chọn" });
+  92  |   const subject = tray.locator(".command-tray__detail");
+  93  |   await page.mouse.click(...at(seat.seatX, seat.seatY));
+  94  |   await expect(tray.getByRole("group", { name: `Ô lỵ sở ${seat.name}` })).toBeVisible();
+  95  |   await expect(tray).toContainText(`Đóng quân trong ${gameRules.territory.captureRadius} ô`);
+  96  |   await expect(subject).toContainText(`Vùng ${seat.name} · chưa ai giữ`);
+  97  | 
+  98  |   // --- Take it: select the army standing on the city, then march it onto the seat ---
+  99  |   await page.mouse.click(centerX, centerY);
+  100 |   await expect(tray).toContainText("Kỵ binh · 10");
+  101 |   await tray.locator('[data-command="move"]').click();
+  102 |   const moved = page.waitForResponse(response => response.url().endsWith("/api/commands/move-army"));
+  103 |   await page.mouse.click(...at(seat.seatX, seat.seatY));
+  104 |   const order = await (await moved).json() as { result: string; snapshot: { armies: { ownerPlayerId?: string | null; targetX?: number; targetY?: number }[] } };
+  105 |   expect(order.result).toBe("accepted");
+  106 |   const ordered = order.snapshot.armies.find(army => army.ownerPlayerId === player.id)!;
+  107 |   expect([ordered.targetX, ordered.targetY]).toEqual([seat.seatX, seat.seatY]);
+  108 | 
+  109 |   const feed = page.getByRole("region", { name: "Hoạt động gần đây" });
+  110 |   const captured = feed.locator('[data-kind="region-captured"]');
+  111 |   await expect(captured).toHaveCount(1, { timeout: 30_000 });
+  112 |   // The name and the size, because the size is what the 300 territory points are made
+  113 |   // of — and never the province code, which is an authoring detail of two char grids.
+  114 |   await expect(captured).toContainText(`Đã kiểm soát ${seat.name} — ${tileCounts[seat.code]} ô.`);
+  115 |   expect(await captured.textContent()).not.toContain(`${seat.code} `);
+  116 | 
+  117 |   // Claim 1. Six more snapshots arrive while the army stands still, and the province is
+  118 |   // ours in every one of them.
+  119 |   await page.waitForTimeout(6000);
+  120 |   await expect(captured).toHaveCount(1);
+  121 | 
+  122 |   // --- Claim 2. Any tile of the province, not just the seat, now names its holder. The
+  123 |   // seat itself is no good for this: our own army is standing on it and wins the pick. ---
+  124 |   const inside = ([[seat.seatX + 1, seat.seatY], [seat.seatX - 1, seat.seatY], [seat.seatX, seat.seatY + 1], [seat.seatX, seat.seatY - 1]] as const)
+  125 |     .find(([x, y]) => regionAt(x, y)?.code === seat.code && !(x === city.x && y === city.y))!;
+  126 |   // Re-clicked on every poll: the suite runs with WORLD_EVENT_SPAWN_CHANCE=1, so mobs
+  127 |   // are wandering and one parked on the tile would win the pick instead. They move every
+  128 |   // tick, which is why polling gets the tile back rather than waiting for nothing.
+  129 |   await expect.poll(async () => {
+  130 |     await page.mouse.click(...at(inside[0], inside[1]));
+  131 |     return await subject.textContent();
+> 132 |   }, { timeout: 15_000 }).toContain(`Vùng ${seat.name} · bạn đang giữ`);
+      |                           ^ Error: expect(received).toContain(expected) // indexOf
+  133 | 
+  134 |   // --- Claim 3. Move off the army panel first: a jump that lands where the player
+  135 |   // already was would pass for free. ---
+  136 |   const armyNav = page.getByRole("button", { name: "Quân đội", exact: true });
+  137 |   await page.getByRole("button", { name: "Vận tải", exact: true }).click();
+  138 |   await expect(armyNav).not.toHaveAttribute("aria-current", "true");
+  139 |   await captured.getByRole("button").click();
+  140 |   await expect(armyNav).toHaveAttribute("aria-current", "true");
+  141 |   await expect(page.getByRole("region", { name: "Quân đội" })).toBeInViewport();
+  142 | });
+  143 | 
+```

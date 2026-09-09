@@ -4,11 +4,9 @@ const api = process.env.PLAYWRIGHT_API ?? "http://127.0.0.1:3000";
 // Fresh world per file: the ~16-city placement cap would 500 later logins in a shared world.
 test.beforeEach(async ({ request }) => { await request.post(`${api}/api/dev/reset`); });
 
-// Army panel: build the barracks, recruit cavalry, attack a wandering mob
-// (battle report modal), then cancel the pursuit via the HUD.
-test("recruit, attack mob, battle report and cancel pursuit", async ({ page, request }, testInfo) => {
-  // Building completes on the server clock and the 3D map loads in parallel;
-  // this flow legitimately takes longer than the suite's 30s default.
+// Army panel: provision a v2 army through the dev fixture, attack a wandering
+// mob (battle report modal), then verify the pursuit resolves through the HUD.
+test("v2 army attacks mob and receives a battle report", async ({ page, request }, testInfo) => {
   test.setTimeout(60_000);
   test.skip(testInfo.project.name === "mobile", "desktop-sized HUD interaction");
   await page.goto("/");
@@ -17,36 +15,18 @@ test("recruit, attack mob, battle report and cancel pursuit", async ({ page, req
   await page.getByRole("button", { name: "Vương quốc", exact: true }).click();
   await expect(page.getByRole("complementary", { name: "Bảng điều khiển" })).toBeVisible();
 
-  // --- Build the barracks (~15s) ---
-  const barracksResponse = page.waitForResponse(response => response.url().endsWith("/api/commands/build"));
-  await page.getByRole("button", { name: "Xây trại lính" }).click();
-  expect((await barracksResponse).ok()).toBeTruthy();
-  await expect(page.getByText("Hàng đợi xây: 0/2")).toBeVisible({ timeout: 25000 });
-
-  // --- Recruit 10 cavalry (cheapest affordable unit) ---
-  const recruitButton = page.getByRole("button", { name: "Tuyển quân mới" });
-  await recruitButton.click();
-  const recruitModal = page.getByRole("dialog", { name: "Tuyển quân" });
-  await expect(recruitModal).toBeVisible();
-  // The four behaviours of a dialog, on one that shipped with none of them: focus
-  // moves in, Escape cancels, and focus goes back to the button that opened it.
-  await expect.poll(async () => await recruitModal.evaluate(card => card.contains(document.activeElement))).toBe(true);
-  await page.keyboard.press("Escape");
-  await expect(recruitModal).toBeHidden();
-  await expect(recruitButton).toBeFocused();
-  await recruitButton.click();
-  await expect(recruitModal).toBeVisible();
-  await recruitModal.getByRole("radio", { name: /^Kỵ binh/ }).check();
-  const recruitResponse = page.waitForResponse(response => response.url().endsWith("/api/commands/recruit"));
-  await recruitModal.getByRole("button", { name: /^Tuyển 10/ }).click();
-  expect((await recruitResponse).ok()).toBeTruthy();
+  // This scenario tests orders and reports, not the training timer. The fixture
+  // creates the same composition/commander shape as /army/create and keeps the
+  // browser test independent from the economy-focused queue coverage.
+  const session = await page.evaluate(() => JSON.parse(sessionStorage.getItem("kingdoms-session")!) as { token: string });
+  const provisioned = await request.post(`${api}/api/dev/army-v2`, { headers: { authorization: `Bearer ${session.token}` } });
+  expect(provisioned.ok()).toBeTruthy();
   const armyRow = page.getByTestId("army-row").first();
-  await expect(armyRow).toContainText("Kỵ binh · 10");
+  await expect(armyRow).toContainText("Bộ binh · 10");
   await expect(armyRow).toContainText("Chờ lệnh");
 
   // --- Attack a deterministic dev target. Natural mobs can move or die while
-  // the test waits for the barracks, which made this scenario timing-dependent. ---
-  const session = await page.evaluate(() => JSON.parse(sessionStorage.getItem("kingdoms-session")!) as { token: string });
+  // the browser is opening panels, which made this scenario timing-dependent. ---
   const prepared = await request.post(`${api}/api/dev/battle-target`, { headers: { authorization: `Bearer ${session.token}` } });
   expect(prepared.ok()).toBeTruthy();
   const targetArmyId = ((await prepared.json()) as { targetArmyId: string }).targetArmyId;

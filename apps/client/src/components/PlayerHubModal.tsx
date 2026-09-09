@@ -11,6 +11,7 @@ const slotLabels: Record<CosmeticSlot, string> = { avatar_frame: "Khung", flag_c
 
 export function PlayerHubModal({ mode, onClose }: { mode: HubMode; onClose: () => void }) {
   const { state, connection, runCommand, addNotice, playerHub, setPlayerHub } = useGame();
+  const scoreEvidenceSent = useRef(false);
   const [hub, setHub] = useState<PlayerHub | undefined>(playerHub);
   const [tab, setTab] = useState<HubMode>(mode);
   const [loading, setLoading] = useState(true);
@@ -31,6 +32,12 @@ export function PlayerHubModal({ mode, onClose }: { mode: HubMode; onClose: () =
     if (connection === "online" && previous !== "online") refresh();
   }, [connection, refresh]);
   useEffect(() => { if (playerHub) setHub(playerHub); }, [playerHub]);
+  useEffect(() => {
+    if (tab !== "profile" || !hub || scoreEvidenceSent.current) return;
+    if (state.snapshot?.onboarding?.completedSteps.includes("score_viewed")) return;
+    scoreEvidenceSent.current = true;
+    void runCommand({ kind: "onboarding_ack", label: "Đã xem điểm mùa", path: "/api/commands/onboarding/ack", body: { step: "score_viewed" } }).catch(() => { scoreEvidenceSent.current = false; });
+  }, [hub, runCommand, state.snapshot?.onboarding?.completedSteps, tab]);
 
   const owned = useMemo(() => new Set(hub?.owned.map(item => item.itemId) ?? []), [hub]);
   const buy = (itemId: string) => {

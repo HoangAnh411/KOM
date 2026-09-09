@@ -11,7 +11,7 @@ test("logistics harvest, route and delivery are server-authoritative", () => {
   city.buildings.road_depot = 1;
   store.logistics.syncDepots(store.snapshot);
   const node = store.logistics.snapshot().resourceNodes.find(item => item.resourceType === "wood")!;
-  assert.equal(store.logistics.harvest("harvest-001", node.id, city.id, player.id, 50, store.snapshot), "accepted");
+  assert.deepEqual(store.logistics.harvest("harvest-001", node.id, city.id, player.id, 50, store.snapshot), { status: "accepted", requestedAmount: 50, receivedAmount: 50, modifier: 1, eventIds: [] });
   assert.equal(node.remaining, 950);
   const destination = store.snapshot.cities[1]; destination.playerId = player.id;
   const route = store.logistics.createRoute("route-001", city.id, { kind: "city", id: destination.id }, player.id, store.snapshot);
@@ -23,6 +23,27 @@ test("logistics harvest, route and delivery are server-authoritative", () => {
   assert.equal(caravan.status, "delivered");
   assert.equal(destination.resources.wood, 540);
   assert.equal(store.logistics.snapshot().throughput[player.id].wood, 40);
+});
+
+test("harvest applies only active multiplicative events to grants and metrics", () => {
+  const store = new GameStore();
+  const player = store.snapshot.players[0]!;
+  const city = store.snapshot.cities.find(item => item.playerId === player.id)!;
+  city.buildings.road_depot = 1;
+  store.logistics.syncDepots(store.snapshot);
+  const node = store.logistics.snapshot().resourceNodes
+    .sort((left, right) => (Math.abs(left.x - city.x) + Math.abs(left.y - city.y)) - (Math.abs(right.x - city.x) + Math.abs(right.y - city.y)))[0]!;
+  assert.ok(Math.abs(node.x - city.x) + Math.abs(node.y - city.y) <= gameRules.logistics.harvestRange);
+  const now = Date.now();
+  const event = (id: string, harvest: number, starts: number, ends: number) => ({ id, kingdomId: store.snapshot.kingdom.id, eventType: harvest < 1 ? "drought" as const : "gold_rush" as const, affectedTiles: [{ x: node.x, y: node.y }], modifier: { harvest }, startsAt: new Date(starts).toISOString(), endsAt: new Date(ends).toISOString(), severity: 1 });
+  store.snapshot.worldEvents.push(event("drought", 0.5, now - 1_000, now + 60_000), event("rush", 2, now - 1_000, now + 60_000), event("future", 10, now + 60_000, now + 120_000), event("expired", 10, now - 120_000, now - 60_000));
+  const beforeCity = city.resources[node.resourceType];
+  const beforeNode = node.remaining;
+  const result = store.logistics.harvest("event-harvest", node.id, city.id, player.id, 40, store.snapshot);
+  assert.deepEqual(result, { status: "accepted", requestedAmount: 40, receivedAmount: 40, modifier: 1, eventIds: ["drought", "rush"] });
+  assert.equal(city.resources[node.resourceType], beforeCity + 40);
+  assert.equal(node.remaining, beforeNode - 40);
+  assert.equal(store.snapshot.seasonMetrics.resourcesProduced[player.id]![node.resourceType], 40);
 });
 
 test("starter package is one-time and passive income is disabled", () => {
@@ -129,7 +150,7 @@ test("low army supply causes attrition in the supply zone cycle", () => {
   const strength = army.strength;
   const morale = army.morale;
   store.tick();
-  assert.equal(army.supply, 14);
+  assert.equal(army.supply, 16); // Meridian doctrine reduces the −5/min drain to −4/min
   assert.equal(army.strength, strength - 2);
   assert.equal(army.morale, morale - 4);
 });

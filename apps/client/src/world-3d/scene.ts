@@ -943,36 +943,53 @@ export function createWorld3DMap(
   };
 
   const clock = new THREE.Clock();
-  let frame = 0;
-  const render = () => {
-    if (destroyed) return;
-    frame = requestAnimationFrame(render);
-    if (!active || document.querySelector("[role=dialog]")) return;
-    updateCamera();
-    const pulse = 0.78 + Math.sin(clock.getElapsedTime() * 2.1) * 0.12;
-    for (const root of entityRoots.values()) {
-      const ring = root.children.find(child => child instanceof THREE.Mesh && child.geometry instanceof THREE.RingGeometry) as THREE.Mesh | undefined;
-      const entityId = String(root.userData.entityId ?? "");
-      if (ring) {
-        ring.visible = entityId.startsWith("seat:") || entityId.startsWith("mission:") ||
-          (selected?.kind === "city" && entityId === "city:" + selected.id);
-      }
-      if (ring) (ring.material as THREE.MeshBasicMaterial).opacity = pulse;
-    }
-    const labelScale = THREE.MathUtils.clamp(1.25 / cameraZoom, 0.32, 2.4);
-    for (const label of labelLayer.children) {
-      label.scale.set(20 * labelScale, 3.75 * labelScale, 1);
-      label.visible = cameraZoom > 0.28;
-    }
-    environment.visible = cameraZoom > 0.32;
-    if (terrainRoot && terrainLod1Root) {
-      const useDetailedTerrain = cameraZoom > 0.22;
-      terrainRoot.visible = useDetailedTerrain;
-      terrainLod1Root.visible = !useDetailedTerrain;
-    }
-    renderer.render(scene, camera);
+  let frame: number | undefined;
+  const stopRendering = () => {
+    if (frame === undefined) return;
+    cancelAnimationFrame(frame);
+    frame = undefined;
   };
-  render();
+  const render = () => {
+    frame = undefined;
+    if (destroyed || !active || document.hidden) return;
+    // Dialogs cover the world. Keep the loop alive so closing one is observed,
+    // but skip every GPU update and draw while it is present.
+    if (!document.querySelector("[role=dialog]")) {
+      updateCamera();
+      const pulse = 0.78 + Math.sin(clock.getElapsedTime() * 2.1) * 0.12;
+      for (const root of entityRoots.values()) {
+        const ring = root.children.find(child => child instanceof THREE.Mesh && child.geometry instanceof THREE.RingGeometry) as THREE.Mesh | undefined;
+        const entityId = String(root.userData.entityId ?? "");
+        if (ring) {
+          ring.visible = entityId.startsWith("seat:") || entityId.startsWith("mission:") ||
+            (selected?.kind === "city" && entityId === "city:" + selected.id);
+        }
+        if (ring) (ring.material as THREE.MeshBasicMaterial).opacity = pulse;
+      }
+      const labelScale = THREE.MathUtils.clamp(1.25 / cameraZoom, 0.32, 2.4);
+      for (const label of labelLayer.children) {
+        label.scale.set(20 * labelScale, 3.75 * labelScale, 1);
+        label.visible = cameraZoom > 0.28;
+      }
+      environment.visible = cameraZoom > 0.32;
+      if (terrainRoot && terrainLod1Root) {
+        const useDetailedTerrain = cameraZoom > 0.22;
+        terrainRoot.visible = useDetailedTerrain;
+        terrainLod1Root.visible = !useDetailedTerrain;
+      }
+      renderer.render(scene, camera);
+    }
+    frame = requestAnimationFrame(render);
+  };
+  const startRendering = () => {
+    if (frame === undefined && !destroyed && active && !document.hidden) frame = requestAnimationFrame(render);
+  };
+  const onVisibilityChange = () => {
+    if (document.hidden) stopRendering();
+    else startRendering();
+  };
+  document.addEventListener("visibilitychange", onVisibilityChange);
+  startRendering();
 
   const ownCity = snapshot.cities.find(city => city.playerId === ownPlayerId);
   if (ownCity) focusCity(ownCity.x, ownCity.y);
@@ -1001,11 +1018,14 @@ export function createWorld3DMap(
         delete renderer.domElement.dataset.cityTransition;
       }
       active = next;
+      if (active) startRendering();
+      else stopRendering();
     },
     destroy() {
       destroyed = true;
       environmentBuildId += 1;
-      cancelAnimationFrame(frame);
+      stopRendering();
+      document.removeEventListener("visibilitychange", onVisibilityChange);
       resizeObserver.disconnect();
       renderer.domElement.removeEventListener("pointerdown", onPointerDown);
       renderer.domElement.removeEventListener("pointermove", onPointerMove);

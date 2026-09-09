@@ -133,7 +133,6 @@ export function GameProvider({ children }: { children: ReactNode }) {
   const dismissReport = useCallback(() => setReports(list => list.slice(1)), []);
   const beginOrder = useCallback((mode: "move" | "attack", armyId: string) => setInteraction({ kind: mode, armyId }), []);
   const cancelOrder = useCallback(() => setInteraction({ kind: "idle" }), []);
-  const openCityInterior = useCallback((cityId: string) => setCityInteriorId(cityId), []);
   const closeCityInterior = useCallback(() => setCityInteriorId(undefined), []);
 
   const protocolBlocked = useMemo(() => protocolBlockedMessage(state.snapshot), [state.snapshot]);
@@ -219,6 +218,16 @@ export function GameProvider({ children }: { children: ReactNode }) {
         addNotice("Vẫn chưa tới máy chủ — thử lại khi kết nối ổn định.", "info");
       });
   }, [addNotice, updatePending, perform, settle, recordActivity]);
+
+  /** Opening a real city interior is the evidence for the tour step. The command
+   * remains idempotent and compatible with the explicit skip control. */
+  const openCityInterior = useCallback((cityId: string) => {
+    setCityInteriorId(cityId);
+    const completed = snapshotRef.current?.onboarding?.completedSteps ?? [];
+    if (!completed.includes("city_inspected")) {
+      void runCommand({ kind: "onboarding_ack", label: "Đã xem nội thành", path: "/api/commands/onboarding/ack", body: { step: "city_inspected" } }).catch(() => undefined);
+    }
+  }, [runCommand]);
 
   // Commands apply their HTTP-response snapshot immediately (WS is secondary).
   useEffect(() => { api.setSnapshotSink(applySnapshot); return () => api.setSnapshotSink(undefined); }, [applySnapshot]);

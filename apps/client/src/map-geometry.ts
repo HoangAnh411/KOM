@@ -177,7 +177,8 @@ export function overlayGeometrySig(army: SigArmy, selected: boolean): string {
  *  map on every snapshot to discover nothing had changed. A different world must rebuild,
  *  which is why the digest is part of the signature and not an assertion elsewhere. */
 export function terrainSig(worldMapDigest: string | undefined, overrides: Record<string, string> | undefined): string {
-  return `${worldMapDigest ?? ""}|${JSON.stringify(overrides ?? {})}`;
+  const stableOverrides = Object.entries(overrides ?? {}).sort(([left], [right]) => left.localeCompare(right));
+  return `${worldMapDigest ?? ""}|${JSON.stringify(stableOverrides)}`;
 }
 
 export function eventSig(events: readonly { id: string; eventType: string; severity: unknown; affectedTiles: unknown }[]): string {

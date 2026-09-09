@@ -84,9 +84,9 @@ export function npcComposition(armyId: string, unitType: UnitType, strength: num
 }
 
 export function npcCommanderFor(state: GameState, army: { npcKind?: string; unitType: UnitType }): Commander {
-  const kind = army.npcKind === "migration" ? "migration" : "raider";
+  const kind = army.npcKind === "migration" ? "migration" : army.npcKind === "rival" ? "rival" : "raider";
   const specialty = specialtyForUnit(army.unitType);
-  return ensureNpcCommander(state, `npc-commander-${kind}-${specialty}`, kind === "raider" ? "Thủ lĩnh cướp" : "Thủ lĩnh di cư", specialty);
+  return ensureNpcCommander(state, `npc-commander-${kind}-${specialty}`, kind === "raider" ? "Thủ lĩnh cướp" : kind === "rival" ? "Tướng đối địch" : "Thủ lĩnh di cư", specialty);
 }
 
 /** Upgrades persisted pre-composition NPC armies to the group model so world

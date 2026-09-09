@@ -4,10 +4,11 @@ import type {
   ArmySquad,
   BattleStance,
   CommanderSpecialty,
+  FactionId,
   TerrainType,
   TroopType,
 } from "@kingdoms/shared";
-import { armyCompositionTotal, troopTypes } from "@kingdoms/shared";
+import { armyCompositionTotal, factionDoctrines, troopTypes } from "@kingdoms/shared";
 
 export type MixedBattleSide = {
   composition: ArmyComposition;
@@ -15,6 +16,7 @@ export type MixedBattleSide = {
   stance: BattleStance;
   morale: number;
   supply: number;
+  factionId?: FactionId;
 };
 
 export type MixedBattleInput = {
@@ -200,11 +202,13 @@ export function resolveMixedBattle(input: MixedBattleInput): MixedBattleOutput {
       const target = targetFor(source, defenderComposition);
       if (!target) continue;
       const targetDefense = baseStats[target.troopType].defense * defenderStance.defense;
-      const power = source.count * baseStats[source.troopType].attack * attackerStance.attack
+      const attackDoctrine = factionDoctrines[input.attacker.factionId ?? "meridian"];
+      const defenseDoctrine = factionDoctrines[input.defender.factionId ?? "meridian"];
+      const power = source.count * baseStats[source.troopType].attack * attackerStance.attack * attackDoctrine.attack
         * attackModifier(input.attacker, source, round, Boolean(attackerComposition.frontline?.count))
         * terrainFactor(input.terrain, source.troopType) * (input.attacker.supply >= 50 ? 1 : input.attacker.supply < 25 ? 0.7 : 0.85)
         * (attackerMorale >= 50 ? 1 : attackerMorale < 20 ? 0.6 : 0.8)
-        * defenseModifier(input.defender, target, round) / targetDefense;
+        * defenseModifier(input.defender, target, round) / (targetDefense * defenseDoctrine.defense);
       const damage = Math.floor(power * (0.85 + rng() * 0.3) / 20);
       attackerDamage.set(target.id, (attackerDamage.get(target.id) ?? 0) + damage);
       const skill = input.attacker.commander.specialty === "archer" && source.troopType === "archers" && round === 3
@@ -221,11 +225,13 @@ export function resolveMixedBattle(input: MixedBattleInput): MixedBattleOutput {
       const target = targetFor(source, attackerComposition);
       if (!target) continue;
       const targetDefense = baseStats[target.troopType].defense * attackerStance.defense;
-      const power = source.count * baseStats[source.troopType].attack * defenderStance.attack
+      const attackDoctrine = factionDoctrines[input.defender.factionId ?? "meridian"];
+      const defenseDoctrine = factionDoctrines[input.attacker.factionId ?? "meridian"];
+      const power = source.count * baseStats[source.troopType].attack * defenderStance.attack * attackDoctrine.attack
         * attackModifier(input.defender, source, round, Boolean(defenderComposition.frontline?.count))
         * terrainFactor(input.terrain, source.troopType) * (input.defender.supply >= 50 ? 1 : input.defender.supply < 25 ? 0.7 : 0.85)
         * (defenderMorale >= 50 ? 1 : defenderMorale < 20 ? 0.6 : 0.8)
-        * defenseModifier(input.attacker, target, round) / targetDefense;
+        * defenseModifier(input.attacker, target, round) / (targetDefense * defenseDoctrine.defense);
       const damage = Math.floor(power * (0.85 + rng() * 0.3) / 20);
       defenderDamage.set(target.id, (defenderDamage.get(target.id) ?? 0) + damage);
       const skill = input.defender.commander.specialty === "archer" && source.troopType === "archers" && round === 3

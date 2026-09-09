@@ -224,6 +224,11 @@ test("overlay ring distinguishes npc from player armies", () => {
 test("terrain and event signatures are stable for equal input and change on real edits", () => {
   const world = worldMapDigest();
   assert.equal(terrainSig(world, { "3,4": "forest" }), terrainSig(world, { "3,4": "forest" }));
+  assert.equal(
+    terrainSig(world, { "3,4": "forest", "1,2": "hills" }),
+    terrainSig(world, { "1,2": "hills", "3,4": "forest" }),
+    "override insertion order is not rendered content",
+  );
   assert.notEqual(terrainSig(world, { "3,4": "forest" }), terrainSig(world, { "3,4": "hill" }));
   assert.equal(terrainSig(world, undefined), terrainSig(world, {}));
   // The grid no longer travels, so a different world reaches the client as a different

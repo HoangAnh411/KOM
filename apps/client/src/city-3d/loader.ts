@@ -5,6 +5,27 @@ import { cityAssetManifest, type CityAssetKey } from "./manifest.js";
 
 const assetCache = new Map<CityAssetKey, GLTF>();
 let loadPromise: Promise<Map<CityAssetKey, GLTF>> | null = null;
+export const CITY_ASSET_LOAD_CONCURRENCY = 4;
+
+/** Runs tasks through a fixed-size worker pool without external dependencies. */
+export async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  concurrency: number,
+  task: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  if (!Number.isInteger(concurrency) || concurrency < 1) throw new RangeError("concurrency must be a positive integer");
+  const results = new Array<R>(items.length);
+  let nextIndex = 0;
+  const worker = async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await task(items[index]!, index);
+    }
+  };
+  await Promise.all(Array.from({ length: Math.min(concurrency, items.length) }, worker));
+  return results;
+}
 
 export async function loadCityAssets(onProgress?: (progress: number) => void): Promise<Map<CityAssetKey, GLTF>> {
   const entries = Object.entries(cityAssetManifest) as Array<[CityAssetKey, string]>;
@@ -19,7 +40,7 @@ export async function loadCityAssets(onProgress?: (progress: number) => void): P
     loader.setMeshoptDecoder(MeshoptDecoder);
     let completed = 0;
 
-    await Promise.all(entries.map(async ([key, url]) => {
+    await mapWithConcurrency(entries, CITY_ASSET_LOAD_CONCURRENCY, async ([key, url]) => {
       if (!assetCache.has(key)) {
         const gltf = await loader.loadAsync(url);
         gltf.scene.updateMatrixWorld(true);
@@ -33,7 +54,7 @@ export async function loadCityAssets(onProgress?: (progress: number) => void): P
       }
       completed += 1;
       onProgress?.(completed / entries.length);
-    }));
+    });
 
     return assetCache;
   })().catch(error => {

@@ -45,6 +45,7 @@ export function hardReset(state: GameState, nextSeason: GameState["season"]): vo
   state.seasonMetrics = { resourcesProduced: {} };
   // Territory is recalculated on the next tick from the preserved army positions.
   state.regionControl = {};
+  state.regionControlRevision = (state.regionControlRevision ?? 0) + 1;
 }
 
 export function reputationCosmetic(score: number): { title: string | null; badge: string | null; cityGlow: boolean } {

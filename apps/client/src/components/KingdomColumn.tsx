@@ -12,6 +12,7 @@ import { CityPanel } from "./CityPanel.js";
 import { LogisticsPanel } from "./LogisticsPanel.js";
 import { OnboardingPanel } from "./OnboardingPanel.js";
 import { ProgressionPanel } from "./ProgressionPanel.js";
+import { OperationPanel } from "./OperationPanel.js";
 import { offlineRetryReason } from "./PendingChip.js";
 
 // The advanced drawer (alliance/espionage/archive/diplomacy) loads on first open.
@@ -82,6 +83,7 @@ export function KingdomColumn({ open, onClose }: { open: boolean; onClose: () =>
       </nav>
     </div>
     <OnboardingPanel />
+    <OperationPanel />
     <ProgressionPanel />
     {/* Frozen is `disabled` on a fieldset, which is the only thing in the platform
         that disables every control inside it. The rule it replaces —

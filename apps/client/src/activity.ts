@@ -356,18 +356,19 @@ function snapshotDrafts(previous: WorldSnapshot | undefined, next: WorldSnapshot
   // Provinces, ours only. Territory is public — the map paints every province's
   // holder — but a row is a thing that happened *to us*, and in a full kingdom
   // sixteen provinces trading hands between strangers would bury the four rows a
-  // player can act on. The id carries both the province and the new holder, so a
-  // seat that changes hands twice reports twice while a repeated snapshot reports
-  // nothing.
+  // player can act on. When present, the public transition revision makes a
+  // return transition (A→B→A) a new fact instead of colliding with the first A.
+  // Older servers omit it and retain the legacy stable id shape.
   const heldBefore = previous.regionControl ?? {};
   const heldNow = next.regionControl ?? {};
+  const transition = next.regionControlRevision === undefined ? "" : `:${next.regionControlRevision}`;
   for (const code of new Set([...Object.keys(heldBefore), ...Object.keys(heldNow)])) {
     const before = heldBefore[code];
     const after = heldNow[code];
     if (before === after) continue;
     if (after === playerId) {
       rows.push({
-        id: `region-captured:${code}:${playerId}`,
+        id: `region-captured:${code}:${playerId}${transition}`,
         kind: "region-captured",
         message: `Đã kiểm soát ${provinceName(code)} — ${provinceTiles[code] ?? 0} ô.`,
       });
@@ -376,7 +377,7 @@ function snapshotDrafts(previous: WorldSnapshot | undefined, next: WorldSnapshot
       // or nobody holds it any more — we marched away, or a rival drew level and
       // the rule leaves a contested seat unheld.
       rows.push({
-        id: `region-lost:${code}:${after ?? "none"}`,
+        id: `region-lost:${code}:${after ?? "none"}${transition}`,
         kind: "region-lost",
         message: after
           ? `Mất ${provinceName(code)} vào tay ${nameOf(next, after)}.`

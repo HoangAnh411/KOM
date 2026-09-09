@@ -7,9 +7,10 @@ import { CommandRegistry } from "./command-registry.js";
 const VARIANT = "web_alpha_v1";
 
 // Player onboarding progress. Six steps are verified server-side from durable
-// state (buildings, armies, logistics counters, battle reports); two
-// UI-observed steps (city_inspected, score_viewed) are acknowledged via the
-// /api/commands/onboarding/ack command. Completed steps persist in the
+// game state (buildings, armies, logistics counters, battle reports); two
+// UI-observed steps (city_inspected, score_viewed) send behavior evidence through
+// the compatible acknowledgement command. The client may also offer that command
+// as an explicitly labelled skip. Completed steps persist in the
 // player_onboarding table and merge with fresh evidence so restarts never
 // regress progress. Purely cosmetic — no gameplay gating.
 export class OnboardingRepository {

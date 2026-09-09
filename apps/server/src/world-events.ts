@@ -4,7 +4,7 @@ import { gameRules } from "@kingdoms/shared";
 import type { GameState } from "./types.js";
 import { CombatRepository } from "./combat.js";
 import { EventLedger } from "./event-ledger.js";
-import { npcCommanderFor, npcComposition } from "./army-model.js";
+import { npcCommanderFor, npcComposition, applyCompositionLosses } from "./army-model.js";
 import { config } from "./config.js";
 
 const eventDuration: Record<WorldEventType, [number, number]> = {
@@ -12,6 +12,15 @@ const eventDuration: Record<WorldEventType, [number, number]> = {
 };
 const eventTypes: WorldEventType[] = ["drought", "plague", "earthquake", "mob_migration", "gold_rush"];
 const unitTypes: UnitType[] = ["infantry", "cavalry", "archer"];
+export const plaguePeriodMs = 10_000;
+export const plagueCatchUpLimit = 6;
+
+export type HarvestEffect = { modifier: number; eventIds: string[] };
+
+export function activeHarvestEffect(x: number, y: number, state: GameState, now = Date.now()): HarvestEffect {
+  const active = state.worldEvents.filter(event => Date.parse(event.startsAt) <= now && now < Date.parse(event.endsAt) && event.affectedTiles.some(tile => tile.x === x && tile.y === y) && event.modifier.harvest !== undefined);
+  return { modifier: active.reduce((modifier, event) => modifier * (event.modifier.harvest ?? 1), 1), eventIds: active.map(event => event.id) };
+}
 
 function hash(value: string): number { return Array.from(value).reduce((total, char) => (Math.imul(total, 31) + char.charCodeAt(0)) >>> 0, 2166136261); }
 function random(seed: number): () => number { let current = seed >>> 0; return () => { current += 0x6d2b79f5; let n = current; n = Math.imul(n ^ n >>> 15, n | 1); n ^= n + Math.imul(n ^ n >>> 7, n | 61); return ((n ^ n >>> 14) >>> 0) / 4294967296; }; }
@@ -21,7 +30,10 @@ export class WorldEventEngine {
 
   seed(state: GameState): void {
     state.worldEvents ??= [];
-    for (const event of state.worldEvents) event.seed ??= hash(event.id);
+    for (const event of state.worldEvents) {
+      event.seed ??= hash(event.id);
+      if (event.eventType === "plague") event.lastPlagueAt ??= event.startsAt;
+    }
     for (const army of state.armies) { army.ownerType ??= "player"; army.ownerPlayerId ??= null; }
   }
 
@@ -38,7 +50,8 @@ export class WorldEventEngine {
       id: randomUUID(), kingdomId: state.kingdom.id, eventType, affectedTiles,
       modifier: eventType === "drought" ? { harvest: 0.5 } : eventType === "gold_rush" ? { harvest: 2 } : {},
       startsAt: new Date(now).toISOString(), endsAt: new Date(now + (min + Math.floor(rng() * Math.max(1, max - min + 1))) * 1000).toISOString(),
-      severity: Math.floor(rng() * 3) + 1, seed
+      severity: Math.floor(rng() * 3) + 1, seed,
+      lastPlagueAt: eventType === "plague" ? new Date(now).toISOString() : undefined,
     };
     state.worldEvents.push(event);
     if (eventType === "earthquake") this.applyEarthquake(event, state, rng);
@@ -106,13 +119,31 @@ export class WorldEventEngine {
     return changed;
   }
 
+  private applyPlague(event: WorldEvent, state: GameState, now: number): boolean {
+    const through = Math.min(now, Date.parse(event.endsAt));
+    const last = Date.parse(event.lastPlagueAt ?? event.startsAt);
+    const elapsedPeriods = Math.floor((through - last) / plaguePeriodMs);
+    if (elapsedPeriods <= 0) return false;
+    // Consume the complete elapsed window even when damage is capped. Repeated
+    // immediate ticks therefore cannot drain an arbitrarily old save in chunks.
+    event.lastPlagueAt = new Date(last + elapsedPeriods * plaguePeriodMs).toISOString();
+    const periods = Math.min(elapsedPeriods, plagueCatchUpLimit);
+    let changed = true; // advancing the persisted event clock is itself state.
+    for (const army of state.armies.filter(army => !army.frozen && (!army.ownerPlayerId || state.players.find(player => player.id === army.ownerPlayerId)?.status !== "banned") && event.affectedTiles.some(tile => tile.x === army.x && tile.y === army.y))) {
+      const losses = 5 * event.severity * periods;
+      if (army.composition) applyCompositionLosses(army, losses);
+      else army.strength = Math.max(0, army.strength - losses);
+      army.morale = Math.max(0, army.morale - 10 * event.severity * periods);
+    }
+    return changed;
+  }
+
   tick(state: GameState, now = Date.now()): boolean {
     this.seed(state); let changed = Boolean(this.maybeSpawnEvent(state, now));
     for (const event of state.worldEvents) {
-      if (Date.parse(event.startsAt) > now || Date.parse(event.endsAt) <= now) continue;
-      if (event.eventType === "plague") for (const army of state.armies.filter(army => !army.frozen && (!army.ownerPlayerId || state.players.find(player => player.id === army.ownerPlayerId)?.status !== "banned") && event.affectedTiles.some(tile => tile.x === army.x && tile.y === army.y))) {
-        army.strength = Math.max(0, army.strength - 5 * event.severity); army.morale = Math.max(0, army.morale - 10 * event.severity); changed = true;
-      }
+      if (Date.parse(event.startsAt) > now) continue;
+      if (event.eventType === "plague") changed = this.applyPlague(event, state, now) || changed;
+      if (Date.parse(event.endsAt) <= now) continue;
       if (event.eventType === "mob_migration") changed = this.tickMobs(event, state, now) || changed;
     }
     const expiredIds = new Set(state.worldEvents.filter(event => Date.parse(event.endsAt) <= now).map(event => event.id));
@@ -120,5 +151,5 @@ export class WorldEventEngine {
     return changed;
   }
 
-  harvestModifier(x: number, y: number, state: GameState): number { return state.worldEvents.filter(event => event.affectedTiles.some(tile => tile.x === x && tile.y === y)).reduce((modifier, event) => modifier * (event.modifier.harvest ?? 1), 1); }
+  harvestModifier(x: number, y: number, state: GameState, now = Date.now()): number { return activeHarvestEffect(x, y, state, now).modifier; }
 }

@@ -4,6 +4,15 @@ import { worldExtent, worldTerrainTypes } from "./world-map.js";
 export const factionIds = ["meridian", "bastion", "ravager", "veiled"] as const;
 export type FactionId = (typeof factionIds)[number];
 
+export const factionDoctrineSchema = z.object({ id: z.enum(factionIds), advantage: z.string(), drawback: z.string(), attack: z.number(), defense: z.number(), supplyUse: z.number(), movement: z.number(), intel: z.number() });
+export type FactionDoctrine = z.infer<typeof factionDoctrineSchema>;
+export const factionDoctrines: Record<FactionId, FactionDoctrine> = {
+  meridian: { id: "meridian", advantage: "Tiếp tế hiệu quả", drawback: "Sức tấn công trực diện thấp", attack: 0.96, defense: 1, supplyUse: 0.8, movement: 1, intel: 1 },
+  bastion: { id: "bastion", advantage: "Phòng thủ và hồi phục", drawback: "Hành quân chậm", attack: 0.95, defense: 1.12, supplyUse: 1, movement: 0.9, intel: 1 },
+  ravager: { id: "ravager", advantage: "Đột kích và cơ động", drawback: "Phòng thủ yếu", attack: 1.1, defense: 0.92, supplyUse: 1.15, movement: 1.15, intel: 1 },
+  veiled: { id: "veiled", advantage: "Trinh sát ý đồ sớm", drawback: "Lực chiến thấp", attack: 0.97, defense: 0.97, supplyUse: 1, movement: 1, intel: 1.5 },
+};
+
 export const factions: Record<FactionId, { name: string; description: string }> = {
   meridian: { name: "Meridian League", description: "Thương mại và caravan hiệu quả." },
   bastion: { name: "Bastion Covenant", description: "Phòng thủ thành phố và hồi phục." },
@@ -303,6 +312,33 @@ export const campaignMissions: ReadonlyArray<CampaignMission> = [
   { id: "chapter-3-meridian", chapter: 3, title: "Bình định Meridian", description: "Hoàn tất chiến dịch đầu mùa ngay tâm thế giới.", lesson: "Không có lực chiến cam kết; hãy đọc từng hiệp.", terrain: "plains", rewardXp: 75, kind: "combat", target: { x: 127, y: 127 } },
 ];
 
+// === SOLO OPERATIONS ===
+export const operationTemplateIds = ["border_expedition"] as const;
+export type OperationTemplateId = (typeof operationTemplateIds)[number];
+export const operationStatuses = ["BRIEFING", "RUNNING", "AWAITING_DECISION", "PAUSED", "COMPLETED", "FAILED"] as const;
+export const operationPhases = ["briefing", "approach", "first_contact", "escalation", "extraction", "debrief"] as const;
+export const operationActions = ["safe_route", "risky_route", "engage", "fortify", "avoid", "extract", "press_on"] as const;
+export type OperationAction = (typeof operationActions)[number];
+export const operationDecisionSchema = z.object({
+  id: z.string(),
+  phase: z.enum(operationPhases),
+  options: z.array(z.object({ action: z.enum(operationActions), label: z.string(), preview: z.string() })).min(2).max(3),
+});
+export type OperationDecision = z.infer<typeof operationDecisionSchema>;
+export const operationRunSchema = z.object({
+  id: z.string(), playerId: z.string(), seasonId: z.string(), templateId: z.enum(operationTemplateIds),
+  rulesVersion: z.literal(1), seed: z.number().int().nonnegative(), committedArmyId: z.string(),
+  status: z.enum(operationStatuses), phase: z.enum(operationPhases), logicalElapsedMs: z.number().int().nonnegative(),
+  speed: z.union([z.literal(1), z.literal(2)]), lastAdvancedAt: z.string(), pausedReason: z.string().optional(),
+  currentDecision: operationDecisionSchema.optional(), decisions: z.array(z.object({ decisionId: z.string(), action: z.enum(operationActions), atLogicalMs: z.number().int().nonnegative() })),
+  routeRisk: z.number().int().min(0).max(2), supplySpent: z.number().int().nonnegative(), battleReportIds: z.array(z.string()),
+  reward: campaignRewardSchema.optional(), outcome: z.enum(["extracted", "victory", "defeat"]).optional(), variant: z.object({ quadrant: z.number().int().min(0).max(3), enemyDoctrine: z.enum(["defensive", "raider", "opportunist"]), mutator: z.enum(["supply_shortage", "reinforced_enemy", "favorable_terrain"]), rewardMultiplier: z.number().positive() }).optional(), checksum: z.string().optional(), settlementAppliedAt: z.string().optional(), revision: z.number().int().nonnegative(),
+});
+export type OperationRun = z.infer<typeof operationRunSchema>;
+export const operationStartCommandSchema = z.object({ commandId: z.string().min(8), armyId: z.string(), templateId: z.enum(operationTemplateIds).default("border_expedition") });
+export const operationActCommandSchema = z.object({ commandId: z.string().min(8), operationId: z.string(), decisionId: z.string(), action: z.enum(operationActions) });
+export const operationTimeControlCommandSchema = z.object({ commandId: z.string().min(8), operationId: z.string(), action: z.enum(["pause", "resume", "set_speed"]), speed: z.union([z.literal(1), z.literal(2)]).optional() });
+
 export const commanderCapacity = (level: number): number => Math.min(500, 100 + 50 * (Math.max(1, Math.min(10, Math.floor(level))) - 1));
 export const armyCompositionTotal = (composition: ArmyComposition): number => armyPositions.reduce((total, position) => total + (composition[position]?.count ?? 0), 0);
 export const emptyTroopCounts = (): TroopCounts => ({ shield_infantry: 0, spearmen: 0, archers: 0, cavalry: 0 });
@@ -314,7 +350,7 @@ export const armyV2FieldsSchema = z.object({
   wounded: troopCountsSchema.default(emptyTroopCounts()),
 });
 
-export const npcKinds = ["raider", "migration"] as const;
+export const npcKinds = ["raider", "migration", "rival"] as const;
 export type NpcKind = (typeof npcKinds)[number];
 
 export const attackOrderSchema = z.object({
@@ -349,6 +385,7 @@ export const armySchema = z.object({
   homeCityId: z.string().optional(),
   recoveryAt: z.string().optional(),
   returningHome: z.boolean().optional(),
+  deployedOperationId: z.string().optional(),
   frozen: z.boolean().optional(),
   frozenAt: z.string().optional()
 });
@@ -534,6 +571,9 @@ export const worldEventSchema = z.object({
   id: z.string(), kingdomId: z.string(), eventType: z.enum(worldEventTypes),
   affectedTiles: z.array(z.object({ x: z.number().int(), y: z.number().int() })),
   modifier: z.record(z.number()), startsAt: z.string(), endsAt: z.string(), severity: z.number().int().min(1).max(3), seed: z.number().int().optional(),
+  /** Last periodic plague boundary consumed by the server. Optional so events
+   * persisted before periodic effects were introduced still parse safely. */
+  lastPlagueAt: z.string().optional(),
 });
 export type WorldEvent = z.infer<typeof worldEventSchema>;
 
@@ -767,6 +807,10 @@ export type BattleHistoryResponse = z.infer<typeof battleHistoryResponseSchema>;
 // absent code reads as unheld, which is also the state at season start, so `{}` is honest
 // rather than a gap. Optional for the same reason every field added since v1 is: a snapshot
 // replayed from an older ledger row has no opinion about territory.
+export const rivalIntentSchema = z.object({ armyId: z.string(), goal: z.enum(["contest", "raid", "resupply", "withdraw"]), targetX: z.number().int(), targetY: z.number().int(), targetRegionCode: z.string().optional(), announcedAt: z.string(), actsAt: z.string() });
+export type RivalIntent = z.infer<typeof rivalIntentSchema>;
+export const regionStateSchema = z.object({ code: z.string(), controllerPlayerId: z.string().nullable(), contestingPlayerId: z.string().nullable(), captureProgressMs: z.number().int().nonnegative(), garrisonArmyId: z.string().nullable(), contested: z.boolean(), revision: z.number().int().nonnegative(), lastChangedAt: z.string() });
+export type RegionState = z.infer<typeof regionStateSchema>;
 export const regionControlSchema = z.record(z.string());
 
 export const worldDescriptorSchema = z.object({
@@ -785,7 +829,7 @@ export const explorationSchema = z.object({
 });
 export type Exploration = z.infer<typeof explorationSchema>;
 
-export const snapshotSchema = z.object({ protocolVersion: z.number().int().default(PROTOCOL_VERSION), kingdom: z.object({ id: z.string(), name: z.string() }), season: z.object({ id: z.string(), status: z.enum(["SCHEDULED", "ACTIVE", "FINALIZING", "CLOSED"]), endsAt: z.string() }), world: worldDescriptorSchema, exploration: explorationSchema, cities: z.array(citySchema), caravans: z.array(caravanSchema), armies: z.array(armySchema), heroes: z.array(heroSchema), scores: z.record(scoreSchema), factionCatalog: z.record(z.object({ name: z.string(), description: z.string() })), commanderCatalog: z.array(z.object({ id: z.string(), name: z.string(), specialty: z.enum(commanderSpecialties) })).optional(), logistics: logisticsSnapshotSchema, commanders: z.array(commanderSchema).optional(), troopReserves: z.record(troopReserveSchema).optional(), formationPresets: z.array(formationPresetSchema).optional(), trainingQueues: z.record(trainingQueueSchema).optional(), hospitalQueues: z.record(hospitalQueueSchema).optional(), technologyProgress: z.record(technologyProgressSchema).optional(), researchQueues: z.record(researchQueueSchema).optional(), campaignProgress: z.record(campaignProgressSchema).optional(), battleReports: z.array(battleReportSchema).optional(), worldMapDigest: z.string().optional(), terrainOverrides: z.record(z.enum(terrainTypes)).optional(), regionControl: regionControlSchema.optional(), alliances: z.array(allianceSchema).optional(), allianceVotes: z.array(allianceVoteSchema).optional(), treaties: z.array(treatySchema).optional(), spyMissions: z.array(spyMissionSchema).optional(), worldEvents: z.array(worldEventSchema).optional(), onboarding: onboardingProgressSchema.optional(), dailyQuests: dailyQuestSnapshotSchema.optional() });
+export const snapshotSchema = z.object({ protocolVersion: z.number().int().default(PROTOCOL_VERSION), kingdom: z.object({ id: z.string(), name: z.string() }), season: z.object({ id: z.string(), status: z.enum(["SCHEDULED", "ACTIVE", "FINALIZING", "CLOSED"]), endsAt: z.string() }), world: worldDescriptorSchema, exploration: explorationSchema, cities: z.array(citySchema), caravans: z.array(caravanSchema), armies: z.array(armySchema), heroes: z.array(heroSchema), scores: z.record(scoreSchema), factionCatalog: z.record(z.object({ name: z.string(), description: z.string() })), commanderCatalog: z.array(z.object({ id: z.string(), name: z.string(), specialty: z.enum(commanderSpecialties) })).optional(), logistics: logisticsSnapshotSchema, commanders: z.array(commanderSchema).optional(), troopReserves: z.record(troopReserveSchema).optional(), formationPresets: z.array(formationPresetSchema).optional(), trainingQueues: z.record(trainingQueueSchema).optional(), hospitalQueues: z.record(hospitalQueueSchema).optional(), technologyProgress: z.record(technologyProgressSchema).optional(), researchQueues: z.record(researchQueueSchema).optional(), campaignProgress: z.record(campaignProgressSchema).optional(), activeOperation: operationRunSchema.optional(), battleReports: z.array(battleReportSchema).optional(), worldMapDigest: z.string().optional(), terrainOverrides: z.record(z.enum(terrainTypes)).optional(), regionControl: regionControlSchema.optional(), regionStates: z.record(regionStateSchema).optional(), rivalIntents: z.array(rivalIntentSchema).optional(), regionControlRevision: z.number().int().nonnegative().optional(), alliances: z.array(allianceSchema).optional(), allianceVotes: z.array(allianceVoteSchema).optional(), treaties: z.array(treatySchema).optional(), spyMissions: z.array(spyMissionSchema).optional(), worldEvents: z.array(worldEventSchema).optional(), onboarding: onboardingProgressSchema.optional(), dailyQuests: dailyQuestSnapshotSchema.optional() });
 export type WorldSnapshot = z.infer<typeof snapshotSchema>;
 
 // === PHASE 7B: COMMAND RESPONSE CONTRACT ===
@@ -1067,16 +1111,9 @@ export const gameRules = {
     harvestRange: mapExtent / 2,
   } as const,
   territory: {
-    /** Manhattan distance from a province seat an army must be within to claim the province.
-     *  One tile: standing beside the seat, not merely somewhere in the province — a province is
-     *  eighty tiles and "somewhere in it" would make control a thing you drift into. Nearest
-     *  live army wins, a tie leaves the province unheld, and NPCs never contest (a raider
-     *  parked on a seat would otherwise make a province nobody can hold). */
     captureRadius: 1,
-    /** Tiles that earn the full 300 territory points: a quarter of the world, which is about
-     *  four of the sixteen provinces (they run 79–83 tiles, so it is four of the larger ones or
-     *  a bit more of the smaller). Written as a share of the map so resizing the world keeps the
-     *  meaning instead of quietly making territory cheaper or dearer. */
+    captureDurationMs: 30_000,
+    decayPerSecond: 2,
     fullScoreTiles: (mapExtent * mapExtent) / 4,
   } as const,
   cityPlacement: {

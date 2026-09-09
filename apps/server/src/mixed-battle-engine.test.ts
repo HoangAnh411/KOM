@@ -41,6 +41,17 @@ test("cavalry can hit the backline after the spearmen frontline is gone", () => 
   assert.ok(result.rounds.some(round => round.defender.find(group => group.squadId === "d-back")!.casualties > 0));
 });
 
+test("faction doctrines create real trade-offs in mixed combat", () => {
+  const force = composition({ id: "front", troopType: "shield_infantry", position: "frontline", count: 200 });
+  const enemy = composition({ id: "enemy", troopType: "shield_infantry", position: "frontline", count: 200 });
+  const battle = (factionId: "meridian" | "bastion" | "ravager" | "veiled") => resolveMixedBattle({ attacker: { ...side(force, "logistics"), factionId }, defender: { ...side(enemy, "logistics"), factionId: "meridian" }, terrain: "plains", seed: 42 });
+  const ravager = battle("ravager"); const bastion = battle("bastion");
+  const defenderLoss = (result: ReturnType<typeof resolveMixedBattle>) => 200 - result.defender.totalAfter;
+  const attackerLoss = (result: ReturnType<typeof resolveMixedBattle>) => 200 - result.attacker.totalAfter;
+  assert.ok(defenderLoss(ravager) > defenderLoss(bastion), "ravager pays defense for stronger attacks");
+  assert.ok(attackerLoss(bastion) < attackerLoss(ravager), "bastion takes fewer losses");
+});
+
 test("commander capacity follows the level curve", async () => {
   const { commanderCapacity } = await import("@kingdoms/shared");
   assert.deepEqual([1, 3, 5, 7, 9, 10].map(commanderCapacity), [100, 200, 300, 400, 500, 500]);

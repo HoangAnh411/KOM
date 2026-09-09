@@ -59,19 +59,11 @@ test("selecting your own army opens a compact command tray", async ({ page }, te
   // Nothing selected is a group too, not an empty box: it says what to click.
   await expect(tray).toContainText("Chưa chọn gì");
 
-  // --- An army to command. The barracks gates recruiting, so the enabled state of
-  // the recruit button is the "it finished building" signal.
-  const built = page.waitForResponse(response => response.url().endsWith("/api/commands/build"));
-  await page.getByRole("button", { name: "Xây trại lính" }).click();
-  expect((await built).ok()).toBeTruthy();
-  const recruit = page.getByRole("button", { name: "Tuyển quân mới" });
-  await expect(recruit).toBeEnabled({ timeout: 25_000 });
-  await recruit.click();
-  const recruitModal = page.getByRole("dialog", { name: "Tuyển quân" });
-  await recruitModal.getByRole("radio", { name: /^Bộ binh/ }).check();
-  const recruited = page.waitForResponse(response => response.url().endsWith("/api/commands/recruit"));
-  await recruitModal.getByRole("button", { name: /^Tuyển 10/ }).click();
-  expect((await recruited).ok()).toBeTruthy();
+  // --- An army to command. Provision a real v2 composition through the dev
+  // fixture; campaign.spec.ts owns the slower train → reserve → create flow.
+  const session = await page.evaluate(() => JSON.parse(sessionStorage.getItem("kingdoms-session")!) as { token: string });
+  const provisioned = await page.request.post(`${api}/api/dev/army-v2`, { headers: { authorization: `Bearer ${session.token}` } });
+  expect(provisioned.ok()).toBeTruthy();
   await expect(page.getByTestId("army-row").first()).toContainText("Bộ binh · 10");
 
   // --- Click it on the map: the subject and the commands for it, in one strip ---

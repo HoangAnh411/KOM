@@ -16,17 +16,11 @@ test("map entity selection, direct move order and prompt-free alliance form", as
   await page.getByRole("button", { name: "Vương quốc", exact: true }).click();
   await expect(page.getByRole("complementary", { name: "Bảng điều khiển" })).toBeVisible();
 
-  // --- Build the barracks and recruit infantry so the player owns an army ---
-  const barracksResponse = page.waitForResponse(response => response.url().endsWith("/api/commands/build"));
-  await page.getByRole("button", { name: "Xây trại lính" }).click();
-  expect((await barracksResponse).ok()).toBeTruthy();
-  await expect(page.getByText("Hàng đợi xây: 0/2")).toBeVisible({ timeout: 25000 });
-  await page.getByRole("button", { name: "Tuyển quân mới" }).click();
-  const recruitModal = page.getByRole("dialog", { name: "Tuyển quân" });
-  await recruitModal.getByRole("radio", { name: /^Bộ binh/ }).check();
-  const recruitResponse = page.waitForResponse(response => response.url().endsWith("/api/commands/recruit"));
-  await recruitModal.getByRole("button", { name: /^Tuyển 10/ }).click();
-  expect((await recruitResponse).ok()).toBeTruthy();
+  // --- Provision a v2 army for the map-order scenario. Campaign coverage owns
+  // the full training queue flow; this test should exercise selection and orders.
+  const session = await page.evaluate(() => JSON.parse(sessionStorage.getItem("kingdoms-session")!) as { token: string });
+  const provisioned = await page.request.post(`${api}/api/dev/army-v2`, { headers: { authorization: `Bearer ${session.token}` } });
+  expect(provisioned.ok()).toBeTruthy();
   await expect(page.getByTestId("army-row").first()).toContainText("Bộ binh · 10");
 
   // The view is focused on the player's city, and the recruited army sits on it.
