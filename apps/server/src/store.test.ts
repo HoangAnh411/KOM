@@ -13,7 +13,7 @@ test("loading an old world rejects before repositories can write or replace its 
   Object.defineProperty(store, "pool", { value: {
     query: async (sql: string) => {
       queries.push(sql);
-      assert.match(sql, /^SELECT state FROM game_state/);
+      assert.match(sql, /^SELECT state, updated_at FROM game_state/); // admin-console load() also reads updated_at for the STALE_STATE guard
       return { rows: [{ state: legacy }] };
     },
   } });

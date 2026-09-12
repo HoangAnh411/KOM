@@ -15,7 +15,7 @@ type PrincipalBase = { id: string; username: string; status: "active" | "banned"
 export type PlayerPrincipal = PrincipalBase & { kind: "player"; playerId: string };
 export type AdminPrincipal = PrincipalBase & { kind: "admin" };
 export type AuthPrincipal = PlayerPrincipal | AdminPrincipal;
-export type AuthSession = { accessToken: string; refreshToken: string; user: AuthPrincipal; accessExpiresAt: string };
+export type AuthSession<User extends AuthPrincipal = AuthPrincipal> = { accessToken: string; refreshToken: string; user: User; accessExpiresAt: string };
 export type AuthUserRow = {
   id: string;
   username_normalized: string;
@@ -115,6 +115,11 @@ export class AuthRepository {
     return { accessToken, refreshToken, user, accessExpiresAt: new Date(now + ACCESS_MS).toISOString() };
   }
 
+  // Overloads narrow the union so game paths get `PlayerPrincipal` (with `playerId`)
+  // and admin paths get `AdminPrincipal`, without a cast at every call site.
+  async authenticateAccess(token: string, expectedKind: "player"): Promise<PlayerPrincipal | undefined>;
+  async authenticateAccess(token: string, expectedKind: "admin"): Promise<AdminPrincipal | undefined>;
+  async authenticateAccess(token: string, expectedKind?: PrincipalKind): Promise<AuthPrincipal | undefined>;
   async authenticateAccess(token: string, expectedKind?: PrincipalKind): Promise<AuthPrincipal | undefined> {
     if (!this.pool) return undefined;
     const result = await this.pool.query<AuthUserRow>("SELECT u.id,u.username_normalized,u.status,u.role,p.id AS player_id,p.status AS player_status FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN players p ON p.id=s.player_id WHERE s.access_token_hash=$1 AND s.expires_at>now() AND s.revoked_at IS NULL AND s.principal_type=u.role", [digest(token)]);
@@ -125,6 +130,9 @@ export class AuthRepository {
   async revokeRefresh(token: string, expectedKind?: PrincipalKind): Promise<void> { if (this.pool) await this.pool.query("WITH family AS (SELECT family_id,principal_type FROM auth_sessions WHERE refresh_token_hash=$1 AND ($2::text IS NULL OR principal_type=$2)) UPDATE auth_sessions s SET revoked_at=now(),updated_at=now() FROM family f WHERE s.family_id=f.family_id AND s.principal_type=f.principal_type AND s.revoked_at IS NULL", [digest(token), expectedKind ?? null]); }
   async revokePlayerSessions(playerId: string, client?: PoolClient): Promise<void> { const executor = client ?? this.pool; if (executor) await executor.query("UPDATE auth_sessions SET revoked_at=COALESCE(revoked_at,now()),updated_at=now() WHERE player_id=$1 AND revoked_at IS NULL", [playerId]); }
 
+  async rotateRefresh(token: string, expectedKind: "player"): Promise<AuthSession<PlayerPrincipal> | undefined>;
+  async rotateRefresh(token: string, expectedKind: "admin"): Promise<AuthSession<AdminPrincipal> | undefined>;
+  async rotateRefresh(token: string, expectedKind?: PrincipalKind): Promise<AuthSession | undefined>;
   async rotateRefresh(token: string, expectedKind?: PrincipalKind): Promise<AuthSession | undefined> {
     if (!this.pool) return undefined; const client = await this.pool.connect();
     try {
