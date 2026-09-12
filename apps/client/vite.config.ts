@@ -22,6 +22,7 @@ export default defineConfig({
           react: ["react", "react-dom"],
           shared: ["@kingdoms/shared"],
           pixi: ["pixi.js"],
+          three: ["three"],
         },
       },
     },

@@ -106,10 +106,10 @@ export class LogisticsRepository {
 
   syncDepots(state: GameState): void { this.data.depots = state.cities.filter(city => (city.buildings.road_depot ?? 0) > 0).map(city => ({ cityId: city.id, level: city.buildings.road_depot, capacity: depotCapacity(city.buildings.road_depot) } satisfies Depot)); }
 
-  async load(state: GameState): Promise<void> {
-    this.seed(state); if (!this.pool) return;
+  async load(state: GameState, executor: Pick<Pool, "query"> | Pick<PoolClient, "query"> = this.pool!, strict = false): Promise<void> {
+    this.seed(state); if (!executor) return;
     try {
-      const nodes = await this.pool.query<ResourceNode>(`SELECT id, kingdom_id AS "kingdomId", region_id AS "regionId", x, y, resource_type AS "resourceType", remaining::int, capacity::int, recovery_rate::int AS "recoveryRate" FROM resource_nodes WHERE kingdom_id = $1`, [state.kingdom.id]);
+      const nodes = await executor.query<ResourceNode>(`SELECT id, kingdom_id AS "kingdomId", region_id AS "regionId", x, y, resource_type AS "resourceType", remaining::int, capacity::int, recovery_rate::int AS "recoveryRate" FROM resource_nodes WHERE kingdom_id = $1`, [state.kingdom.id]);
       // The map decides which mines and ports exist; the database only remembers what has happened
       // to them. Rows are matched by derived id, so a row seeded against an older world matches
       // nothing, is ignored here, and is deleted on the next save. Replacing the authored set with
@@ -122,7 +122,7 @@ export class LogisticsRepository {
         // owns, so tuning them in code is not overruled by a row written before the change.
         if (row) node.remaining = Math.max(0, Math.min(row.remaining, node.capacity));
       }
-      const hubs = await this.pool.query<MarketHub>(`SELECT id, kingdom_id AS "kingdomId", name, x, y FROM market_hubs WHERE kingdom_id = $1`, [state.kingdom.id]);
+      const hubs = await executor.query<MarketHub>(`SELECT id, kingdom_id AS "kingdomId", name, x, y FROM market_hubs WHERE kingdom_id = $1`, [state.kingdom.id]);
       // A port keeps the tile it was actually placed on — `findHubTile` may have shuffled it off
       // the authored anchor — because that is the tile players have been marching caravans to.
       const savedHubs = new Map(hubs.rows.map(row => [row.id, row]));
@@ -130,13 +130,13 @@ export class LogisticsRepository {
         const row = savedHubs.get(hub.id);
         if (row) { hub.x = row.x; hub.y = row.y; }
       }
-      const routes = await this.pool.query<TradeRoute>(`SELECT id, kingdom_id AS "kingdomId", owner_player_id AS "ownerPlayerId", source_city_id AS "sourceCityId", destination_kind AS "destinationKind", destination_city_id AS "destinationCityId", destination_market_id AS "destinationMarketId", distance, travel_time_seconds AS "travelTimeSeconds", status FROM trade_routes WHERE kingdom_id = $1`, [state.kingdom.id]);
+      const routes = await executor.query<TradeRoute>(`SELECT id, kingdom_id AS "kingdomId", owner_player_id AS "ownerPlayerId", source_city_id AS "sourceCityId", destination_kind AS "destinationKind", destination_city_id AS "destinationCityId", destination_market_id AS "destinationMarketId", distance, travel_time_seconds AS "travelTimeSeconds", status FROM trade_routes WHERE kingdom_id = $1`, [state.kingdom.id]);
       this.data.tradeRoutes = routes.rows;
-      const throughput = await this.pool.query<{ playerId: string; wood: number; stone: number; iron: number }>(`SELECT player_id AS "playerId", wood::int, stone::int, iron::int FROM economy_throughput WHERE season_id = $1`, [state.season.id]);
+      const throughput = await executor.query<{ playerId: string; wood: number; stone: number; iron: number }>(`SELECT player_id AS "playerId", wood::int, stone::int, iron::int FROM economy_throughput WHERE season_id = $1`, [state.season.id]);
       for (const row of throughput.rows) this.data.throughput[row.playerId] = { wood: row.wood, stone: row.stone, iron: row.iron };
       const ids = state.players.map(player => player.id);
-      if (ids.length) { const caravans = await this.pool.query<Caravan>(`SELECT id, route_id AS "routeId", owner_player_id AS "ownerPlayerId", source_city_id AS "sourceCityId", destination_kind AS "destinationKind", destination_city_id AS "destinationCityId", destination_market_id AS "destinationMarketId", progress, departed_at AS "departureAt", arrives_at AS "arrivesAt", escort_army_id AS "escortArmyId", ambush_seed AS "ambushSeed", status, frozen, frozen_at AS "frozenAt" FROM caravans WHERE owner_player_id = ANY($1)`, [ids]); this.data.caravans = caravans.rows; const cargo = await this.pool.query<{ caravanId: string; resourceType: string; amount: number }>(`SELECT caravan_id AS "caravanId", resource_type AS "resourceType", amount::int FROM caravan_cargo WHERE caravan_id = ANY($1)`, [caravans.rows.map(item => item.id)]); const byCaravan = new Map<string, Resources>(); for (const row of cargo.rows) { const current = byCaravan.get(row.caravanId) ?? { food: 0, wood: 0, stone: 0, iron: 0 }; if (row.resourceType in current) current[row.resourceType as keyof Resources] = row.amount; byCaravan.set(row.caravanId, current); } for (const caravan of this.data.caravans) caravan.cargo = byCaravan.get(caravan.id); }
-    } catch (error) { console.warn("logistics load skipped", error instanceof Error ? error.message : error); }
+      if (ids.length) { const caravans = await executor.query<Caravan>(`SELECT id, route_id AS "routeId", owner_player_id AS "ownerPlayerId", source_city_id AS "sourceCityId", destination_kind AS "destinationKind", destination_city_id AS "destinationCityId", destination_market_id AS "destinationMarketId", progress, departed_at AS "departureAt", arrives_at AS "arrivesAt", escort_army_id AS "escortArmyId", ambush_seed AS "ambushSeed", status, frozen, frozen_at AS "frozenAt" FROM caravans WHERE owner_player_id = ANY($1)`, [ids]); this.data.caravans = caravans.rows; const cargo = await executor.query<{ caravanId: string; resourceType: string; amount: number }>(`SELECT caravan_id AS "caravanId", resource_type AS "resourceType", amount::int FROM caravan_cargo WHERE caravan_id = ANY($1)`, [caravans.rows.map(item => item.id)]); const byCaravan = new Map<string, Resources>(); for (const row of cargo.rows) { const current = byCaravan.get(row.caravanId) ?? { food: 0, wood: 0, stone: 0, iron: 0 }; if (row.resourceType in current) current[row.resourceType as keyof Resources] = row.amount; byCaravan.set(row.caravanId, current); } for (const caravan of this.data.caravans) caravan.cargo = byCaravan.get(caravan.id); }
+    } catch (error) { if (strict) throw error; console.warn("logistics load skipped", error instanceof Error ? error.message : error); }
   }
 
   /** Ports and mines are the only rows here whose existence the *map* decides, so they are the only

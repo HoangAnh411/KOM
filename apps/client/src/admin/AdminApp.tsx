@@ -1,0 +1,64 @@
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
+import * as api from "./api.js";
+import { Button } from "../ui/Button.js";
+import { Modal } from "../ui/Modal.js";
+import { Panel, PanelBody, PanelHeader } from "../ui/Panel.js";
+import { StatusChip } from "../ui/Status.js";
+
+type PendingAction = { kind: "moderate"; player: api.AdminPlayer; status: "active" | "banned" } | { kind: "season"; seasonId: string };
+type PlayerPage = { items: api.AdminPlayer[]; nextCursor?: string };
+function message(error: unknown): string { return error instanceof Error ? error.message : "REQUEST_FAILED"; }
+
+export default function AdminApp() {
+  const [session, setSession] = useState<api.AdminSession>(); const [restoring, setRestoring] = useState(true); const [logoutError, setLogoutError] = useState(""); const [loggingOut, setLoggingOut] = useState(false);
+  useEffect(() => { const removeUnauthorized = api.onUnauthorized(() => setSession(undefined)); const removeSession = api.onSession(setSession); void api.refresh().catch(() => undefined).finally(() => setRestoring(false)); return () => { removeUnauthorized(); removeSession(); }; }, []);
+  if (restoring) return <main className="admin-shell admin-shell--center"><p>Đang khôi phục phiên quản trị…</p></main>;
+  if (!session) return <AdminLogin onLogin={setSession} />;
+  return <AdminConsole session={session} logoutError={logoutError} loggingOut={loggingOut} onLogout={() => { if (loggingOut) return; setLoggingOut(true); setLogoutError(""); void api.logout().catch(reason => setLogoutError(message(reason))).finally(() => setLoggingOut(false)); }} />;
+}
+
+function AdminLogin({ onLogin }: { onLogin: (session: api.AdminSession) => void }) {
+  const [username, setUsername] = useState(""); const [password, setPassword] = useState(""); const [error, setError] = useState(""); const [busy, setBusy] = useState(false);
+  const submit = (event: FormEvent) => { event.preventDefault(); setBusy(true); setError(""); void api.login(username, password).then(onLogin).catch(reason => setError(message(reason))).finally(() => setBusy(false)); };
+  return <main className="admin-shell admin-shell--center"><form className="login-card" onSubmit={submit}>
+    <h1>Quản trị Kingdoms</h1><p>Đăng nhập bằng tài khoản quản trị riêng.</p>
+    <label className="login-field"><span>Tên quản trị</span><input required minLength={3} maxLength={32} autoComplete="username" value={username} onChange={event => setUsername(event.target.value)} /></label>
+    <label className="login-field"><span>Mật khẩu</span><input required minLength={12} maxLength={128} type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} /></label>
+    {error && <p className="admin-error" role="alert">{error}</p>}<Button type="submit" variant="primary" disabled={busy} reason={busy ? "Đang xác minh tài khoản quản trị." : undefined}>{busy ? "Đang đăng nhập…" : "Đăng nhập"}</Button>
+  </form></main>;
+}
+
+function AdminConsole({ session, onLogout, logoutError, loggingOut }: { session: api.AdminSession; onLogout: () => void; logoutError: string; loggingOut: boolean }) {
+  const [dashboard, setDashboard] = useState<api.AdminDashboard>(); const [players, setPlayers] = useState<api.AdminPlayer[]>([]); const [playerCursor, setPlayerCursor] = useState<string>(); const [selectedPlayer, setSelectedPlayer] = useState<api.AdminPlayerDetail>(); const [seasons, setSeasons] = useState<api.AdminSeason[]>([]); const [audit, setAudit] = useState<api.AuditAction[]>([]); const [auditCursor, setAuditCursor] = useState<string>();
+  const [search, setSearch] = useState(""); const [status, setStatus] = useState(""); const [filters, setFilters] = useState<{ search?: string; status?: string }>({}); const [pending, setPending] = useState<PendingAction>(); const [error, setError] = useState(""); const [loading, setLoading] = useState(true); const loadGeneration = useRef(0);
+  const load = useCallback(async () => { const generation = ++loadGeneration.current; setLoading(true); setError(""); try { const [overview, playerPage, seasonPage, auditPage] = await Promise.all([api.dashboard(), api.players(filters), api.seasons(), api.audits()]); if (loadGeneration.current !== generation) return; setDashboard(overview); setPlayers(playerPage.items); setPlayerCursor(playerPage.nextCursor); setSelectedPlayer(undefined); setSeasons(seasonPage.items); setAudit(auditPage.items); setAuditCursor(auditPage.nextCursor); } catch (reason) { if (loadGeneration.current === generation) setError(message(reason)); } finally { if (loadGeneration.current === generation) setLoading(false); } }, [filters]);
+  useEffect(() => { void load(); }, [load]);
+  return <main className="admin-shell"><header className="admin-header"><div><h1>Trung tâm quản trị</h1><p>Đăng nhập: {session.admin.username}</p>{logoutError && <p className="admin-error" role="alert">{logoutError}</p>}</div><Button variant="ghost" onClick={onLogout} disabled={loggingOut} reason={loggingOut ? "Đang kết thúc phiên quản trị." : undefined}>{loggingOut ? "Đang đăng xuất…" : "Đăng xuất"}</Button></header>
+    {error && <p className="admin-error" role="alert">{error}</p>}{loading && <p role="status">Đang tải dữ liệu…</p>}
+    {dashboard && <div className="admin-grid admin-stats">
+      <Panel><PanelHeader title="Người chơi" /><PanelBody><strong>{dashboard.players.total}</strong><p>{dashboard.players.active} hoạt động · {dashboard.players.banned} bị khóa</p><p>{dashboard.players.activeSessions} phiên đang dùng</p></PanelBody></Panel>
+      <Panel><PanelHeader title="Mùa hiện tại" /><PanelBody><StatusChip state={dashboard.season.status === "ACTIVE" ? "success" : "uncertain"}>{dashboard.season.status}</StatusChip><p>{dashboard.season.id}</p><p>Kết thúc: {new Date(dashboard.season.endsAt).toLocaleString()}</p><Button variant="destructive" onClick={() => setPending({ kind: "season", seasonId: dashboard.season.id })}>Đóng mùa sớm</Button></PanelBody></Panel>
+      <Panel><PanelHeader title="Audit 24 giờ" /><PanelBody><strong>{dashboard.auditActionsLast24Hours}</strong><p>thao tác đặc quyền</p></PanelBody></Panel>
+    </div>}
+    <Panel aria-label="Quản lý người chơi"><PanelHeader title="Người chơi" /><PanelBody>
+      <form className="admin-filters" onSubmit={event => { event.preventDefault(); setFilters({ search: search.trim() || undefined, status: status || undefined }); }}><label>Tìm kiếm<input maxLength={64} value={search} onChange={event => setSearch(event.target.value)} placeholder="Tên hiển thị" /></label><label>Trạng thái<select value={status} onChange={event => setStatus(event.target.value)}><option value="">Tất cả</option><option value="active">Hoạt động</option><option value="banned">Đã khóa</option></select></label><Button type="submit">Lọc</Button></form>
+      <div className="admin-table-wrap"><table><thead><tr><th>Tên</th><th>Phe</th><th>Trạng thái</th><th>Thao tác</th></tr></thead><tbody>{players.map(player => <tr key={player.id}><td><Button variant="ghost" density="compact" onClick={() => { setError(""); void api.player(player.id).then(setSelectedPlayer).catch(reason => setError(message(reason))); }}>{player.displayName}</Button><small>{player.id}</small></td><td>{player.factionId}</td><td><StatusChip state={player.status === "active" ? "success" : "frozen"}>{player.status}</StatusChip></td><td><Button variant={player.status === "active" ? "destructive" : "secondary"} density="compact" onClick={() => setPending({ kind: "moderate", player, status: player.status === "active" ? "banned" : "active" })}>{player.status === "active" ? "Khóa" : "Mở khóa"}</Button></td></tr>)}</tbody></table></div>
+      {!loading && players.length === 0 && <p>Không có người chơi phù hợp.</p>}
+      {playerCursor && <Button disabled={loading} reason={loading ? "Đang tải lại danh sách người chơi." : undefined} onClick={() => { const generation = loadGeneration.current; const cursor = playerCursor; void api.players({ ...filters, cursor }).then((page: PlayerPage) => { if (loadGeneration.current !== generation || playerCursor !== cursor) return; setPlayers(value => [...value, ...page.items]); setPlayerCursor(page.nextCursor); }).catch(reason => { if (loadGeneration.current === generation) setError(message(reason)); }); }}>Tải thêm người chơi</Button>}
+      {selectedPlayer && <section className="admin-player-detail" aria-label="Chi tiết người chơi"><h3>{selectedPlayer.displayName}</h3><p>ID: <code>{selectedPlayer.id}</code></p><p>Phe: {selectedPlayer.factionId} · Trạng thái: {selectedPlayer.status}</p><p>Tạo lúc: {selectedPlayer.createdAt ? new Date(selectedPlayer.createdAt).toLocaleString() : "—"}</p><p>Khóa lúc: {selectedPlayer.bannedAt ? new Date(selectedPlayer.bannedAt).toLocaleString() : "—"}</p><p>Lý do khóa: {selectedPlayer.bannedReason ?? "—"}</p></section>}
+    </PanelBody></Panel>
+    <Panel aria-label="Mùa gần đây"><PanelHeader title="Mùa gần đây" /><PanelBody><div className="admin-table-wrap"><table><thead><tr><th>Mã mùa</th><th>Trạng thái</th><th>Bắt đầu</th><th>Kết thúc</th><th>Chốt lúc</th></tr></thead><tbody>{seasons.map(item => <tr key={item.id}><td><code>{item.id}</code></td><td>{item.status}</td><td>{new Date(item.startsAt).toLocaleString()}</td><td>{new Date(item.endsAt).toLocaleString()}</td><td>{item.finalizedAt ? new Date(item.finalizedAt).toLocaleString() : "—"}</td></tr>)}</tbody></table></div>{!loading && seasons.length === 0 && <p>Chưa có dữ liệu mùa.</p>}</PanelBody></Panel>
+    <Panel aria-label="Lịch sử audit"><PanelHeader title="Lịch sử audit" /><PanelBody><div className="admin-table-wrap"><table><thead><tr><th>Thời gian</th><th>Quản trị</th><th>Hành động</th><th>Đích</th><th>Lý do</th><th>Kết quả</th><th>Xác thực</th><th>Request ID</th></tr></thead><tbody>{audit.map(item => <tr key={item.id}><td>{new Date(item.createdAt).toLocaleString()}</td><td>{item.actor?.username ?? "Legacy token"}</td><td>{item.actionType}</td><td>{item.targetId ?? "—"}</td><td>{item.reason}</td><td>{item.outcome}</td><td>{item.authMethod}</td><td><code>{item.requestId ?? "—"}</code></td></tr>)}</tbody></table></div>{auditCursor && <Button disabled={loading} reason={loading ? "Đang tải lại lịch sử audit." : undefined} onClick={() => { const generation = loadGeneration.current; const cursor = auditCursor; void api.audits(cursor).then(page => { if (loadGeneration.current !== generation || auditCursor !== cursor) return; setAudit(value => [...value, ...page.items]); setAuditCursor(page.nextCursor); }).catch(reason => { if (loadGeneration.current === generation) setError(message(reason)); }); }}>Tải thêm</Button>}</PanelBody></Panel>
+    {pending && <ActionModal action={pending} onClose={() => setPending(undefined)} onDone={() => { setPending(undefined); void load(); }} />}
+  </main>;
+}
+
+function ActionModal({ action, onClose, onDone }: { action: PendingAction; onClose: () => void; onDone: () => void }) {
+  const [reason, setReason] = useState(""); const [confirmation, setConfirmation] = useState(""); const [busy, setBusy] = useState(false); const [error, setError] = useState(""); const season = action.kind === "season"; const valid = reason.trim().length >= 3 && (!season || confirmation === action.seasonId);
+  const invalidReason = reason.trim().length < 3 ? "Lý do phải có ít nhất 3 ký tự." : season && confirmation !== action.seasonId ? "Nhập đúng mã mùa hiện tại để xác nhận." : undefined;
+  const run = () => { if (!valid) return; setBusy(true); setError(""); const request = action.kind === "season" ? api.closeSeason(action.seasonId, reason.trim()) : api.moderate(action.player.id, action.status, reason.trim()); void request.then(onDone).catch(value => setError(message(value))).finally(() => setBusy(false)); };
+  return <Modal title={season ? "Đóng mùa sớm?" : `${action.status === "banned" ? "Khóa" : "Mở khóa"} người chơi?`} onClose={busy ? () => undefined : onClose} actions={<><Button variant="ghost" onClick={onClose} disabled={busy} reason={busy ? "Thao tác đang được xử lý." : undefined}>Hủy</Button><Button variant="destructive" onClick={run} disabled={busy || !valid} reason={busy ? "Thao tác đang được xử lý." : invalidReason}>{busy ? "Đang xử lý…" : "Xác nhận"}</Button></>}>
+    {season && <><p>Thao tác sẽ chốt xếp hạng và tạo mùa mới. Nhập mã mùa để xác nhận:</p><code>{action.seasonId}</code><label className="login-field"><span>Mã mùa hiện tại</span><input value={confirmation} onChange={event => setConfirmation(event.target.value)} /></label></>}
+    {!season && <p>Người chơi: {action.player.displayName}</p>}<label className="login-field"><span>Lý do</span><textarea required minLength={3} maxLength={500} value={reason} onChange={event => setReason(event.target.value)} /></label>{error && <p className="admin-error" role="alert">{error}</p>}
+  </Modal>;
+}

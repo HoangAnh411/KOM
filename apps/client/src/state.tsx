@@ -7,10 +7,10 @@ import { beginPending, markUncertain, resolvePending, restorePending, savePendin
 import type { ConnectionState } from "./connect.js";
 import { shouldNotifyRestore } from "./connect.js";
 import { protocolBlockedMessage } from "./protocol.js";
-import type { MapSelection } from "./map.js";
+import type { InteractionMode, MapSelection } from "./map-contract.js";
 
+export type { InteractionMode } from "./map-contract.js";
 export type Notice = { id: number; message: string; kind: "error" | "info" };
-export type InteractionMode = { kind: "idle" } | { kind: "move"; armyId: string } | { kind: "attack"; armyId: string };
 export type PanelId = "city" | "army" | "logistics" | "diplomacy" | "advanced";
 
 type GameState = { session?: api.Session; snapshot?: WorldSnapshot };

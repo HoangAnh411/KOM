@@ -11,6 +11,7 @@
     "migrate": "node --import tsx src/migrate.ts up",
     "migrate:check": "node --import tsx src/migrate.ts check",
     "migrate:baseline": "node --import tsx src/migrate.ts baseline",
+    "admin:bootstrap": "node --import tsx src/admin-bootstrap.ts",
     "test:postgres": "npm run build && node --import tsx src/test-postgres.ts",
     "worker:outbox": "node --import tsx src/outbox-worker.ts",
     "test:loadtest:seed": "node --import tsx src/loadtest-seed.ts",

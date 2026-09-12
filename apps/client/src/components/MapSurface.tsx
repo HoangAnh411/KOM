@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef } from "react";
 import { mapExtent } from "../map-geometry.js";
-import type { MapSelection, WorldMap } from "../map.js";
+import type { MapSelection, WorldMap } from "../map-contract.js";
 import { useGame } from "../state.js";
 import { panelForSelection } from "../tray-groups.js";
 import { Button } from "../ui/Button.js";
@@ -67,16 +67,19 @@ export function MapSurface() {
     if (panel) setActivePanel(panel);
   }, [runCommand, setSelection, cancelOrder, addNotice, setActivePanel, session.player.id]);
 
-  // Map is dynamically imported after login so the pixi chunk never loads on the auth screen.
+  // The renderer facade is dynamically imported after login, so neither Pixi nor Three loads on the auth screen.
   useEffect(() => {
     if (!state.snapshot || !mapContainer.current) return;
     let cancelled = false;
-    void import("../map.js").then(({ createWorldMap }) => {
-      if (cancelled) return;
+    void import("../map-loader.js").then(({ createWorldMap }) => createWorldMap({
+      container: mapContainer.current!, snapshot: state.snapshot!, ownPlayerId: session.player.id, onSelect: handleSelect,
+    })).then(worldMap => {
+      if (cancelled) { worldMap.destroy(); return; }
       map.current?.destroy();
-      map.current = createWorldMap(mapContainer.current!, state.snapshot!, session.player.id, handleSelect);
+      map.current = worldMap;
       map.current.setInteraction(interactionRef.current);
-    });
+      if (snapshotRef.current) map.current.update(snapshotRef.current, pickedHere.current);
+    }).catch(() => { if (!cancelled) addNotice("Không thể khởi tạo bản đồ."); });
     return () => { cancelled = true; map.current?.destroy(); map.current = undefined; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.token, handleSelect]);

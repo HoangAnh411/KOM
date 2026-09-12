@@ -6,6 +6,28 @@
 body { margin: 0; min-width: 320px; }
 main { height: 100vh; position: relative; overflow: hidden; }
 
+/* Admin is a separate application entry: it scrolls as a document and never mounts
+   the realtime gameplay shell. Keep its selectors namespaced so game layout contracts
+   cannot accidentally inherit admin table/form rules. */
+.admin-shell { min-height: 100vh; height: auto; overflow: auto; padding: var(--kom-space-6); background: var(--kom-bg-app); }
+.admin-shell--center { display: grid; place-items: center; }
+.admin-header { display: flex; align-items: center; justify-content: space-between; gap: var(--kom-space-4); max-width: 1200px; margin: 0 auto var(--kom-space-6); }
+.admin-header h1, .admin-header p { margin: 0; }
+.admin-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: var(--kom-space-5); max-width: 1200px; margin: 0 auto var(--kom-space-6); }
+.admin-shell > .kom-panel { max-width: 1200px; margin: 0 auto var(--kom-space-6); }
+.admin-stats strong { font-size: 2rem; color: var(--kom-text-heading); }
+.admin-filters { display: flex; flex-wrap: wrap; align-items: end; gap: var(--kom-space-4); margin-bottom: var(--kom-space-5); }
+.admin-filters label { display: grid; gap: var(--kom-space-2); min-width: 180px; }
+.admin-filters input, .admin-filters select, .admin-shell textarea { width: 100%; }
+.admin-table-wrap { max-width: 100%; overflow-x: auto; }
+.admin-player-detail { margin-top: var(--kom-space-5); padding-top: var(--kom-space-4); border-top: 1px solid var(--kom-border); }
+.admin-player-detail h3, .admin-player-detail p { margin: 0 0 var(--kom-space-2); }
+.admin-shell table { width: 100%; border-collapse: collapse; }
+.admin-shell th, .admin-shell td { padding: var(--kom-space-3); border-bottom: 1px solid var(--kom-border); text-align: left; vertical-align: top; }
+.admin-shell td small { display: block; color: var(--kom-text-muted); }
+.admin-error { max-width: 1200px; margin: var(--kom-space-3) auto; color: var(--kom-state-hostile-text); }
+@media (max-width: 720px) { .admin-grid { grid-template-columns: 1fr; } .admin-shell { padding: var(--kom-space-4); } }
+
 /* ── SITUATION ROOM SHELL ─────────────────────────────────────────────────────
  * Five areas: a header that never collapses, three columns, and a command tray.
  *

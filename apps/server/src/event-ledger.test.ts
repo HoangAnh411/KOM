@@ -45,6 +45,22 @@ test("load keeps events that are appended but not yet persisted", async () => {
   assert.equal(calls.find(call => call.sql.startsWith("INSERT INTO event_ledger"))?.values?.[0], pending.id);
 });
 
+test("discardPending removes only uncommitted events and their command claims", async () => {
+  const ledger = new EventLedger(undefined, 10);
+  const stale = ledger.append({ eventType: "tick", aggregateType: "kingdom", aggregateId: "k", commandId: "stale-command", payload: {} });
+  ledger.markPersisted();
+  const pending = ledger.append({ eventType: "tick", aggregateType: "kingdom", aggregateId: "k", commandId: "pending-command", payload: {} });
+
+  ledger.discardPending();
+
+  assert.deepEqual(ledger.all().map(event => event.id), [stale.id]);
+  assert.equal(ledger.hasCommand("stale-command"), true);
+  assert.equal(ledger.hasCommand("pending-command"), false);
+  const calls: Array<{ sql: string }> = [];
+  await ledger.persist({ query: async (sql: string) => { calls.push({ sql }); return { rows: [] }; } } as never);
+  assert.equal(calls.length, 0, `discarded ${pending.id} must not be persisted`);
+});
+
 test("hasCommand is a positive cache: a miss outside the window is not a claim the id is new", async () => {
   const { pool } = recordingPool([{ commandId: "inside-window" }]);
   const ledger = new EventLedger(pool, 1_000);

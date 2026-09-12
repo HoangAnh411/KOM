@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { GameStore } from "./store.js";
 import { overallScore } from "@kingdoms/shared";
 
@@ -15,6 +16,12 @@ test("season finalization snapshots rankings and creates legacy records", async 
   assert.deepEqual(store.snapshot.cities[0].resources, { food: 0, wood: 500, stone: 500, iron: 500 });
   assert.deepEqual(store.snapshot.cities[0].buildings, { town_hall: 1 });
   assert.equal(await store.finalizeIfDue(), false);
+});
+
+test("forced season close rejects a stale confirmation without mutating state", async () => {
+  const store = new GameStore(); const currentSeasonId = store.snapshot.season.id; const staleSeasonId = randomUUID();
+  await assert.rejects(store.finalizeIfDue({ force: true, expectedSeasonId: staleSeasonId, reason: "stale confirmation" }), /STALE_SEASON/);
+  assert.equal(store.snapshot.season.id, currentSeasonId); assert.equal(store.snapshot.seasonHistory.length, 0);
 });
 
 test("hard reset keeps alliance identity and grants cosmetic reputation only", async () => { const store = new GameStore(); const player = store.snapshot.players[0]; store.diplomacy.createAlliance("create-reset", "Legacy", "LEG", player.id, store.snapshot); store.snapshot.alliances[0].members[0].contribution = 999; store.diplomacy.getStats(player.id, store.snapshot).reputation = 220; store.snapshot.season.endsAt = new Date(0).toISOString(); await store.finalizeIfDue(); assert.equal(store.snapshot.alliances[0].name, "Legacy"); assert.equal(store.snapshot.alliances[0].members[0].contribution, 0); assert.equal(player.crossSeasonReputation, 110); assert.equal(store.archiveForPlayer(player.id).profile.badge, "bronze"); });

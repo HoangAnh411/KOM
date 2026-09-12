@@ -20,9 +20,9 @@
 import type { Army, City, ResourceNode, WorldSnapshot } from "@kingdoms/shared";
 import { gameRules, regionAt, regions } from "@kingdoms/shared";
 import type { ClientCommand } from "./commands.js";
-import type { MapSelection } from "./map.js";
+import type { InteractionMode, MapSelection } from "./map-contract.js";
 import type { PanelAnchorId } from "./panel-anchors.js";
-import type { InteractionMode, PanelId } from "./state.js";
+import type { PanelId } from "./state.js";
 import type { ButtonVariant, IconName } from "./ui/tokens.js";
 import {
   armyNotFrozen, enemyInSight, firstReason, mergeCandidates, mergeReady, notFrozen, orderToCancel, type Check,

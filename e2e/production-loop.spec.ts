@@ -37,7 +37,7 @@ test("mob migration is rendered with spawned NPC armies", async ({ page }, testI
 });
 
 test("season close is visible in the archive UI", async ({ page, request }, testInfo) => {
-  await login(page, `Archive E2E ${testInfo.project.name} ${Date.now()}`); const closed = await request.post(`${api}/api/admin/season/close`, { headers: adminHeaders, data: { reason: "playwright season archive" } }); expect(closed.ok()).toBeTruthy();
+  const session = await login(page, `Archive E2E ${testInfo.project.name} ${Date.now()}`); const bootstrap = await request.get(`${api}/api/bootstrap`, { headers: { authorization: `Bearer ${session.token}` } }); expect(bootstrap.ok()).toBeTruthy(); const seasonId = ((await bootstrap.json()) as { snapshot: { season: { id: string } } }).snapshot.season.id; const closed = await request.post(`${api}/api/admin/season/close`, { headers: adminHeaders, data: { seasonId, reason: "playwright season archive" } }); expect(closed.ok()).toBeTruthy();
   await page.getByTestId("advanced-drawer-toggle").click();
   await page.getByRole("button", { name: "Nạp lịch sử mùa" }).click(); await expect(page.getByTestId("archive-season").first()).toBeVisible();
 });

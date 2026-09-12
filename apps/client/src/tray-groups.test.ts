@@ -3,8 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 import { gameRules, regions } from "@kingdoms/shared";
 import type { Army, City, ResourceNode, WorldSnapshot } from "@kingdoms/shared";
-import type { MapSelection } from "./map.js";
-import type { InteractionMode } from "./state.js";
+import type { InteractionMode, MapSelection } from "./map-contract.js";
 import {
   panelForSelection, trayCommandLimit, trayGroups, traySubject, type TrayCommand, type TrayGroup,
 } from "./tray-groups.js";

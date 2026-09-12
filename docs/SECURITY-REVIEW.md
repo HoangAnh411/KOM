@@ -31,10 +31,10 @@ Không chạy pentest động, không fuzz, không kiểm tra dependency ngoài 
 | S-4 | Medium | availability | ✅ đã sửa + test (P0.2, 2026-09-03) |
 | S-5 | Medium | permissions / abuse | ✅ đã sửa + test (owner chốt luật 2026-09-03) |
 | S-6 | Low | secrets / log | ✅ đã sửa (hardening) |
-| S-7 | Low | input | 📝 ghi nhận, không sửa |
+| S-7 | Low | input | ✅ đã sửa + test hồi quy (admin console, 2026-09-10) |
 | S-8 | Low | availability | 📝 ghi nhận, không sửa |
 | S-9 | Low | config | ⚠️ **owner quyết** (có thể chặn boot) |
-| S-10 | Info | consistency | 📝 ghi nhận |
+| S-10 | Info | consistency | ✅ đã sửa + test hồi quy (admin console, 2026-09-10) |
 
 Không tìm thấy: SQL injection (mọi truy vấn tham số hoá), XSS đường server (không render
 HTML), IDOR trên GET (mọi truy vấn khoá theo `playerId` của chính viewer), CSRF trên command
@@ -217,13 +217,9 @@ sách redact — thuần bổ sung, không đổi hành vi.
 
 ## S-7 (Low) — `/api/admin/player/{ban,unban}` không validate bằng Zod
 
-`app.ts:163` đọc `request.body?.playerId as string` và `reason` bằng tay: `playerId` chỉ được
-*cast*, `reason` chỉ có sàn `length >= 3` mà không có trần. Không có injection (SQL tham số
-hoá, `findPlayer` là scan in-memory, `playerId` sai → 404), nhưng một `reason` 64 KB (đúng
-`bodyLimit`) sẽ được persist vào audit trail mỗi lần ban. Mọi command khác trong file đều đi
-qua Zod schema của `packages/shared`. Đề xuất: schema Zod cho hai route này, `reason` tối đa
-500 ký tự, `playerId` là UUID. **Không sửa** vì nó chạm `app.ts` ở vùng admin và không có
-schema shared tương ứng — gộp vào PR admin kế tiếp.
+`app.ts` trước đây đọc `request.body?.playerId as string` và `reason` bằng tay: `playerId` chỉ được *cast*, `reason` chỉ có sàn `length >= 3` mà không có trần. Không có injection (SQL tham số hoá), nhưng reason tới body limit có thể được persist vào audit trail.
+
+**Đã sửa (admin console, 2026-09-10):** hai route dùng Zod strict schema trong `apps/server/src/admin.ts`: `playerId` phải là UUID, `reason` được trim và dài 3–500 ký tự. Payload có field thừa, ID sai hoặc reason vượt trần trả 400 `INVALID_REQUEST`. Regression `moderation.test.ts` giữ UUID và trần 500; full server unit hiện 169 test, 151 pass, 18 PostgreSQL skip, 0 fail trên máy contributor.
 
 ## S-8 (Low) — không có trần số WebSocket connection
 
@@ -247,9 +243,7 @@ phơi server trực tiếp mà tôi không kiểm chứng được. Owner quyế
 
 ## S-10 (Info) — `ADMIN_DISABLED` trả hai status khác nhau
 
-`moderate()` trả **404** khi thiếu `ADMIN_TOKEN` (`app.ts:163`), `/api/admin/season/close`
-trả **503** cho cùng điều kiện (`:192`). Không phải lỗ hổng; 404 là lựa chọn tốt hơn (không
-tiết lộ route tồn tại) nên nếu thống nhất thì nên thống nhất về 404.
+Hai route trước đây trả status khác nhau khi thiếu compatibility mechanism. **Đã sửa (admin console, 2026-09-10):** cả ban/unban và season close trả 404 `ADMIN_DISABLED` chỉ khi không có cả DB-backed admin support lẫn `ADMIN_TOKEN`. Nếu một mechanism được cấu hình nhưng credential thiếu/sai thì trả 401; player principal hợp lệ vào admin route trả 403. Regression nằm ở `app.test.ts`, `moderation.test.ts` và `websocket.test.ts`.
 
 ---
 
@@ -295,7 +289,8 @@ không có bề mặt CSRF cho command.
 | `treaty/propose` | không tự đề nghị mình, không trùng pending | `diplomacy.ts:189`, `:196` |
 | `treaty/respond` | **chỉ target** | `diplomacy.ts:220` `UNAUTHORIZED` |
 | `treaty/break` | **chỉ một trong hai bên** | `diplomacy.ts:247` |
-| `/api/admin/*` | `ADMIN_TOKEN` so sánh hằng thời gian | `app.ts:161`, `:162` |
+| `/api/admin` reads/auth | admin principal only; legacy token không có read access | `admin.ts` `requireAdmin` + role-aware auth |
+| admin ban/unban/season close | admin principal; legacy token chỉ trong rollback window | `admin.ts` `mutationContext`, constant-time compatibility check |
 
 Thêm hai lớp chạy trước mọi guard trên: `command()` từ chối token không hợp lệ (401) và
 player `banned` (403) trước khi gọi action (`app.ts:108`); tầng domain gọi lại
@@ -325,8 +320,8 @@ site nên một limit không thể lệch khỏi counter nó tiêu. Limiter **fa
 
 **Secrets** — không có secret trong repo (`.env.example` để trống `ADMIN_TOKEN` /
 `METRICS_TOKEN`; compose đọc từ `.env.prod` không commit). Production từ chối boot nếu
-`ADMIN_TOKEN` hoặc `METRICS_TOKEN` < 32 ký tự (`config.ts:33-34`). `/metrics` đòi token so
-sánh hằng thời gian ở password mode (`app.ts:120-125`). Pino redact: xem S-6.
+`METRICS_TOKEN` < 32 ký tự; `ADMIN_TOKEN` là rollback compatibility tùy chọn nhưng nếu có vẫn phải ≥32 (`config.ts`). `/metrics` đòi token so
+sánh hằng thời gian ở password mode. Pino redact: xem S-6.
 
 **Config production** — `config.ts:28-44` từ chối boot production khi `AUTH_MODE≠password`,
 thiếu `DATABASE_URL`/`REDIS_URL`, token ngắn, hoặc `CLIENT_ORIGIN` không phải origin HTTPS
@@ -358,7 +353,7 @@ tay quên nó sẽ mất cả khối. Xem S-9.
 1. **S-9** — có thêm guard "production phải khai `TRUST_PROXY`" không?
 2. **S-1** — xác nhận lại một lần trên stack thật (Caddy → Fastify) sau khi merge, vì máy
    contributor không có Docker.
-3. **S-7** — schema Zod cho hai route admin, gộp vào PR admin kế tiếp.
+3. **S-7** — đã đóng bằng Zod UUID + bounded reason trong admin console.
 4. **S-8** — con số trần WebSocket connection.
 5. `npm audit --audit-level=high` exit 0 tại thời điểm review; nó là gate 10 của CI nên
    không cần theo dõi tay.

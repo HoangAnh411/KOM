@@ -316,16 +316,16 @@ export class DiplomacyRepository {
     return changed;
   }
 
-  async load(state: GameState): Promise<void> {
-    if (!this.pool) return;
+  async load(state: GameState, executor: Pick<Pool, "query"> | Pick<PoolClient, "query"> = this.pool!, strict = false): Promise<void> {
+    if (!executor) return;
     try {
       const [alliancesRes, membersRes, treatiesRes, throughputRes, votesRes, ballotsRes] = await Promise.all([
-        this.pool.query("SELECT * FROM alliances WHERE kingdom_id = $1", [state.kingdom.id]),
-        this.pool.query("SELECT am.* FROM alliance_members am JOIN alliances a ON am.alliance_id = a.id WHERE a.kingdom_id = $1", [state.kingdom.id]),
-        this.pool.query("SELECT * FROM diplomacy_treaties WHERE kingdom_id = $1", [state.kingdom.id]),
-        this.pool.query("SELECT * FROM diplomacy_throughput WHERE season_id = $1", [state.season.id]),
-        this.pool.query("SELECT av.* FROM alliance_votes av JOIN alliances a ON a.id = av.alliance_id WHERE a.kingdom_id = $1", [state.kingdom.id]),
-        this.pool.query("SELECT avb.* FROM alliance_vote_ballots avb JOIN alliance_votes av ON av.id = avb.vote_id JOIN alliances a ON a.id = av.alliance_id WHERE a.kingdom_id = $1", [state.kingdom.id])
+        executor.query("SELECT * FROM alliances WHERE kingdom_id = $1", [state.kingdom.id]),
+        executor.query("SELECT am.* FROM alliance_members am JOIN alliances a ON am.alliance_id = a.id WHERE a.kingdom_id = $1", [state.kingdom.id]),
+        executor.query("SELECT * FROM diplomacy_treaties WHERE kingdom_id = $1", [state.kingdom.id]),
+        executor.query("SELECT * FROM diplomacy_throughput WHERE season_id = $1", [state.season.id]),
+        executor.query("SELECT av.* FROM alliance_votes av JOIN alliances a ON a.id = av.alliance_id WHERE a.kingdom_id = $1", [state.kingdom.id]),
+        executor.query("SELECT avb.* FROM alliance_vote_ballots avb JOIN alliance_votes av ON av.id = avb.vote_id JOIN alliances a ON a.id = av.alliance_id WHERE a.kingdom_id = $1", [state.kingdom.id])
       ]);
 
       const membersByAlliance = membersRes.rows.reduce((acc, row) => {
@@ -387,6 +387,7 @@ export class DiplomacyRepository {
         }
       }
     } catch (e) {
+      if (strict) throw e;
       console.warn("Diplomacy load failed", e instanceof Error ? e.message : e);
     }
   }

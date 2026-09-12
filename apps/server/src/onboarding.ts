@@ -25,15 +25,15 @@ export class OnboardingRepository {
     this.progress = new Map(capture.progress.map(([playerId, steps]) => [playerId, new Set(steps)]));
   }
 
-  async load(state: GameState): Promise<void> {
+  async load(state: GameState, executor: Pick<Pool, "query"> | Pick<PoolClient, "query"> = this.pool!, strict = false): Promise<void> {
     this.progress.clear();
-    if (!this.pool) return;
+    if (!executor) return;
     try {
-      const rows = await this.pool.query<{ player_id: string; completed_steps: string[] }>(
+      const rows = await executor.query<{ player_id: string; completed_steps: string[] }>(
         "SELECT player_id, completed_steps FROM player_onboarding WHERE variant = $1", [VARIANT]
       );
       for (const row of rows.rows) this.progress.set(row.player_id, new Set((row.completed_steps ?? []) as OnboardingStep[]));
-    } catch (error) { console.warn("onboarding load skipped", error instanceof Error ? error.message : error); }
+    } catch (error) { if (strict) throw error; console.warn("onboarding load skipped", error instanceof Error ? error.message : error); }
   }
 
   async persist(client: PoolClient, state: GameState): Promise<void> {

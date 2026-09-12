@@ -44,19 +44,20 @@ export class EspionageRepository {
   // so scouts aimed at the frozen player were held too, and letting the lie tick down while nothing
   // could consume it would silently shorten the effect the player paid for.
   setPlayerFrozen(playerId: string, frozen: boolean, deltaMs: number, state: GameState): void { if (frozen || deltaMs <= 0) return; for (const mission of state.spyMissions.filter(item => item.status === "in_progress" && (item.actorPlayerId === playerId || item.targetPlayerId === playerId))) mission.completesAt = new Date(Date.parse(mission.completesAt) + deltaMs).toISOString(); for (const mission of state.spyMissions.filter(item => item.missionType === "misinformation" && item.status === "success" && (item.actorPlayerId === playerId || item.targetPlayerId === playerId))) { const report = mission.report as MisinformationReport | undefined; if (report?.plantedUntil) report.plantedUntil = new Date(Date.parse(report.plantedUntil) + deltaMs).toISOString(); } if (state.counterIntelActive[playerId]) state.counterIntelActive[playerId] = new Date(Date.parse(state.counterIntelActive[playerId]) + deltaMs).toISOString(); for (const [key, availableAt] of this.cooldowns) if (key.startsWith(`${playerId}:`)) this.cooldowns.set(key, availableAt + deltaMs); }
-  async load(state: GameState): Promise<void> {
+  async load(state: GameState, executor: Pick<Pool, "query"> | Pick<PoolClient, "query"> = this.pool!, strict = false): Promise<void> {
     this.seed(state);
-    if (!this.pool) return;
+    if (!executor) return;
     try {
-      const missions = await this.pool.query("SELECT id, kingdom_id AS \"kingdomId\", actor_player_id AS \"actorPlayerId\", target_player_id AS \"targetPlayerId\", mission_type AS \"missionType\", status, accuracy, cost, started_at AS \"startedAt\", completes_at AS \"completesAt\", report FROM espionage_actions WHERE kingdom_id = $1", [state.kingdom.id]);
+      const missions = await executor.query("SELECT id, kingdom_id AS \"kingdomId\", actor_player_id AS \"actorPlayerId\", target_player_id AS \"targetPlayerId\", mission_type AS \"missionType\", status, accuracy, cost, started_at AS \"startedAt\", completes_at AS \"completesAt\", report FROM espionage_actions WHERE kingdom_id = $1", [state.kingdom.id]);
       state.spyMissions = missions.rows;
-      const counterIntel = await this.pool.query("SELECT player_id, expires_at FROM counter_intel_active WHERE expires_at > now()");
+      const counterIntel = await executor.query("SELECT player_id, expires_at FROM counter_intel_active WHERE expires_at > now()");
       state.counterIntelActive = {};
       for (const row of counterIntel.rows) state.counterIntelActive[row.player_id] = new Date(row.expires_at).toISOString();
-      const cooldowns = await this.pool.query("SELECT player_id, mission_type, available_at FROM spy_cooldowns WHERE available_at > now()");
+      const cooldowns = await executor.query("SELECT player_id, mission_type, available_at FROM spy_cooldowns WHERE available_at > now()");
       this.cooldowns.clear();
       for (const row of cooldowns.rows) this.cooldowns.set(`${row.player_id}:${row.mission_type}`, new Date(row.available_at).getTime());
     } catch (e) {
+      if (strict) throw e;
       console.warn("espionage load skipped", e instanceof Error ? e.message : e);
     }
   }

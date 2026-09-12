@@ -1,7 +1,7 @@
 import { Application, Container, Graphics, RenderTexture, Sprite } from "pixi.js";
 import type { WorldSnapshot } from "@kingdoms/shared";
 import { regions, terrainAt } from "@kingdoms/shared";
-import type { InteractionMode } from "./state.js";
+import type { InteractionMode, MapSelection, MapViewState, WorldMap, WorldMapFactoryArgs } from "./map-contract.js";
 import {
   armyGeometrySig, cityGeometrySig, eventSig, isoDepth, mapExtent, maxZoom, minZoom,
   originAt, overlayGeometrySig, pickAt, regionLabelsVisible, seatSig, terrainBounds, terrainPad,
@@ -9,29 +9,7 @@ import {
 } from "./map-geometry.js";
 import { createLabel, type MapLabel } from "./map-labels.js";
 
-export type MapSelection = { kind: "army" | "city"; id: string } | { kind: "tile"; x: number; y: number };
-export type WorldMap = {
-  update: (next: WorldSnapshot, selection?: MapSelection) => void;
-  focusCity: (x: number, y: number) => void;
-  setInteraction: (mode: InteractionMode) => void;
-  destroy: () => void;
-};
-
-// Scene graph:
-//
-//   stage
-//   └── camera        pan + zoom
-//       └── world     screen origin of grid (0,0)
-//           ├── terrainSprite   one RenderTexture-backed Sprite (was 400 Graphics)
-//           ├── eventLayer      one Graphics per rebuild
-//           ├── resource/hub/city/caravan/army layers   depth-sorted containers
-//           └── overlayLayer    selection rings + order lines
-//
-// All geometry is drawn in WORLD space, so entity movement is a container
-// transform and the screen origin is a single `world.position` write. That is
-// what keeps terrain and entities aligned when the viewport resizes: nothing is
-// re-baked, the whole world moves together.
-export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, ownPlayerId: string, onSelect: (selection: MapSelection | undefined) => void): WorldMap {
+export function createPixiWorldMap({ container, snapshot, ownPlayerId, onSelect, initialView }: WorldMapFactoryArgs): WorldMap {
   const app = new Application({ resizeTo: container, backgroundColor: 0x0e1b2d, antialias: true });
   const canvas = app.view as HTMLCanvasElement;
   container.appendChild(canvas);
@@ -524,15 +502,27 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
     syncOverlay(next, orderedIds);
   };
   const setInteraction = (mode: InteractionMode) => { interactionMode = mode; canvas.style.cursor = interactionMode.kind === "idle" ? "" : "crosshair"; };
+  const getViewState = (): MapViewState => ({ offsetX: camera.position.x, offsetY: camera.position.y, zoom: camera.scale.x });
+  const setViewState = (view: MapViewState) => {
+    const zoom = Math.min(maxZoom, Math.max(minZoom, view.zoom));
+    camera.scale.set(zoom);
+    camera.position.set(view.offsetX, view.offsetY);
+    applySeatLabelZoom(zoom);
+  };
 
   update(snapshot);
-  const ownCity = snapshot.cities.find(city => city.playerId === ownPlayerId);
-  if (ownCity) focusCity(ownCity.x, ownCity.y);
+  if (initialView) setViewState(initialView);
+  else {
+    const ownCity = snapshot.cities.find(city => city.playerId === ownPlayerId);
+    if (ownCity) focusCity(ownCity.x, ownCity.y);
+  }
   let destroyed = false;
   return {
     update: (next, nextSelection) => { if (destroyed) return; update(next, nextSelection); },
     focusCity,
     setInteraction: (mode) => { if (!destroyed) setInteraction(mode); },
+    getViewState,
+    setViewState: (view) => { if (!destroyed) setViewState(view); },
     destroy: () => {
       if (destroyed) return;
       destroyed = true;
@@ -541,7 +531,7 @@ export function createWorldMap(container: HTMLElement, snapshot: WorldSnapshot, 
       // Sprite's texture alone, so the RenderTexture is released explicitly —
       // it is the one large GPU allocation this module owns. The bitmap label
       // atlas is deliberately kept: Pixi caches it globally and the next
-      // createWorldMap reuses it instead of rasterising a second copy.
+      // createPixiWorldMap reuses it instead of rasterising a second copy.
       app.destroy(true, { children: true });
       terrainTexture?.destroy(true);
       terrainTexture = undefined;

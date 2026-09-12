@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "layout": {
+    "mode": "grid",
+    "panels": [
+      "terminal-1"
+    ],
+    "activePanel": "terminal-1",
+    "columnPercent": 50,
+    "panelTabs": {
+      "terminal-1": [
+        {
+          "id": "terminal-1-tab-1",
+          "title": "Terminal 1",
+          "sessionId": "t_7fa05c8d63dfcfd5"
+        }
+      ]
+    },
+    "activeTabs": {
+      "terminal-1": "terminal-1-tab-1"
+    },
+    "editorTabs": [],
+    "activeEditorPath": null
+  },
+  "preferences": {}
+}

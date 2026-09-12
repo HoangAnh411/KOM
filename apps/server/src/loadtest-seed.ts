@@ -54,9 +54,9 @@ const users = [];
 for (let index = 1; index <= count; index += 1) {
   const username = `loadtest_${index}`;
   const row = await auth.findUser(username);
-  if (!row) throw new Error(`loadtest user ${username} disappeared`);
+  if (!row || row.role !== "player" || !row.player_id) throw new Error(`loadtest user ${username} disappeared`);
   await auth.revokePlayerSessions(row.player_id);
-  const session = await auth.createSession({ id: row.id, username: row.username_normalized, playerId: row.player_id, status: "active" });
+  const session = await auth.createSession({ kind: "player", id: row.id, username: row.username_normalized, playerId: row.player_id, status: "active" });
   const city = store.snapshot.cities.find(item => item.playerId === row.player_id);
   if (!city) throw new Error(`loadtest city missing for ${username}`);
   users.push({ username, token: session.accessToken, playerId: row.player_id, cityId: city.id });

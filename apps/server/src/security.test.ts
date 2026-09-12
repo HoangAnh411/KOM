@@ -44,7 +44,7 @@ test("/metrics requires a valid METRICS_TOKEN in password mode", async () => {
   await server.app.close();
 });
 
-test("refresh and logout require an exact Origin match", async () => {
+test("player and admin auth POST routes require an exact Origin match", async () => {
   const server = createServer();
   const noOrigin = await server.app.inject({ method: "POST", url: "/api/auth/refresh" });
   assert.equal(noOrigin.statusCode, 403);
@@ -56,6 +56,12 @@ test("refresh and logout require an exact Origin match", async () => {
   assert.equal(logoutOrigin.statusCode, 403);
   const correctOrigin = await server.app.inject({ method: "POST", url: "/api/auth/refresh", headers: { origin: "http://localhost:5173" } });
   assert.equal(correctOrigin.statusCode, 401, "a well-formed refresh without a refresh_token cookie is UNAUTHORIZED");
+  const adminNoOrigin = await server.app.inject({ method: "POST", url: "/api/admin/auth/login", payload: { username: "operator", password: "a sufficiently long password" } });
+  assert.equal(adminNoOrigin.statusCode, 403);
+  const adminWrongOrigin = await server.app.inject({ method: "POST", url: "/api/admin/auth/refresh", headers: { origin: "https://evil.example" } });
+  assert.equal(adminWrongOrigin.statusCode, 403);
+  const adminCorrectOrigin = await server.app.inject({ method: "POST", url: "/api/admin/auth/refresh", headers: { origin: "http://localhost:5173" } });
+  assert.equal(adminCorrectOrigin.statusCode, 404, "database-backed admin auth is disabled without PostgreSQL");
   await server.app.close();
 });
 
