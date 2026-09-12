@@ -1,0 +1,226 @@
+{
+  "assetSetId": "temp-kenney-v1",
+  "generatedAt": "2026-09-04T11:52:46.118Z",
+  "sources": {
+    "fantasy": "https://kenney.nl/assets/fantasy-town-kit (2.0, CC0 1.0)",
+    "castle": "https://kenney.nl/assets/castle-kit (2.0, CC0 1.0)",
+    "characters": "https://kenney.nl/assets/mini-characters (1.0, CC0 1.0)"
+  },
+  "files": {
+    "fantasy.banner-green": {
+      "filename": "fantasy/banner-green.glb",
+      "bytes": 10200,
+      "sha256": "5c9a1bb7d564270306fe438fd4a141fc6de0d102b355bbd1d2710249c489868a"
+    },
+    "fantasy.banner-red": {
+      "filename": "fantasy/banner-red.glb",
+      "bytes": 9988,
+      "sha256": "4e4a83de16e5979d2b34bb206d3bf3703a9039711bc658b37e3738d43090703d"
+    },
+    "fantasy.cart": {
+      "filename": "fantasy/cart.glb",
+      "bytes": 52920,
+      "sha256": "63503cd0a7398310e01aabc8e3663f711a7517394d23d179d0695157fee99d40"
+    },
+    "fantasy.chimney": {
+      "filename": "fantasy/chimney.glb",
+      "bytes": 4656,
+      "sha256": "a15cdbd13860092f6d793e5b785043eb90a49cdaa725bb71df9fd154ca68dac6"
+    },
+    "fantasy.fence": {
+      "filename": "fantasy/fence.glb",
+      "bytes": 7672,
+      "sha256": "92261b9419108d84f3db0def5eadeffa783032029897562b1f512e4a7570ef48"
+    },
+    "fantasy.fountain-round-detail": {
+      "filename": "fantasy/fountain-round-detail.glb",
+      "bytes": 136888,
+      "sha256": "05cdd740e3175c2d3208d4cb6630a279a9b4cbc48393b28c92e3e40cca2a5d6b"
+    },
+    "fantasy.lantern": {
+      "filename": "fantasy/lantern.glb",
+      "bytes": 14984,
+      "sha256": "f270637e3083d6e84a30626ee05df2b09597a642985a7f5c3e4ab5bb1c7a8d55"
+    },
+    "fantasy.overhang": {
+      "filename": "fantasy/overhang.glb",
+      "bytes": 7648,
+      "sha256": "515edba27d8c6326cee6f5912b7270224672f9f3dd61e43e85e1d504913ef19c"
+    },
+    "fantasy.planks": {
+      "filename": "fantasy/planks.glb",
+      "bytes": 11148,
+      "sha256": "619705afa7ad290bfa499a701fd7ea07210ad535126cb3abc245b6f16e1420ab"
+    },
+    "fantasy.poles": {
+      "filename": "fantasy/poles.glb",
+      "bytes": 4212,
+      "sha256": "5e6e9cbbcf29b042191781f830f928471c57f1dc7843ee33e2f7c1bff3edf522"
+    },
+    "fantasy.road": {
+      "filename": "fantasy/road.glb",
+      "bytes": 2788,
+      "sha256": "85630c89588bdc19285a7b5e894c1ddac69d7ce2b069966453800519e446f900"
+    },
+    "fantasy.road-bend": {
+      "filename": "fantasy/road-bend.glb",
+      "bytes": 25044,
+      "sha256": "a4d8fbe9080849dccb45de7ac5f5ded2e17a3d893b8c07338e24193b28e1f03f"
+    },
+    "fantasy.road-corner": {
+      "filename": "fantasy/road-corner.glb",
+      "bytes": 13736,
+      "sha256": "96525a726a15410faf52bb4b813a985704fdbca37aec6d93808b8c18b9ec1e7d"
+    },
+    "fantasy.rock-large": {
+      "filename": "fantasy/rock-large.glb",
+      "bytes": 18876,
+      "sha256": "425bea0dd3c8d9198a067a2faad1df8860c5b9eb53560ce5c67347a79852b9d1"
+    },
+    "fantasy.rock-small": {
+      "filename": "fantasy/rock-small.glb",
+      "bytes": 12620,
+      "sha256": "2f2ca3e9970124b81bde77cec3b1a337410a5c76336ce5dec5760aff1b415316"
+    },
+    "fantasy.roof": {
+      "filename": "fantasy/roof.glb",
+      "bytes": 9324,
+      "sha256": "8f245dfc04b8e76b2833081462f7530c2aea9114a703161c1d9a4a975927347d"
+    },
+    "fantasy.roof-flat": {
+      "filename": "fantasy/roof-flat.glb",
+      "bytes": 3448,
+      "sha256": "48bc045365398c92291f65ab80038670b14f85974aadedc3d17847254a0881b5"
+    },
+    "fantasy.roof-high": {
+      "filename": "fantasy/roof-high.glb",
+      "bytes": 8088,
+      "sha256": "7d39cd8fdcb8bd652d8a40f5f54e5e3d2c41bc1bb84691334f75bc411024cb12"
+    },
+    "fantasy.stairs-stone": {
+      "filename": "fantasy/stairs-stone.glb",
+      "bytes": 12172,
+      "sha256": "ce92a069280c069d675f030a7258a50f5271cd8070e84339c120faa6c115e61d"
+    },
+    "fantasy.stairs-wood": {
+      "filename": "fantasy/stairs-wood.glb",
+      "bytes": 33384,
+      "sha256": "f6be9e5f77572d493dce374b68d231f116800ce388a3dcb0d646032162ccadd9"
+    },
+    "fantasy.stall-green": {
+      "filename": "fantasy/stall-green.glb",
+      "bytes": 27120,
+      "sha256": "2da2f7b31cde5d943d7c08c457bbb39797ef0a607921fde0b8455f338ce40205"
+    },
+    "fantasy.stall-red": {
+      "filename": "fantasy/stall-red.glb",
+      "bytes": 24304,
+      "sha256": "aa20a630f417032c46aaefbc779fd2b3355b451bf05d31acc36fd664146866b1"
+    },
+    "fantasy.tree": {
+      "filename": "fantasy/tree.glb",
+      "bytes": 18188,
+      "sha256": "e8d81b97297de62699b92559cee7b247da84b1815df2515e42fd5a318a30b8d7"
+    },
+    "fantasy.tree-crooked": {
+      "filename": "fantasy/tree-crooked.glb",
+      "bytes": 19252,
+      "sha256": "da4349701dd3fc474f7bb03cfe8b230bec0919025d8d1ecac0d1061a23c5e910"
+    },
+    "fantasy.tree-high-round": {
+      "filename": "fantasy/tree-high-round.glb",
+      "bytes": 13176,
+      "sha256": "7f372e338cbf5514a41e8d2afda81acd67277a4c5ad4e6e35a9acfa4a6e3bc4b"
+    },
+    "fantasy.wall": {
+      "filename": "fantasy/wall.glb",
+      "bytes": 4792,
+      "sha256": "cab1dff37610e2a214237cc62ec0b1506e8fd76bb66c29f6c585b4b643b569c4"
+    },
+    "fantasy.wall-door": {
+      "filename": "fantasy/wall-door.glb",
+      "bytes": 29276,
+      "sha256": "79b2d40db110ca96a6e77d4261da665fdf8c68f4c20c2afef5bce1c28ad72857"
+    },
+    "fantasy.wall-window-shutters": {
+      "filename": "fantasy/wall-window-shutters.glb",
+      "bytes": 23892,
+      "sha256": "58a641a03fc4a5a225663969cc257fcf4f2fc63c199b4aca16b612142ff9eed0"
+    },
+    "fantasy.wall-wood": {
+      "filename": "fantasy/wall-wood.glb",
+      "bytes": 4808,
+      "sha256": "8699614fdbc99f565942709c0977c964e2c12f3b3c60098a6e2c397c973f08db"
+    },
+    "fantasy.wall-wood-door": {
+      "filename": "fantasy/wall-wood-door.glb",
+      "bytes": 30744,
+      "sha256": "2aa4e982fcb6434be4e6051fcee7972799ff5350a3f36ca8bf71530b84608123"
+    },
+    "fantasy.wall-wood-window-shutters": {
+      "filename": "fantasy/wall-wood-window-shutters.glb",
+      "bytes": 10612,
+      "sha256": "c45a63690760cd5de3842ffbe222092e8cd483524679c4ba92fef4d1e52f7248"
+    },
+    "castle.flag-banner-long": {
+      "filename": "castle/flag-banner-long.glb",
+      "bytes": 6660,
+      "sha256": "e6a4433f5770b9fc31bf67d72424a877d5c010486d5b7373ce7af900566827e4"
+    },
+    "castle.flag": {
+      "filename": "castle/flag.glb",
+      "bytes": 15192,
+      "sha256": "263fc3c7bedcfcd2b30f1aca6feb76c8f249f8f79dc9a694f47ec63b77b180d6"
+    },
+    "castle.gate": {
+      "filename": "castle/gate.glb",
+      "bytes": 13880,
+      "sha256": "fdc3d5b07f619dcacbf2af36024dc9a356696e541f6ce409a5305be782665ec9"
+    },
+    "castle.metal-gate": {
+      "filename": "castle/metal-gate.glb",
+      "bytes": 23240,
+      "sha256": "7d41f469c9ed3000370bd7995b2fca5ac77ebe0ae1d1f321bb7a9d6f4b86f677"
+    },
+    "castle.tower-square": {
+      "filename": "castle/tower-square.glb",
+      "bytes": 16564,
+      "sha256": "ae2e4f11247fef4e8e550011c20bc1862839cd4cfd21590aec9781ae0fbbbc7f"
+    },
+    "castle.tower-square-top-roof-high": {
+      "filename": "castle/tower-square-top-roof-high.glb",
+      "bytes": 11288,
+      "sha256": "b9345255366bc88744eea5469dddb4dedf2c70f33075b0fde53144ca251e25ea"
+    },
+    "castle.wall": {
+      "filename": "castle/wall.glb",
+      "bytes": 16552,
+      "sha256": "b2ea00acbf4ba91ff0d4b8b942edf9fa12d821abd0b2c945c57a2b9b3153cfe3"
+    },
+    "castle.wall-corner": {
+      "filename": "castle/wall-corner.glb",
+      "bytes": 15264,
+      "sha256": "82d27b869162b6a9ee19b0d7480913f56928b6620708f3b3899131495803cc9a"
+    },
+    "castle.wall-narrow-gate": {
+      "filename": "castle/wall-narrow-gate.glb",
+      "bytes": 17092,
+      "sha256": "f01e3005f2cfe7451a0376a4fdba2408594cb60664e24e53e736e52d5b3ec934"
+    },
+    "castle.wall-pillar": {
+      "filename": "castle/wall-pillar.glb",
+      "bytes": 18156,
+      "sha256": "22d359abfaa3cf3dc5a2fece09a108024a07a4e263b21a4a0689da0e630699ed"
+    },
+    "characters.character-female-a": {
+      "filename": "characters/character-female-a.glb",
+      "bytes": 273448,
+      "sha256": "8cfcff43460da8b421f2a7fdfb43ec177321cad2746db9497cbf128d5806e2a8"
+    },
+    "characters.character-male-a": {
+      "filename": "characters/character-male-a.glb",
+      "bytes": 246916,
+      "sha256": "77572792bfe2773b715b8cd8e18644b52b3e1f155fe10450254b50f9c364382a"
+    }
+  }
+}

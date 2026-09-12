@@ -22,6 +22,14 @@ export type WorldTerrain = (typeof worldTerrainTypes)[number];
  *  readable as a map in a diff, which a list of names would not be. */
 export const terrainChars = { ".": "plains", F: "forest", H: "hills", S: "swamp" } as const satisfies Record<string, WorldTerrain>;
 
+/** World v2. Gameplay still resolves on integer cells, but the authored source
+ * is sampled into a much larger field so the renderer can stream a kingdom-sized
+ * landscape instead of presenting the whole game as one small board. */
+export const worldExtent = 256;
+export const worldAssetId = "meridian-256-v2";
+export const worldChunkSize = 16;
+export const worldExplorationResolution = 64;
+
 /** Geography, and it is deliberate rather than decorative:
  *
  *  - Forest surrounds every wood node and hills surround every stone or iron mine, so the
@@ -35,7 +43,7 @@ export const terrainChars = { ".": "plains", F: "forest", H: "hills", S: "swamp"
  *  - The four quadrants are 90-degree rotations of each other, so no corner is a better
  *    place to start than any other, and the centre — where all four meet at (17.5, 17.5) —
  *    is the contested one. */
-export const terrainRows: readonly string[] = [
+const sourceTerrainRows: readonly string[] = [
   ".........H.................H........",
   "..FFF....H........H........H...FFF..",
   ".FFFFF..H...FFF..H....H...H...FFFFF.",
@@ -74,12 +82,18 @@ export const terrainRows: readonly string[] = [
   "................H.........H.........",
 ];
 
+const sourceExtent = sourceTerrainRows.length;
+const sourceIndex = (value: number): number => Math.min(sourceExtent - 1, Math.floor(value * sourceExtent / worldExtent));
+export const terrainRows: readonly string[] = Array.from({ length: worldExtent }, (_, y) =>
+  Array.from({ length: worldExtent }, (_, x) => sourceTerrainRows[sourceIndex(y)]![sourceIndex(x)]!).join(""),
+);
+
 /** Sixteen provinces on a 4x4 grid, `A` through `P` reading west to east then north to
  *  south. The seams wiggle by a tile so a border reads as a ridgeline rather than a survey
  *  line, but they are pinned back to nominal wherever the two axes cross: without that the
  *  two wiggles slide past each other at a four-way junction and shed one-tile islands, and
  *  a province that is not one blob cannot be held by standing an army in it. */
-export const regionRows: readonly string[] = [
+const sourceRegionRows: readonly string[] = [
   "AAAAAAAAAABBBBBBBBBCCCCCCCCCDDDDDDDD",
   "AAAAAAAAAABBBBBBBBBCCCCCCCCCDDDDDDDD",
   "AAAAAAAAABBBBBBBBBCCCCCCCCCDDDDDDDDD",
@@ -118,10 +132,14 @@ export const regionRows: readonly string[] = [
   "MMMMMMMMNNNNNNNNNOOOOOOOOOOPPPPPPPPP",
 ];
 
+export const regionRows: readonly string[] = Array.from({ length: worldExtent }, (_, y) =>
+  Array.from({ length: worldExtent }, (_, x) => sourceRegionRows[sourceIndex(y)]![sourceIndex(x)]!).join(""),
+);
+
 /** The width of the world, and the only place it is decided: the grids are square and this
  *  is how many rows they have. `gameRules.map.extent` re-exports it, so resizing the map
  *  means authoring a different map, not editing a number that then disagrees with one. */
-export const worldExtent = terrainRows.length;
+export const scaleWorldCoordinate = (value: number): number => Math.round(value * (worldExtent - 1) / (sourceExtent - 1));
 
 /** A province, and the tile that decides who holds it. The `seat` is always an anchor — the
  *  province's port if it has one, otherwise the mine nearest its centre — so controlling a
@@ -133,7 +151,7 @@ export const worldExtent = terrainRows.length;
  *  the one thing here the owner may want to rewrite; nothing keys off the text. */
 export type WorldRegion = { readonly code: string; readonly name: string; readonly seatX: number; readonly seatY: number };
 
-export const regions: readonly WorldRegion[] = [
+const sourceRegions: readonly WorldRegion[] = [
   { code: "A", name: "Bắc Lâm", seatX: 3, seatY: 3 },
   { code: "B", name: "Thượng Nguyên", seatX: 13, seatY: 4 },
   { code: "C", name: "Thạch Sơn", seatX: 22, seatY: 3 },
@@ -151,6 +169,11 @@ export const regions: readonly WorldRegion[] = [
   { code: "O", name: "Hạ Nguyên", seatX: 22, seatY: 31 },
   { code: "P", name: "Nam Cương", seatX: 32, seatY: 32 },
 ];
+export const regions: readonly WorldRegion[] = sourceRegions.map(region => ({
+  ...region,
+  seatX: scaleWorldCoordinate(region.seatX),
+  seatY: scaleWorldCoordinate(region.seatY),
+}));
 
 /** Everything a city may be founded next to: four ports and thirty-two mines, exactly two
  *  mines per province. The count is the point — city sites are tiles within reach of an
@@ -169,7 +192,7 @@ export type WorldAnchor =
   | { readonly kind: "market"; readonly x: number; readonly y: number; readonly name: string }
   | { readonly kind: "node"; readonly x: number; readonly y: number; readonly resourceType: "wood" | "stone" | "iron" };
 
-export const anchors: readonly WorldAnchor[] = [
+const sourceAnchors: readonly WorldAnchor[] = [
   { kind: "market", x: 10, y: 10, name: "Thương cảng Meridian" },
   { kind: "market", x: 25, y: 10, name: "Thương cảng Hải Đông" },
   { kind: "market", x: 10, y: 25, name: "Thương cảng Nam Giang" },
@@ -207,6 +230,11 @@ export const anchors: readonly WorldAnchor[] = [
   { kind: "node", x: 32, y: 32, resourceType: "wood" },
   { kind: "node", x: 29, y: 29, resourceType: "wood" },
 ];
+export const anchors: readonly WorldAnchor[] = sourceAnchors.map(anchor => ({
+  ...anchor,
+  x: scaleWorldCoordinate(anchor.x),
+  y: scaleWorldCoordinate(anchor.y),
+}));
 
 const regionByCode = new Map(regions.map(region => [region.code, region]));
 const insideWorld = (x: number, y: number): boolean =>

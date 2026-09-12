@@ -57,12 +57,11 @@ test("the band the shell reads from matchMedia is the band bandFor names", () =>
   assert.equal(bandForMatches(0), bandFor(layoutBreakpoints.medium - 1));
 });
 
-test("the map keeps a dominant track in every band, and the columns yield in order", () => {
-  // Kingdom context is strategic and stays wherever it fits as a track; activity
-  // is the placeholder surface and is the first to fold, because three open
-  // tracks at 1280px would leave the map under 800px wide.
-  assert.deepEqual(defaultSurfaces("wide"), { kingdom: true, activity: true });
-  assert.deepEqual(defaultSurfaces("medium"), { kingdom: true, activity: false });
+test("the map opens as the full scene and secondary HUD drawers stay opt-in", () => {
+  // The strategic map owns the first frame at every width. Neither information
+  // drawer may consume map space before the player explicitly asks for it.
+  assert.deepEqual(defaultSurfaces("wide"), { kingdom: false, activity: false });
+  assert.deepEqual(defaultSurfaces("medium"), { kingdom: false, activity: false });
   assert.deepEqual(defaultSurfaces("compact"), { kingdom: false, activity: false });
 });
 
@@ -130,30 +129,21 @@ test("every class the shell can emit has a rule, and an open shell emits no modi
   }
 });
 
-test("the shell is a grid of five named areas, with the map as the flexible one", () => {
+test("the shell is a full-screen scene with the map pinned beneath the HUD", () => {
   const shell = bodies("situation-room").join("\n");
-  assert.match(shell, /display:\s*grid/, "the shell must be a grid, not absolutely positioned");
-  for (const area of ["header", "kingdom", "map", "activity", "tray"]) {
-    assert.match(shell, new RegExp(`grid-template-areas:[^;]*\\b${area}\\b`, "s"), `no "${area}" area`);
-  }
-  // `minmax(0, 1fr)` and not `1fr`: a bare 1fr track floors at its content's
-  // min-content width, which is how a wide panel pushes the page sideways.
-  assert.match(shell, /grid-template-columns:[^;]*minmax\(0,\s*1fr\)/);
-  assert.match(bodies("map").join("\n"), /grid-area:\s*map/);
-  for (const id of surfaceIds) {
-    assert.match(bodies(`${id}-column`).join("\n"), new RegExp(`grid-area:\\s*(${id}|map)`));
-  }
+  assert.match(shell, /position:\s*relative/);
+  assert.match(shell, /display:\s*block/);
+  const map = bodies("map").join("\n");
+  assert.match(map, /position:\s*absolute/);
+  assert.match(map, /inset:\s*0/);
 });
 
-test("the columns overlay the map by grid area, never by absolute positioning", () => {
-  // A flyout is the same grid cell as the map plus a z-index. Absolutely
-  // positioning it would take it out of the grid and leave the map's own size
-  // unrelated to what the player sees, which is how the Pixi resize contract
-  // gets broken.
+test("the HUD drawers float over the scene instead of shrinking the map", () => {
   for (const id of surfaceIds) {
-    for (const body of bodies(`${id}-column`)) {
-      assert.equal(/position:\s*absolute/.test(body), false, `.${id}-column must not be absolutely positioned`);
-    }
+    const rules = bodies(`${id}-column`).join("\n");
+    assert.match(rules, /position:\s*absolute/, `.${id}-column is not a floating drawer`);
+    assert.match(rules, /top:\s*80px/);
+    assert.match(rules, /bottom:\s*92px/);
   }
 });
 

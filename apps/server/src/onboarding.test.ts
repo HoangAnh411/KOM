@@ -4,7 +4,7 @@ import { GameStore } from "./store.js";
 
 const steps = (store: GameStore, playerId: string) => store.onboarding.progressFor(playerId).completedSteps;
 
-test("onboarding starts empty and acknowledges only the two UI-only steps", () => {
+test("onboarding starts empty and accepts compatible evidence or skip only for UI-observed steps", () => {
   const store = new GameStore();
   const player = store.snapshot.players[0];
   assert.deepEqual(steps(store, player.id), []);
@@ -27,7 +27,8 @@ test("depot, barracks, army and harvest steps verify from state", () => {
   assert.ok(steps(store, player.id).includes("depot_built"));
 
   // harvest records the counter evidence
-  assert.equal(store.logistics.harvest("har-1", store.logistics.snapshot().resourceNodes[0].id, city.id, player.id, 10, store.snapshot), "accepted");
+  const harvest = store.logistics.harvest("har-1", store.logistics.snapshot().resourceNodes[0].id, city.id, player.id, 10, store.snapshot);
+  assert.equal(harvest === "already_processed" ? harvest : harvest.status, "accepted");
   store.tick();
   assert.ok(steps(store, player.id).includes("resource_harvested"));
 

@@ -98,6 +98,15 @@
    * purpose and is not for UI chrome. */
   --kom-verdant-400: #7dff72;
 
+  /* City interior — terrain and masonry behind the painted building sprites. */
+  --kom-city-sky-900: #102b36;
+  --kom-city-grass-900: #173c32;
+  --kom-city-grass-700: #285b3d;
+  --kom-city-grass-500: #3e7750;
+  --kom-city-earth-600: #80613b;
+  --kom-city-stone-300: #c5b58c;
+  --kom-city-stone-600: #76684c;
+
   /* Neutral washes. Layering over ink is what gives panels depth without
    * gradients, so these carry real weight in the visual language. */
   --kom-wash-light-05: rgba(255, 255, 255, .05);
@@ -108,6 +117,16 @@
   --kom-wash-dark-25: rgba(0, 0, 0, .25);
   --kom-wash-dark-40: rgba(0, 0, 0, .4);
   --kom-wash-scrim: rgba(2, 8, 16, .66);
+
+  /* Cosmetic presentation colors. */
+  --kom-cosmetic-frame-meridian: #2b8fa3;
+  --kom-cosmetic-frame-sentinel: #77879a;
+  --kom-cosmetic-frame-ring: rgba(240, 209, 122, .7);
+  --kom-cosmetic-sentinel-ring: rgba(196, 109, 77, .7);
+  --kom-cosmetic-brass: #e3bd6b;
+  --kom-cosmetic-slate: #b8c3d0;
+  --kom-minimap-bg: rgba(22, 35, 38, .92);
+  --kom-minimap-border: rgba(240, 209, 122, .45);
 
   /* ── PALETTE END ─────────────────────────────────────────────────────── */
 
@@ -179,6 +198,13 @@
    * eight states as every other status in the UI, so the two accents left with
    * the rule that was their only consumer. */
   --kom-supply-low: var(--kom-ember-300);
+  --kom-city-sky: var(--kom-city-sky-900);
+  --kom-city-grass: var(--kom-city-grass-700);
+  --kom-city-grass-shadow: var(--kom-city-grass-900);
+  --kom-city-grass-light: var(--kom-city-grass-500);
+  --kom-city-earth: var(--kom-city-earth-600);
+  --kom-city-stone: var(--kom-city-stone-300);
+  --kom-city-stone-shadow: var(--kom-city-stone-600);
 
   /* Semantic UI states. Each one is a fill/border/text triple so a chip, a
    * banner and a panel accent can all express the same state consistently.

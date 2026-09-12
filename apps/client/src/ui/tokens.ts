@@ -29,7 +29,7 @@ export type PanelAccent = (typeof panelAccents)[number];
  *  a second registry would need a second one. */
 export const iconNames = [
   "clock", "alert", "ban", "lock", "link-off", "check", "crosshair", "eye",
-  "city", "sword", "caravan", "treaty", "banner",
+  "city", "sword", "caravan", "treaty", "banner", "food", "wood", "stone", "iron",
 ] as const;
 export type IconName = (typeof iconNames)[number];
 

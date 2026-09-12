@@ -1,7 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { gameRules, regionTileCounts, regions } from "@kingdoms/shared";
-import { controlledTiles, provinceControl, regionControl } from "./territory.js";
+import { controlledTiles, provinceControl, regionControl, ensureRegionStates, tickTerritory } from "./territory.js";
+import { GameStore } from "./store.js";
 import type { Army } from "@kingdoms/shared";
 
 const seat = regions[0]!; // Bắc Lâm, seat (3,3)
@@ -73,6 +74,25 @@ test("provinces add up for the player holding both", () => {
   // What those tiles are worth is `militaryScore`'s business and is asserted in
   // `packages/shared/src/index.test.ts`, against the same `regionTileCounts()` — the scale is a
   // shared rule, this file is only about who is standing where.
+});
+
+test("capture state needs time, pauses while contested and persists after the army leaves", () => {
+  const store = new GameStore(); const state = store.snapshot; const player = state.players[0]!; const rival = state.players[1]!;
+  const mine = state.armies.find(item => item.ownerPlayerId === player.id)!; const theirs = state.armies.find(item => item.ownerPlayerId === rival.id)!;
+  mine.x = seat.seatX; mine.y = seat.seatY; theirs.x = seat.seatX + 10; theirs.y = seat.seatY;
+  ensureRegionStates(state, 0);
+  tickTerritory(state, gameRules.territory.captureDurationMs - 1_000, 29_000);
+  assert.equal(state.regionControl[seat.code], undefined, "standing on the seat is not instant ownership");
+  theirs.x = seat.seatX; theirs.y = seat.seatY;
+  tickTerritory(state, 5_000, 34_000);
+  assert.equal(state.regionStates[seat.code]!.contested, true);
+  assert.equal(state.regionControl[seat.code], undefined);
+  theirs.x += 10;
+  tickTerritory(state, 1_000, 35_000);
+  assert.equal(state.regionControl[seat.code], player.id);
+  mine.x += 10;
+  tickTerritory(state, 60_000, 95_000);
+  assert.equal(state.regionControl[seat.code], player.id, "secured territory remains owned without instant proximity loss");
 });
 
 // The wire format. Unheld provinces are absent rather than null, because the client reads the

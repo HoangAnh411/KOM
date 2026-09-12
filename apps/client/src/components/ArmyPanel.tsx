@@ -10,6 +10,7 @@ import { Panel, PanelBody, PanelFooter, PanelHeader } from "../ui/Panel.js";
 import { affordable, firstReason, hasOrder, notFrozen } from "../validation.js";
 import { armyLabel, formatCost, formationLabels, npcLabels } from "../vocabulary.js";
 import { PendingChip } from "./PendingChip.js";
+import { ArmyPreparationPanel } from "./ArmyPreparationPanel.js";
 
 type RecruitUnitId = keyof typeof gameRules.recruitment;
 
@@ -43,7 +44,9 @@ export function ArmyPanel() {
   const recruitBlocked = firstReason(notFrozen(city), { ok: hasBarracks, reason: "Cần xây Doanh trại trước khi tuyển quân." });
   const attackBlocked = firstReason(notFrozen(city), { ok: enemyArmies.length > 0, reason: "Chưa thấy đối thủ nào trong tầm." });
 
-  return <Panel accent="crimson" className="army-panel" panelRef={anchor} aria-label="Quân đội">
+  return <>
+    <ArmyPreparationPanel />
+    <Panel accent="crimson" className="army-panel" panelRef={anchor} aria-label="Quân đội">
     <PanelHeader title={<><Icon name="sword" size="sm" /> Quân đội</>} />
     <PanelBody>
       <p className="kom-meta">Tiếp tế rút xuống dưới {gameRules.supply.attritionBelowSupply}% gây hao mòn (mất sức mạnh & nhuệ khí). Quân đứng gần thành phố (bán kính {gameRules.supply.insideCityRadius}) hoặc trạm tiếp tế hồi phục tiếp tế.</p>
@@ -158,5 +161,6 @@ export function ArmyPanel() {
         </select>
       </Modal>
     )}
-  </Panel>;
+    </Panel>
+  </>;
 }

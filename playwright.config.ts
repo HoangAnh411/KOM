@@ -2,12 +2,13 @@ import { defineConfig, devices } from "@playwright/test";
 
 // The suite talks to these URLs. PLAYWRIGHT_API/PLAYWRIGHT_WEB let CI or an
 // operator point at externally-run services; when BOTH are set nothing is
-// auto-started. Otherwise Playwright spawns its own stack, with the API on the
+// auto-started, unless PLAYWRIGHT_START_SERVERS=1 requests an isolated test stack
+// on those explicit ports. Otherwise Playwright spawns its own stack, with the API on the
 // port implied by PLAYWRIGHT_API (default 3000) so a local server on 3000 can
 // be left alone.
 const api = process.env.PLAYWRIGHT_API ?? "http://127.0.0.1:3000";
 const web = process.env.PLAYWRIGHT_WEB ?? "http://127.0.0.1:5173";
-const external = Boolean(process.env.PLAYWRIGHT_API && process.env.PLAYWRIGHT_WEB);
+const external = Boolean(process.env.PLAYWRIGHT_API && process.env.PLAYWRIGHT_WEB) && process.env.PLAYWRIGHT_START_SERVERS !== "1";
 
 export default defineConfig({
   testDir: "./e2e",
@@ -32,7 +33,7 @@ export default defineConfig({
           }
         },
         {
-          command: "npx vite apps/client --host 127.0.0.1",
+          command: `npx vite apps/client --host 127.0.0.1 --port ${new URL(web).port} --strictPort`,
           url: web,
           timeout: 120000,
           reuseExistingServer: false,

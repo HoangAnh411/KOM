@@ -34,39 +34,36 @@ async function mapCentre(page: Page): Promise<{ x: number; y: number }> {
   return { x: box!.x + box!.width / 2, y: box!.y + box!.height / 2 };
 }
 
-async function login(page: Page, name: string) {
+async function login(page: Page, name: string, openKingdom = true) {
   await page.goto("/");
   await page.getByPlaceholder("Tên người chơi").fill(name);
   await page.getByRole("button", { name: "Vào kingdom" }).click();
   await expect(page.locator(".command-tray")).toBeVisible();
+  if (openKingdom) {
+    await page.getByRole("button", { name: "Vương quốc", exact: true }).click();
+    await expect(page.locator(".kingdom-column")).toBeVisible();
+  }
   // Generous for the same reason `situation-room.spec.ts` is: the canvas only
   // exists once the pixi chunk has loaded and Chromium has handed out a WebGL
   // context, which is slow late in a full run and is not what this file claims.
   await expect(page.locator(".map canvas")).toBeVisible({ timeout: 15_000 });
 }
 
-test("selecting your own army fills the tray without changing its height", async ({ page }, testInfo) => {
+test("selecting your own army opens a compact command tray", async ({ page }, testInfo) => {
+  test.slow();
   test.skip(testInfo.project.name === "mobile", "desktop-sized map interaction");
   await page.setViewportSize({ width: 1440, height: 900 });
   await login(page, `Tray E2E ${testInfo.project.name} ${Date.now()}`);
   const tray = page.getByRole("region", { name: "Lệnh cho lựa chọn" });
-  const empty = await trayHeight(page);
+  await trayHeight(page);
   // Nothing selected is a group too, not an empty box: it says what to click.
   await expect(tray).toContainText("Chưa chọn gì");
 
-  // --- An army to command. The barracks gates recruiting, so the enabled state of
-  // the recruit button is the "it finished building" signal.
-  const built = page.waitForResponse(response => response.url().endsWith("/api/commands/build"));
-  await page.getByRole("button", { name: "Xây trại lính" }).click();
-  expect((await built).ok()).toBeTruthy();
-  const recruit = page.getByRole("button", { name: "Tuyển quân mới" });
-  await expect(recruit).toBeEnabled({ timeout: 25_000 });
-  await recruit.click();
-  const recruitModal = page.getByRole("dialog", { name: "Tuyển quân" });
-  await recruitModal.getByRole("radio", { name: /^Bộ binh/ }).check();
-  const recruited = page.waitForResponse(response => response.url().endsWith("/api/commands/recruit"));
-  await recruitModal.getByRole("button", { name: /^Tuyển 10/ }).click();
-  expect((await recruited).ok()).toBeTruthy();
+  // --- An army to command. Provision a real v2 composition through the dev
+  // fixture; campaign.spec.ts owns the slower train → reserve → create flow.
+  const session = await page.evaluate(() => JSON.parse(sessionStorage.getItem("kingdoms-session")!) as { token: string });
+  const provisioned = await page.request.post(`${api}/api/dev/army-v2`, { headers: { authorization: `Bearer ${session.token}` } });
+  expect(provisioned.ok()).toBeTruthy();
   await expect(page.getByTestId("army-row").first()).toContainText("Bộ binh · 10");
 
   // --- Click it on the map: the subject and the commands for it, in one strip ---
@@ -77,7 +74,7 @@ test("selecting your own army fills the tray without changing its height", async
   for (const label of ["Di chuyển", "Tấn công", "Hợp nhất", "Hủy lệnh"]) {
     await expect(tray.getByRole("button", { name: label, exact: true }), `no "${label}" command`).toBeVisible();
   }
-  expect(await trayHeight(page), "the tray grew when commands appeared").toBe(empty);
+  expect(await trayHeight(page), "the active command tray became too tall").toBeLessThanOrEqual(72);
   expect(await overflowX(page), "the tray started horizontal page scrolling").toBeLessThanOrEqual(0);
 
   // --- The law: a command the player cannot run is greyed beside its sentence ---
@@ -101,7 +98,7 @@ test("selecting your own army fills the tray without changing its height", async
   // --- Mid-order the tray is one button and a sentence, and still one row high ---
   await tray.getByRole("button", { name: "Di chuyển", exact: true }).click();
   await expect(tray).toContainText("Nhấp vào bản đồ");
-  expect(await trayHeight(page), "the order hint took the tray onto a second row").toBe(empty);
+  expect(await trayHeight(page), "the order hint made the tray too tall").toBeLessThanOrEqual(72);
   await tray.getByRole("button", { name: "Hủy", exact: true }).click();
   await expect(tray.getByRole("group", { name: "Lệnh quân đội" })).toBeVisible();
 });
@@ -112,17 +109,25 @@ test("the compact band gets the commands too, and they open the closed column", 
   // columns are flyouts here and both start closed, so the tray is the only thing
   // on screen that can say where a city's controls went.
   await page.setViewportSize({ width: 900, height: 800 });
-  await login(page, `Tray Compact ${testInfo.project.name} ${Date.now()}`);
+  await login(page, `Tray Compact ${testInfo.project.name} ${Date.now()}`, false);
   const tray = page.getByRole("region", { name: "Lệnh cho lựa chọn" });
   const kingdom = page.locator(".kingdom-column");
   await expect(kingdom).toBeHidden();
-  const empty = await trayHeight(page);
+  await trayHeight(page);
 
   const centre = await mapCentre(page);
   await page.mouse.click(centre.x, centre.y);
+  const selectedCity = tray.getByRole("group", { name: "Thành phố của bạn" });
+  await expect(selectedCity, "a city click selects it instead of teleporting into the city").toBeVisible();
+  const cityView = page.locator('[data-testid="city-view"]');
+  await expect(cityView).toBeHidden();
+  await selectedCity.getByRole("button", { name: "Vào thành" }).click();
+  await expect(cityView).toBeVisible();
+  await cityView.getByRole("button", { name: "Quay lại bản đồ" }).click();
+  await expect(cityView).toBeHidden();
   const group = tray.getByRole("group", { name: "Thành phố của bạn" });
   await expect(group, "the commands are hidden in the compact band again").toBeVisible();
-  expect(await trayHeight(page), "the tray grew when commands appeared").toBe(empty);
+  expect(await trayHeight(page), "the compact command tray became too tall").toBeLessThanOrEqual(150);
   expect(await overflowX(page), "the commands started horizontal page scrolling").toBeLessThanOrEqual(0);
 
   // The whole point of the group: the panel it names is behind a closed flyout, and

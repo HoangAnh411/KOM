@@ -19,6 +19,7 @@ async function login(page: Page, name: string): Promise<{ token: string; player:
   const devResponse = page.waitForResponse(response => response.url().endsWith("/api/auth/dev"));
   await page.getByRole("button", { name: "Vào kingdom" }).click();
   await devResponse;
+  await page.getByRole("button", { name: "Vương quốc", exact: true }).click();
   await expect(hud(page)).toBeVisible();
   return page.evaluate(() => JSON.parse(sessionStorage.getItem("kingdoms-session")!) as { token: string; player: { id: string } });
 }
@@ -91,6 +92,7 @@ test("a pending command survives reload as uncertain and retries with the same i
   await page.getByRole("button", { name: "Xây kho" }).click();
   await expect(page.getByTestId("pending-command").filter({ hasText: "Xây kho" })).toContainText("chưa xác nhận");
   await page.reload();
+  await page.getByRole("button", { name: "Vương quốc", exact: true }).click();
   await expect(page.getByTestId("city-name")).toBeVisible();
   // restorePending downgrades the persisted entry; the id must survive reload.
   const restored = page.getByTestId("pending-command").filter({ hasText: "Xây kho" }).first();
@@ -112,17 +114,10 @@ test("battle reports reach only participants, not a spectator", async ({ browser
   const attackerSession = await login(attackerPage, attacker);
   await login(spectatorPage, spectator);
 
-  // --- Attacker: barracks, infantry, mob assault (same flow as army.spec) ---
-  const barracksResponse = attackerPage.waitForResponse(response => response.url().endsWith("/api/commands/build"));
-  await attackerPage.getByRole("button", { name: "Xây trại lính" }).click();
-  expect((await barracksResponse).ok()).toBeTruthy();
-  await expect(attackerPage.getByText("Hàng đợi xây: 0/2")).toBeVisible({ timeout: 25000 });
-  await attackerPage.getByRole("button", { name: "Tuyển quân mới" }).click();
-  const recruitModal = attackerPage.getByRole("dialog", { name: "Tuyển quân" });
-  await recruitModal.getByRole("radio", { name: /^Bộ binh/ }).check();
-  const recruitResponse = attackerPage.waitForResponse(response => response.url().endsWith("/api/commands/recruit"));
-  await recruitModal.getByRole("button", { name: /^Tuyển 10/ }).click();
-  expect((await recruitResponse).ok()).toBeTruthy();
+  // --- Attacker: provision a v2 army, then launch the same deterministic mob
+  // assault used by army.spec. Campaign E2E owns the training timer itself. ---
+  const provisioned = await attackerPage.request.post(`${api}/api/dev/army-v2`, { headers: { authorization: `Bearer ${attackerSession.token}` } });
+  expect(provisioned.ok()).toBeTruthy();
   const armyRow = attackerPage.getByTestId("army-row").first();
   await expect(armyRow).toContainText("Bộ binh · 10");
   const prepared = await attackerPage.request.post(`${api}/api/dev/battle-target`, { headers: { authorization: `Bearer ${attackerSession.token}` } });
@@ -143,6 +138,10 @@ test("battle reports reach only participants, not a spectator", async ({ browser
   await expect(spectatorPage.getByRole("dialog", { name: "Báo cáo trận đánh" })).toHaveCount(0);
 });
 test("treaty break modal traps focus, Escape cancels, destructive confirms −150", async ({ page, request }, testInfo) => {
+  // Under a full-suite run every step here stretches — login 6s, the drawer's
+  // lazy chunk ~9s, each drawer click 2-5s — and the whole flow needs ~34s,
+  // past the 30s default. Same headroom the battle-reports test takes.
+  test.setTimeout(60_000);
   const me = await login(page, `Treaty E2E ${testInfo.project.name} ${Date.now()}`);
   const partnerLogin = await request.post(`${api}/api/auth/dev`, { data: { displayName: `Treaty Partner ${testInfo.project.name} ${Date.now()}`, factionId: "bastion" } });
   expect(partnerLogin.ok()).toBeTruthy();
@@ -152,7 +151,9 @@ test("treaty break modal traps focus, Escape cancels, destructive confirms −15
 
   await page.getByTestId("advanced-drawer-toggle").click();
   const pendingRow = page.getByTestId("treaty-proposal").first();
-  await expect(pendingRow).toContainText("đề nghị hiệp ước Không xâm lược");
+  // The drawer lazy-loads its chunk on first open; under a full-suite run that
+  // first render can take longer than the default 5s budget.
+  await expect(pendingRow).toContainText("đề nghị hiệp ước Không xâm lược", { timeout: 15_000 });
   const acceptResponse = page.waitForResponse(response => response.url().endsWith("/api/commands/treaty/respond"));
   await pendingRow.getByRole("button", { name: "Chấp nhận" }).click();
   expect((await acceptResponse).ok()).toBeTruthy();

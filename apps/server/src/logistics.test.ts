@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { anchors, gameRules, regionAt, regions } from "@kingdoms/shared";
+import { anchors, gameRules, regionAt, regions, scaleWorldCoordinate } from "@kingdoms/shared";
 import { GameStore, citySiteCapacity } from "./store.js";
 import { caravanTile } from "./logistics.js";
 
@@ -11,11 +11,11 @@ test("logistics harvest, route and delivery are server-authoritative", () => {
   city.buildings.road_depot = 1;
   store.logistics.syncDepots(store.snapshot);
   const node = store.logistics.snapshot().resourceNodes.find(item => item.resourceType === "wood")!;
-  assert.equal(store.logistics.harvest("harvest-001", node.id, city.id, player.id, 50, store.snapshot), "accepted");
+  assert.deepEqual(store.logistics.harvest("harvest-001", node.id, city.id, player.id, 50, store.snapshot), { status: "accepted", requestedAmount: 50, receivedAmount: 50, modifier: 1, eventIds: [] });
   assert.equal(node.remaining, 950);
   const destination = store.snapshot.cities[1]; destination.playerId = player.id;
   const route = store.logistics.createRoute("route-001", city.id, { kind: "city", id: destination.id }, player.id, store.snapshot);
-  assert.equal(route.distance, 8);
+  assert.equal(route.distance, Math.abs(destination.x - city.x) + Math.abs(destination.y - city.y));
   const caravan = store.logistics.startCaravan("caravan-001", route.id, { food: 0, wood: 40, stone: 20, iron: 0 }, player.id, store.snapshot);
   assert.equal(caravan.status, "moving");
   caravan.arrivesAt = new Date(0).toISOString();
@@ -23,6 +23,27 @@ test("logistics harvest, route and delivery are server-authoritative", () => {
   assert.equal(caravan.status, "delivered");
   assert.equal(destination.resources.wood, 540);
   assert.equal(store.logistics.snapshot().throughput[player.id].wood, 40);
+});
+
+test("harvest applies only active multiplicative events to grants and metrics", () => {
+  const store = new GameStore();
+  const player = store.snapshot.players[0]!;
+  const city = store.snapshot.cities.find(item => item.playerId === player.id)!;
+  city.buildings.road_depot = 1;
+  store.logistics.syncDepots(store.snapshot);
+  const node = store.logistics.snapshot().resourceNodes
+    .sort((left, right) => (Math.abs(left.x - city.x) + Math.abs(left.y - city.y)) - (Math.abs(right.x - city.x) + Math.abs(right.y - city.y)))[0]!;
+  assert.ok(Math.abs(node.x - city.x) + Math.abs(node.y - city.y) <= gameRules.logistics.harvestRange);
+  const now = Date.now();
+  const event = (id: string, harvest: number, starts: number, ends: number) => ({ id, kingdomId: store.snapshot.kingdom.id, eventType: harvest < 1 ? "drought" as const : "gold_rush" as const, affectedTiles: [{ x: node.x, y: node.y }], modifier: { harvest }, startsAt: new Date(starts).toISOString(), endsAt: new Date(ends).toISOString(), severity: 1 });
+  store.snapshot.worldEvents.push(event("drought", 0.5, now - 1_000, now + 60_000), event("rush", 2, now - 1_000, now + 60_000), event("future", 10, now + 60_000, now + 120_000), event("expired", 10, now - 120_000, now - 60_000));
+  const beforeCity = city.resources[node.resourceType];
+  const beforeNode = node.remaining;
+  const result = store.logistics.harvest("event-harvest", node.id, city.id, player.id, 40, store.snapshot);
+  assert.deepEqual(result, { status: "accepted", requestedAmount: 40, receivedAmount: 40, modifier: 1, eventIds: ["drought", "rush"] });
+  assert.equal(city.resources[node.resourceType], beforeCity + 40);
+  assert.equal(node.remaining, beforeNode - 40);
+  assert.equal(store.snapshot.seasonMetrics.resourcesProduced[player.id]![node.resourceType], 40);
 });
 
 test("starter package is one-time and passive income is disabled", () => {
@@ -60,8 +81,8 @@ function ambushScenario() {
 }
 
 test("ambush is deterministic and stores its seed", () => {
-  const { store, enemy, caravan, enemyArmy } = ambushScenario();
-  enemyArmy.x = 8; enemyArmy.y = 9; // one tile from the caravan at (8,8)
+  const { store, enemy, caravan, enemyArmy, source } = ambushScenario();
+  enemyArmy.x = source.x; enemyArmy.y = source.y + 1;
   const result = store.logistics.ambush("ambush-001", caravan.id, enemy.id, store.snapshot);
   assert.equal(caravan.ambushSeed, result.seed);
   assert.equal(typeof result.seed, "number");
@@ -69,51 +90,53 @@ test("ambush is deterministic and stores its seed", () => {
 });
 
 test("ambush without an army in range is rejected and does not consume the command", () => {
-  const { store, enemy, caravan, enemyArmy } = ambushScenario();
-  assert.equal(Math.abs(enemyArmy.x - 8) + Math.abs(enemyArmy.y - 8), 9, "seeded army starts out of range");
+  const { store, enemy, caravan, enemyArmy, source } = ambushScenario();
+  assert.ok(Math.abs(enemyArmy.x - source.x) + Math.abs(enemyArmy.y - source.y) > 3, "seeded army starts out of range");
   assert.throws(() => store.logistics.ambush("ambush-range", caravan.id, enemy.id, store.snapshot), /AMBUSH_OUT_OF_RANGE/);
   assert.equal(caravan.status, "moving", "a rejected ambush leaves the caravan alone");
   assert.equal(caravan.ambushSeed, undefined);
   assert.deepEqual(caravan.cargo, { food: 0, wood: 20, stone: 0, iron: 0 });
   // The guard runs before claim(), so the same commandId is still usable once an army arrives.
-  enemyArmy.x = 8; enemyArmy.y = 8;
+  enemyArmy.x = source.x; enemyArmy.y = source.y;
   const result = store.logistics.ambush("ambush-range", caravan.id, enemy.id, store.snapshot);
   assert.ok(result.seed >= 0);
 });
 
 test("ambush range is 3 tiles measured on the caravan's current tile", () => {
   const atDistance = (distance: number) => {
-    const { store, enemy, caravan, enemyArmy } = ambushScenario();
-    enemyArmy.x = 8 + distance; enemyArmy.y = 8;
+    const { store, enemy, caravan, enemyArmy, source } = ambushScenario();
+    enemyArmy.x = source.x + distance; enemyArmy.y = source.y;
     return () => store.logistics.ambush("ambush-boundary", caravan.id, enemy.id, store.snapshot);
   };
   atDistance(3)(); // exactly at the limit is allowed
   assert.throws(atDistance(4), /AMBUSH_OUT_OF_RANGE/);
   // Progress moves the target tile: the caravan is 60% along (8,8) → (13,11), so (11,10) is the
   // tile that counts and the source city is now too far away.
-  const { store, enemy, caravan, enemyArmy } = ambushScenario();
+  const { store, enemy, caravan, enemyArmy, source } = ambushScenario();
   caravan.progress = 0.6;
-  enemyArmy.x = 8; enemyArmy.y = 8;
+  enemyArmy.x = source.x; enemyArmy.y = source.y;
   assert.throws(() => store.logistics.ambush("ambush-progress", caravan.id, enemy.id, store.snapshot), /AMBUSH_OUT_OF_RANGE/);
-  enemyArmy.x = 11; enemyArmy.y = 10;
+  const current = caravanTile(caravan, store.snapshot, store.logistics.snapshot().marketHubs)!;
+  enemyArmy.x = current.x; enemyArmy.y = current.y;
   assert.equal(typeof store.logistics.ambush("ambush-progress", caravan.id, enemy.id, store.snapshot).seed, "number");
 });
 
 test("frozen and destroyed armies cannot ambush", () => {
   const frozen = ambushScenario();
-  frozen.enemyArmy.x = 8; frozen.enemyArmy.y = 8; frozen.enemyArmy.frozen = true;
+  frozen.enemyArmy.x = frozen.source.x; frozen.enemyArmy.y = frozen.source.y; frozen.enemyArmy.frozen = true;
   assert.throws(() => frozen.store.logistics.ambush("ambush-frozen", frozen.caravan.id, frozen.enemy.id, frozen.store.snapshot), /AMBUSH_OUT_OF_RANGE/);
   const destroyed = ambushScenario();
-  destroyed.enemyArmy.x = 8; destroyed.enemyArmy.y = 8; destroyed.enemyArmy.strength = 0;
+  destroyed.enemyArmy.x = destroyed.source.x; destroyed.enemyArmy.y = destroyed.source.y; destroyed.enemyArmy.strength = 0;
   assert.throws(() => destroyed.store.logistics.ambush("ambush-dead", destroyed.caravan.id, destroyed.enemy.id, destroyed.store.snapshot), /AMBUSH_OUT_OF_RANGE/);
 });
 
 test("caravanTile mirrors the client lerp and fails closed on a missing endpoint", () => {
   const { store, caravan, source } = ambushScenario();
   const hubs = store.logistics.snapshot().marketHubs;
-  assert.deepEqual(caravanTile(caravan, store.snapshot, hubs), { x: 8, y: 8 });
+  assert.deepEqual(caravanTile(caravan, store.snapshot, hubs), { x: source.x, y: source.y });
   caravan.progress = 1;
-  assert.deepEqual(caravanTile(caravan, store.snapshot, hubs), { x: 13, y: 11 });
+  const destination = store.snapshot.cities.find(city => city.id === caravan.destinationCityId)!;
+  assert.deepEqual(caravanTile(caravan, store.snapshot, hubs), { x: destination.x, y: destination.y });
   source.id = "gone";
   assert.equal(caravanTile(caravan, store.snapshot, hubs), undefined);
 });
@@ -127,7 +150,7 @@ test("low army supply causes attrition in the supply zone cycle", () => {
   const strength = army.strength;
   const morale = army.morale;
   store.tick();
-  assert.equal(army.supply, 14);
+  assert.equal(army.supply, 16); // Meridian doctrine reduces the −5/min drain to −4/min
   assert.equal(army.strength, strength - 2);
   assert.equal(army.morale, morale - 4);
 });
@@ -167,7 +190,7 @@ test("mines are the authored ones, keyed by tile, and pay into a real province",
   assert.deepEqual(nodes.map(node => `${node.x},${node.y}:${node.resourceType}`).sort(),
     authored.map(anchor => `${anchor.x},${anchor.y}:${anchor.kind === "node" && anchor.resourceType}`).sort());
   // The three inherited mines the logistics and espionage tests measure distances against.
-  for (const [x, y, type] of [[6, 8, "wood"], [15, 10, "stone"], [10, 14, "iron"]] as const) {
+  for (const [x, y, type] of [[scaleWorldCoordinate(6), scaleWorldCoordinate(8), "wood"], [scaleWorldCoordinate(15), scaleWorldCoordinate(10), "stone"], [scaleWorldCoordinate(10), scaleWorldCoordinate(14), "iron"]] as const) {
     assert.ok(nodes.some(node => node.x === x && node.y === y && node.resourceType === type), `no ${type} mine at ${x},${y}`);
   }
   // `regionId` used to be a fresh `randomUUID()` per mine — sixteen provinces existed in the
@@ -278,7 +301,7 @@ test("supply zones: own city +10/min, depot wins with +15/min, min-time granular
   army.lastSupplyAt = new Date(Date.now() - 1 * 60_000).toISOString();
   city.buildings.road_depot = 5;
   store.logistics.syncDepots(store.snapshot);
-  city.x = 9; city.y = 8; // move city onto the army: depot radius 3+5 covers it
+  city.x = army.x; city.y = army.y;
   store.tick();
   assert.equal(army.supply, 95); // +15/min at depot beats +10/min
   // same minute boundary: no double-counting

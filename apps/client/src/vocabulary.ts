@@ -13,7 +13,7 @@
 // job for server error codes.
 
 import { gameRules } from "@kingdoms/shared";
-import type { AllianceRole, Formation, NpcKind, Resources, SpyMissionType, TreatyType, UnitType, WorldEventType } from "@kingdoms/shared";
+import type { AllianceRole, CampaignMissionKind, Formation, NpcKind, Resources, SpyMissionType, TreatyType, UnitType, WorldEventType } from "@kingdoms/shared";
 import type { IconName, UiState } from "./ui/tokens.js";
 
 export type ResourceKey = keyof Resources;
@@ -26,6 +26,13 @@ export const resourceLabels: Record<ResourceKey, string> = {
   wood: "Gỗ",
   stone: "Đá",
   iron: "Sắt",
+};
+
+export const resourceIcons: Record<ResourceKey, IconName> = {
+  food: "food",
+  wood: "wood",
+  stone: "stone",
+  iron: "iron",
 };
 
 /** Display order, exhaustive by construction. Matches the field order of
@@ -138,6 +145,7 @@ export const unitLabel = (unitType: UnitType): string => gameRules.recruitment[u
 export const npcLabels: Record<NpcKind, string> = {
   raider: "Băng cướp",
   migration: "Đám di cư",
+  rival: "Quân đối địch",
 };
 
 /** Bare, like `treatyLabels`: the call site supplies "Đội hình" where the
@@ -152,3 +160,13 @@ export const formationLabels: Record<Formation, string> = {
 /** What to call an army in one word, whoever owns it. */
 export const armyLabel = (army: { unitType: UnitType; npcKind?: NpcKind }): string =>
   army.npcKind ? npcLabels[army.npcKind] : unitLabel(army.unitType);
+
+/** How a campaign mission is completed. The panel's badge, the button wording and
+ *  the map pin's colour all read this, so one kind cannot be "Trinh sát" in one
+ *  place and a plain combat row in another. */
+export const missionKindLabels: Record<CampaignMissionKind, string> = {
+  combat: "Chiến đấu",
+  scout: "Trinh sát",
+  build: "Xây dựng",
+  trade: "Giao thương",
+};

@@ -20,7 +20,9 @@ test("production password auth smoke", async ({ page, request }) => {
   await page.getByPlaceholder(/mật khẩu/i).fill(password);
   await page.getByRole("button", { name: /^đăng ký$/i }).nth(0).click();
 
-  // Wait for login to complete and HUD to appear
+  // Wait for login to complete, then open the command drawer from the game dock.
+  await expect(page.getByTestId("resource-wood")).toBeVisible({ timeout: 10000 });
+  await page.getByRole("button", { name: "Vương quốc", exact: true }).click();
   const hud = page.getByRole("complementary", { name: "Bảng điều khiển" });
   await expect(hud).toBeVisible({ timeout: 10000 });
 
@@ -31,5 +33,6 @@ test("production password auth smoke", async ({ page, request }) => {
 
   // Reload should restore session via cookie
   await page.reload();
+  await page.getByRole("button", { name: "Vương quốc", exact: true }).click();
   await expect(hud).toBeVisible();
 });

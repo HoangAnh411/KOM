@@ -5,6 +5,7 @@ const api = process.env.PLAYWRIGHT_API ?? "http://127.0.0.1:3000";
 test.beforeEach(async ({ request }) => { await request.post(`${api}/api/dev/reset`); });
 
 test("map pan, zoom and focus-my-city interaction smoke", async ({ page }, testInfo) => {
+  test.slow();
   test.skip(testInfo.project.name === "mobile", "desktop-sized viewport coordinates");
   const errors: string[] = [];
   page.on("pageerror", error => errors.push(String(error)));
@@ -12,11 +13,11 @@ test("map pan, zoom and focus-my-city interaction smoke", async ({ page }, testI
   await page.goto("/");
   await page.getByPlaceholder("Tên người chơi").fill(`Map E2E ${testInfo.project.name} ${Date.now()}`);
   await page.getByRole("button", { name: "Vào kingdom" }).click();
-  await expect(page.getByRole("complementary", { name: "Bảng điều khiển" })).toBeVisible();
-  // Pixi owns the canvas element, so the test anchors on the React container it mounts into.
+  await expect(page.getByTestId("resource-wood")).toBeVisible();
+  // Three.js owns the canvas element, so the test anchors on the React container it mounts into.
   const canvas = page.getByTestId("world-map").locator("canvas");
   await expect(canvas).toBeVisible();
-  await page.waitForTimeout(500);
+  await expect(canvas).toHaveAttribute("data-world-assets", "ready", { timeout: 30_000 });
 
   const initial = await canvas.screenshot({ path: "test-results-e2e/map-initial.jpg" });
   expect(initial.length).toBeGreaterThan(1000);

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { gameRules, regions, regionTileCounts } from "@kingdoms/shared";
+import { campaignMissions, dailyQuests, gameRules, regions, regionTileCounts } from "@kingdoms/shared";
 import type { Alliance, AllianceVote, Army, BattleReport, Caravan, City, SpyMission, Treaty, WorldEvent, WorldSnapshot } from "@kingdoms/shared";
 import {
   activityAnchors, activityIcons, activityKindLabels, activityLimit, activityStates, attentionItems, attentionLimit,
@@ -30,7 +30,7 @@ const AT = "2026-09-03T00:00:00.000Z";
 const city = (over: Partial<City> = {}): City => ({
   id: "city-me", playerId: ME, playerName: "Ember", name: "Hoa Lư", x: 5, y: 5,
   resources: { food: 200, wood: 200, stone: 200, iron: 200 },
-  buildings: { town_hall: 1 }, queues: [], ...over,
+  buildings: { town_hall: 1 }, cityLayoutVersion: 2, cityLayoutRevision: 0, buildingPlots: [{ buildingId: "town_hall", x: 2, y: 2, rotation: 0 }], queues: [], ...over,
 });
 
 const foeCity = (over: Partial<City> = {}): City =>
@@ -97,6 +97,8 @@ const world = (over: Partial<WorldSnapshot> = {}): WorldSnapshot => ({
   protocolVersion: 1,
   kingdom: { id: "kingdom-1", name: "Meridian" },
   season: { id: "season-1", status: "ACTIVE", endsAt: AT },
+  world: { id: "meridian-256-v2", extent: 256, chunkSize: 16, digest: "test", assetManifestUrl: "/assets/world3d/meridian-256-v2/manifest.json" },
+  exploration: { resolution: 64, revision: 0, encodedMask: "" },
   cities: [city(), foeCity()],
   caravans: [], armies: [], heroes: [], scores: {}, factionCatalog: {},
   logistics: { resourceNodes: [], depots: [], tradeRoutes: [], marketHubs: [], throughput: {} },
@@ -141,7 +143,7 @@ test("a row becomes a control only when it has somewhere useful to go", () => {
   assert.deepEqual(kinds.filter(kind => !activityAnchors[kind]).sort(),
     ["command-accepted", "command-rejected", "connection", "world-event"]);
   for (const kind of kinds.filter(kind => activityAnchors[kind])) {
-    assert.ok(["city", "army", "logistics", "diplomacy", "hud"].includes(activityAnchors[kind]!),
+    assert.ok(["city", "army", "logistics", "diplomacy", "hud", "progression"].includes(activityAnchors[kind]!),
       `${kind} points at a panel that has no anchor to scroll to`);
   }
 });
@@ -379,6 +381,17 @@ test("a province changing hands is reported from our own side, once", () => {
   assert.equal(gained[0]!.message.includes(`${A.code} `), false);
 });
 
+test("territory revision preserves a capture after A→B→A", () => {
+  const region = regions[0]!;
+  let ring = deriveActivity([], { source: "snapshot", previous: world({ regionControl: {}, regionControlRevision: 0 }), next: world({ regionControl: { [region.code]: ME }, regionControlRevision: 1 }), playerId: ME }, NOW);
+  ring = deriveActivity(ring, { source: "snapshot", previous: world({ regionControl: { [region.code]: ME }, regionControlRevision: 1 }), next: world({ regionControl: { [region.code]: FOE }, regionControlRevision: 2 }), playerId: ME }, NOW + 1);
+  ring = deriveActivity(ring, { source: "snapshot", previous: world({ regionControl: { [region.code]: FOE }, regionControlRevision: 2 }), next: world({ regionControl: { [region.code]: ME }, regionControlRevision: 3 }), playerId: ME }, NOW + 2);
+  const captures = ring.filter(row => row.kind === "region-captured");
+  assert.equal(captures.length, 2);
+  assert.deepEqual(captures.map(row => row.id), [`region-captured:${region.code}:${ME}:3`, `region-captured:${region.code}:${ME}:1`]);
+  assert.equal(new Set(ring.map(row => row.id)).size, ring.length);
+});
+
 test("a fight is told once, by the report and not also by the army diff", () => {
   const before = world({ armies: [army()] });
   assert.deepEqual(diff(before, world({ armies: [army({ strength: 40, morale: 30, supply: 60 })] })), [],
@@ -475,4 +488,83 @@ test("Cần chú ý puts the most answerable thing first and stops before it bec
   assert.deepEqual(items.slice(0, 3).map(item => item.id.split(":")[1]), ["uncertain", "treaty", "vote"]);
   assert.equal(items.length, attentionLimit, "the panel has to end somewhere or nobody reads it");
   assert.ok(items.every(item => item.message.length > 0));
+});
+
+test("a campaign mission is news once, on the tick it completes", () => {
+  const progress = (ids: string[]) => ({ [ME]: { playerId: ME, completedMissionIds: ids, claimedFirstClearIds: ids, unlockedChapter: 1 } });
+  const before = world({ campaignProgress: progress([]) });
+  const after = world({ campaignProgress: progress(["chapter-1-ruins"]) });
+  const rows = diff(before, after);
+  assert.deepEqual(rows.map(row => row.kind), ["mission-completed"]);
+  assert.equal(rows[0]!.id, "mission-completed:chapter-1-ruins");
+  // The snapshot carries only ids; the title is looked up in the shared catalog,
+  // so the feed says what the panel said when it offered the mission.
+  assert.equal(rows[0]!.message, `Hoàn thành nhiệm vụ "${campaignMissions[0]!.title}".`);
+  assert.equal(rows[0]!.state, "success");
+  assert.equal(rows[0]!.anchor, "progression");
+  // A mission never un-completes, so every snapshot afterwards repeats the id and
+  // must stay silent — the dedupe runs on every tick, not on login.
+  assert.deepEqual(diff(after, after), []);
+  // Someone else's campaign is theirs, and a server that has not sent the field
+  // (or a session's first snapshot) says nothing either.
+  const theirs = { [FOE]: { playerId: FOE, completedMissionIds: ["chapter-1-ruins"], claimedFirstClearIds: [], unlockedChapter: 1 } };
+  assert.deepEqual(diff(before, world({ campaignProgress: theirs })), []);
+  assert.deepEqual(diff(undefined, after), []);
+});
+
+/** A daily board with every quest unstarted — the shape the server sends at the
+ *  top of a UTC day, before any play. Quest ids come from the catalog the feed
+ *  itself joins against, so the fixture cannot drift from what it will read. */
+const board = (over: Partial<NonNullable<WorldSnapshot["dailyQuests"]>> = {}): NonNullable<WorldSnapshot["dailyQuests"]> => ({
+  dayKey: "2026-09-08", refreshesAt: "2026-09-09T00:00:00.000Z", points: 0,
+  quests: dailyQuests.map(quest => ({ questId: quest.id, progress: 0, claimed: false })),
+  claimedMilestones: [], ...over,
+});
+
+test("a daily quest is news once, on the tick it crosses its target", () => {
+  const build = dailyQuests.find(quest => quest.id === "daily_build")!;
+  const withProgress = (progress: number) =>
+    board({ quests: board().quests.map(quest => quest.questId === build.id ? { ...quest, progress } : quest) });
+  // The last snapshot before the tick had the quest underway; this one crossed
+  // the line — worth exactly one row, in the catalog's own words.
+  const rows = diff(world({ dailyQuests: withProgress(build.target - 1) }), world({ dailyQuests: withProgress(build.target) }));
+  assert.deepEqual(rows.map(row => row.kind), ["daily-quest-completed"]);
+  assert.equal(rows[0]!.id, `daily-quest:2026-09-08:daily_build`);
+  assert.equal(rows[0]!.message, `Hoàn thành nhiệm vụ hằng ngày "${build.title}" (+${build.points}đ).`);
+  assert.equal(rows[0]!.state, "success");
+  assert.equal(rows[0]!.anchor, "progression");
+  // Every later snapshot repeats the completed progress and must stay silent.
+  assert.deepEqual(diff(world({ dailyQuests: withProgress(build.target) }), world({ dailyQuests: withProgress(build.target) })), []);
+  // Over-shooting in one jump is still the same one crossing.
+  assert.deepEqual(diff(world({ dailyQuests: withProgress(0) }), world({ dailyQuests: withProgress(build.target + 3) })).map(row => row.kind), ["daily-quest-completed"]);
+  // A new dayKey is a new board: nothing that changed inside it is news about
+  // this one, the same silence the first snapshot of a new season gets.
+  const nextDay = board({ dayKey: "2026-09-09", quests: board().quests.map(quest => ({ ...quest, progress: 0 })) });
+  assert.deepEqual(diff(world({ dailyQuests: withProgress(build.target) }), world({ dailyQuests: nextDay })), []);
+  // An older server speaks no `dailyQuests` at all, and neither does a session's
+  // first snapshot — both must stay quiet rather than report six rows at once.
+  assert.deepEqual(diff(world({ dailyQuests: withProgress(build.target) }), world()), []);
+  assert.deepEqual(diff(undefined, world({ dailyQuests: withProgress(build.target) })), []);
+});
+
+test("Cần chú ý nudges the daily rewards that midnight will take away", () => {
+  const harvest = dailyQuests.find(quest => quest.id === "daily_harvest")!;
+  const completed = board({
+    points: 5,
+    quests: board().quests.map(quest => quest.questId === harvest.id ? { ...quest, progress: harvest.target } : quest),
+  });
+  const items = attentionItems(world({ dailyQuests: completed }), [], ME);
+  // The finished quest and the reached milestone are both one claim away from
+  // being gone at 00:00 UTC — the panel says so while there is still a day left.
+  assert.deepEqual(items.map(item => item.id), [`attention:daily-quest:daily_harvest`, "attention:daily-milestone:5"]);
+  assert.equal(items[0]!.state, "success");
+  assert.equal(items[0]!.anchor, "progression");
+  assert.equal(items[1]!.state, "warning");
+  // Both vanish on their own the moment the claim lands — no stale nudge.
+  const claimed = { ...completed, quests: completed.quests.map(quest => quest.questId === harvest.id ? { ...quest, claimed: true } : quest), claimedMilestones: [5] };
+  assert.deepEqual(attentionItems(world({ dailyQuests: claimed }), [], ME), []);
+  // A quest underway, or a board short of every milestone, asks for nothing.
+  assert.deepEqual(attentionItems(world({ dailyQuests: board() }), [], ME), []);
+  // And a server that has not sent the field cannot owe the player anything.
+  assert.deepEqual(attentionItems(world(), [], ME), []);
 });

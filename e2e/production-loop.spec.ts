@@ -6,7 +6,7 @@ test.beforeEach(async ({ request }) => { await request.post(`${api}/api/dev/rese
 const adminHeaders = { authorization: "Bearer playwright-admin-token" };
 
 async function login(page: Page, name: string): Promise<{ token: string; player: { id: string } }> {
-  await page.goto("/"); await page.getByPlaceholder("Tên người chơi").fill(name); await page.getByRole("button", { name: "Vào kingdom" }).click(); await expect(page.getByRole("complementary", { name: "Bảng điều khiển" })).toBeVisible();
+  await page.goto("/"); await page.getByPlaceholder("Tên người chơi").fill(name); await page.getByRole("button", { name: "Vào kingdom" }).click(); await page.getByRole("button", { name: "Vương quốc", exact: true }).click(); await expect(page.getByRole("complementary", { name: "Bảng điều khiển" })).toBeVisible();
   return page.evaluate(() => JSON.parse(sessionStorage.getItem("kingdoms-session")!) as { token: string; player: { id: string } });
 }
 

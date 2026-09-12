@@ -15,6 +15,11 @@ const vietnameseError: Record<string, string> = {
   ARMY_NOT_FOUND: "Không tìm thấy quân đội.",
   CITY_NOT_FOUND: "Không tìm thấy thành phố.",
   CITY_ACCESS_DENIED: "Bạn không thể điều khiển thành phố này.",
+  CITY_PLOT_OUT_OF_BOUNDS: "Ô này chưa nằm trong phần nội thành đã mở rộng.",
+  CITY_PLOT_OCCUPIED: "Ô này đã có công trình.",
+  CITY_FULL: "Nội thành đã hết ô trống; hãy nâng Tòa thị chính.",
+  BUILDING_ALREADY_PLACED: "Công trình này đã có vị trí trong thành.",
+  BUILDING_ALREADY_QUEUED: "Công trình này đang ở trong hàng đợi xây.",
   ARMY_ACCESS_DENIED: "Bạn không thể điều khiển quân đội này.",
   NO_ATTACK_ORDER: "Quân đội này không có lệnh tấn công.",
   NOT_ENOUGH_RESOURCES: "Không đủ tài nguyên.",
@@ -32,7 +37,23 @@ const vietnameseError: Record<string, string> = {
   KINGDOM_FULL: "Vương quốc đã đầy, không thể tạo thêm thành phố.",
   INVALID_TARGET: "Mục tiêu không hợp lệ.",
   ARMY_DESTROYED: "Quân đội đã bị tiêu diệt.",
+  CITY_LAYOUT_STALE: "Quy hoạch thành đã bị thay đổi ở phiên khác. Vui lòng thử lại.",
+  CITY_LAYOUT_INVALID_SET: "Danh sách công trình quy hoạch không khớp với thành phố.",
+  CITY_BUILDING_LOCKED: "Công trình đang nâng cấp không thể di chuyển.",
+  INVALID_BUILDING_ROTATION: "Góc xoay công trình không hợp lệ.",
+  SEASON_NOT_ACTIVE: "Mùa giải hiện tại chưa bắt đầu hoặc đã kết thúc.",
 };
+
+Object.assign(vietnameseError, {
+  UNKNOWN_REWARD: "Khong tim thay phan thuong.",
+  REWARD_ALREADY_CLAIMED: "Phan thuong nay da duoc nhan.",
+  REWARD_NOT_AVAILABLE: "Phan thuong chua du dieu kien.",
+  UNKNOWN_COSMETIC: "Khong tim thay cosmetic.",
+  COSMETIC_ALREADY_OWNED: "Ban da so huu mon nay.",
+  INSUFFICIENT_BADGES: "Khong du Huy hieu.",
+  COSMETIC_NOT_OWNED: "Ban chua so huu cosmetic nay.",
+  HUB_FAILED: "Khong tai duoc hub nguoi choi.",
+});
 
 export function errorMessage(code: string): string {
   return vietnameseError[code] ?? code;

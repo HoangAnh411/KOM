@@ -1,0 +1,63 @@
+export const CITY_ASSET_SET_ID = "temp-kenney-v1" as const;
+
+const base = "/assets/city3d/temp/kenney-v1";
+
+export const cityAssetManifest = {
+  "fantasy.banner-green": `${base}/fantasy/banner-green.glb`,
+  "fantasy.banner-red": `${base}/fantasy/banner-red.glb`,
+  "fantasy.cart": `${base}/fantasy/cart.glb`,
+  "fantasy.chimney": `${base}/fantasy/chimney.glb`,
+  "fantasy.fence": `${base}/fantasy/fence.glb`,
+  "fantasy.fountain": `${base}/fantasy/fountain-round-detail.glb`,
+  "fantasy.lantern": `${base}/fantasy/lantern.glb`,
+  "fantasy.overhang": `${base}/fantasy/overhang.glb`,
+  "fantasy.planks": `${base}/fantasy/planks.glb`,
+  "fantasy.poles": `${base}/fantasy/poles.glb`,
+  "fantasy.road": `${base}/fantasy/road.glb`,
+  "fantasy.road-bend": `${base}/fantasy/road-bend.glb`,
+  "fantasy.road-corner": `${base}/fantasy/road-corner.glb`,
+  "fantasy.rock-large": `${base}/fantasy/rock-large.glb`,
+  "fantasy.rock-small": `${base}/fantasy/rock-small.glb`,
+  "fantasy.roof-red": `${base}/fantasy/roof.glb`,
+  "fantasy.roof-flat": `${base}/fantasy/roof-flat.glb`,
+  "fantasy.roof-green": `${base}/fantasy/roof-high.glb`,
+  "fantasy.stairs-stone": `${base}/fantasy/stairs-stone.glb`,
+  "fantasy.stairs-wood": `${base}/fantasy/stairs-wood.glb`,
+  "fantasy.stall-green": `${base}/fantasy/stall-green.glb`,
+  "fantasy.stall-red": `${base}/fantasy/stall-red.glb`,
+  "fantasy.tree": `${base}/fantasy/tree.glb`,
+  "fantasy.tree-crooked": `${base}/fantasy/tree-crooked.glb`,
+  "fantasy.tree-round": `${base}/fantasy/tree-high-round.glb`,
+  "fantasy.wall-stone": `${base}/fantasy/wall.glb`,
+  "fantasy.wall-stone-door": `${base}/fantasy/wall-door.glb`,
+  "fantasy.wall-stone-window": `${base}/fantasy/wall-window-shutters.glb`,
+  "fantasy.wall-wood": `${base}/fantasy/wall-wood.glb`,
+  "fantasy.wall-wood-door": `${base}/fantasy/wall-wood-door.glb`,
+  "fantasy.wall-wood-window": `${base}/fantasy/wall-wood-window-shutters.glb`,
+  "castle.banner": `${base}/castle/flag-banner-long.glb`,
+  "castle.flag": `${base}/castle/flag.glb`,
+  "castle.gate": `${base}/castle/gate.glb`,
+  "castle.metal-gate": `${base}/castle/metal-gate.glb`,
+  "castle.tower": `${base}/castle/tower-square.glb`,
+  "castle.tower-roof": `${base}/castle/tower-square-top-roof-high.glb`,
+  "castle.wall": `${base}/castle/wall.glb`,
+  "castle.wall-corner": `${base}/castle/wall-corner.glb`,
+  "castle.wall-gate": `${base}/castle/wall-narrow-gate.glb`,
+  "castle.wall-pillar": `${base}/castle/wall-pillar.glb`,
+  "characters.female": `${base}/characters/character-female-a.glb`,
+  "characters.male": `${base}/characters/character-male-a.glb`,
+} as const;
+
+export type CityAssetKey = keyof typeof cityAssetManifest;
+
+export const cityBuildingVisuals = {
+  town_hall: { entrance: [0, 1.22] as const, scale: 1.78 },
+  warehouse: { entrance: [0, 0.88] as const, scale: 1.55 },
+  road_depot: { entrance: [0, 0.9] as const, scale: 1.48 },
+  barracks: { entrance: [0, 1.25] as const, scale: 1.72 },
+  farm: { entrance: [0, 0.78] as const, scale: 1.42 },
+  lumber_mill: { entrance: [0, 0.82] as const, scale: 1.48 },
+  stone_quarry: { entrance: [0, 0.82] as const, scale: 1.5 },
+  academy: { entrance: [0, 1.35] as const, scale: 1.68 },
+  hospital: { entrance: [0, 0.96] as const, scale: 1.58 },
+} as const;

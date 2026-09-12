@@ -29,7 +29,7 @@ const shortcuts: Array<{ id: BuildingId; label: string }> = [
 const shortcutIds = new Set(shortcuts.map(shortcut => shortcut.id));
 
 export function CityPanel() {
-  const { state, runCommand } = useGame();
+  const { state, runCommand, setSelection, openCityInterior } = useGame();
   const session = state.session!; const snapshot = state.snapshot!;
   const city = snapshot.cities.find(item => item.playerId === session.player.id) ?? snapshot.cities[0];
   const [now, setNow] = useState(Date.now());
@@ -60,6 +60,8 @@ export function CityPanel() {
   return <Panel accent="brass" className="city-panel" panelRef={anchor} aria-label={"Thành phố & công trình"}>
     <PanelHeader title={<><Icon name="city" size="sm" /> Thành phố & công trình</>} />
     <PanelBody>
+      <Button variant="primary" block onClick={() => { setSelection({ kind: "city", id: city.id }); openCityInterior(city.id); }}>Xem nội thành</Button>
+      <p className="hint">Mở sơ đồ ô đất để xem kích thước thành và chọn vị trí xây.</p>
       {/* One chip per order, beside a control that can issue it. Two controls do
           issue the same build — the shortcut and the building's own row — so the
           shortcut carries the chip when there is one and the row carries it for

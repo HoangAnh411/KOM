@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState } from "react";
-import { bandForMatches, bandQueries, defaultSurfaces, openSurface, shellClass, toggleSurface, type LayoutBand, type SurfaceId } from "../layout.js";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { bandForMatches, bandQueries, defaultSurfaces, openSurface, shellClass, toggleSurface, type LayoutBand, type SurfaceId, type SurfaceState } from "../layout.js";
 import { useGame } from "../state.js";
 import { ActivityColumn } from "./ActivityColumn.js";
 import { BattleReportModal } from "./BattleReportModal.js";
@@ -7,6 +7,8 @@ import { CommandTray } from "./CommandTray.js";
 import { KingdomColumn } from "./KingdomColumn.js";
 import { MapSurface } from "./MapSurface.js";
 import { StrategicHeader } from "./StrategicHeader.js";
+
+const CityView = lazy(() => import("./CityView.js").then(module => ({ default: module.CityView })));
 
 /** Which band CSS is currently in, read from the same media queries the
  *  stylesheet uses. React needs to know only because `aria-expanded` and the
@@ -35,12 +37,13 @@ function useLayoutBand(): LayoutBand {
  *  What this component deliberately does *not* do is decide widths, or mount and
  *  unmount its children to fit the viewport. A closed surface stays rendered with
  *  `hidden` and its grid track collapses to zero; the map is a single
- *  unconditional `<MapSurface />` in every band. That is what keeps one Pixi
- *  Application alive from login to logout no matter how the layout moves. */
+ *  unconditional `<MapSurface />` in every band. That keeps one Three.js world
+ *  renderer alive from login to logout no matter how the layout moves. */
 export function SituationRoom() {
-  const { protocolBlocked, reports, dismissReport } = useGame();
+  const { state, cityInteriorId, closeCityInterior, protocolBlocked, reports, dismissReport } = useGame();
   const band = useLayoutBand();
-  const [surfaces, setSurfaces] = useState(() => defaultSurfaces(currentBand()));
+  const [surfaces, setSurfaces] = useState<SurfaceState>(() => defaultSurfaces(currentBand()));
+
   // Crossing a breakpoint re-establishes that band's defaults, but only on an
   // actual crossing: re-running this on mount would discard nothing, and
   // re-running it on every render would discard the player's own toggles.
@@ -52,6 +55,10 @@ export function SituationRoom() {
   }, [band]);
 
   const report = useMemo(() => reports[0], [reports]);
+  const cityInterior = cityInteriorId
+    ? state.snapshot?.cities.find(city => city.id === cityInteriorId && city.playerId === state.session?.player.id)
+    : undefined;
+  const isCityOpen = Boolean(cityInterior);
   const toggle = (id: SurfaceId) => setSurfaces(current => toggleSurface(current, id, band));
   // A feed row jumping to a panel has to open the column that holds it, which is
   // a request to reveal, not to toggle: in a wide band that column is already
@@ -59,12 +66,24 @@ export function SituationRoom() {
   const reveal = (id: SurfaceId) => setSurfaces(current => openSurface(current, id, band));
 
   return <div className={shellClass(surfaces)}>
-    <StrategicHeader surfaces={surfaces} onToggleSurface={toggle} />
-    <KingdomColumn open={surfaces.kingdom} />
-    <MapSurface />
-    <ActivityColumn open={surfaces.activity} onReveal={reveal} />
-    <CommandTray onReveal={reveal} />
+    <div
+      className="situation-room-world-shell"
+      style={{ display: "contents" }}
+      aria-hidden={isCityOpen || undefined}
+      {...(isCityOpen ? { inert: "" } : {})}
+    >
+      <StrategicHeader surfaces={surfaces} onToggleSurface={toggle} onRevealSurface={reveal} />
+      <KingdomColumn open={surfaces.kingdom} onClose={() => toggle("kingdom")} />
+      <MapSurface />
+      <ActivityColumn open={surfaces.activity} onClose={() => toggle("activity")} onReveal={reveal} />
+      <CommandTray onReveal={reveal} />
+    </div>
     {protocolBlocked && <div className="protocol-banner" role="alert">{protocolBlocked}</div>}
+    {cityInterior && (
+      <Suspense fallback={<div className="city-view-bootstrap" role="status">Đang tải trình dựng thành phố 3D…</div>}>
+        <CityView city={cityInterior} onClose={closeCityInterior} />
+      </Suspense>
+    )}
     {report && <BattleReportModal report={report} onClose={dismissReport} />}
   </div>;
 }

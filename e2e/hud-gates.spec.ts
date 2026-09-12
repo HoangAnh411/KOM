@@ -21,6 +21,7 @@ async function login(page: Page, name: string): Promise<void> {
   await page.goto("/");
   await page.getByPlaceholder("Tên người chơi").fill(name);
   await page.getByRole("button", { name: "Vào kingdom" }).click();
+  await page.getByRole("button", { name: "Vương quốc", exact: true }).click();
   await expect(page.getByRole("complementary", { name: "Bảng điều khiển" })).toBeVisible();
 }
 
@@ -97,10 +98,14 @@ test("the chip for an order sits beside the control that issued it", async ({ pa
   test.skip(testInfo.project.name === "mobile", "desktop-sized HUD interaction");
   await login(page, `Chip E2E ${testInfo.project.name} ${Date.now()}`);
 
-  // Hold the response open: on a local server the command settles in single-digit
-  // milliseconds, and a chip that is correct but invisible for 4ms is not evidence.
+  // Hold the POST open until the assertions release it. A fixed sleep flakes when
+  // the full browser suite is under load: the response can settle before Playwright
+  // gets CPU time to observe the otherwise-correct pending chip.
+  let releaseBuild!: () => void;
+  const buildGate = new Promise<void>(resolve => { releaseBuild = resolve; });
   await page.route("**/api/commands/build", async route => {
-    await new Promise(resolve => setTimeout(resolve, 1500));
+    if (route.request().method() !== "POST") return route.continue();
+    await buildGate;
     await route.continue();
   });
 
@@ -110,13 +115,18 @@ test("the chip for an order sits beside the control that issued it", async ({ pa
   const row = city.locator(".city-action").filter({ has: page.getByRole("button", { name: "Xây kho" }) });
   await expect(row).toHaveCount(1);
   await expect(row.getByText("Đang gửi")).toHaveCount(0);
-  await row.getByRole("button", { name: "Xây kho" }).click();
-  await expect(row.getByText("Đang gửi")).toBeVisible();
+  const click = row.getByRole("button", { name: "Xây kho" }).click();
+  try {
+    await expect(row.getByText("Đang gửi")).toBeVisible();
 
-  // The row a different building's shortcut owns stays quiet: `pendingFor` matches
-  // on the command body, so one build in flight lights one control.
-  const other = city.locator(".city-action").filter({ has: page.getByRole("button", { name: "Xây trại lính" }) });
-  await expect(other.getByText("Đang gửi")).toHaveCount(0);
+    // The row a different building's shortcut owns stays quiet: `pendingFor` matches
+    // on the command body, so one build in flight lights one control.
+    const other = city.locator(".city-action").filter({ has: page.getByRole("button", { name: "Xây trại lính" }) });
+    await expect(other.getByText("Đang gửi")).toHaveCount(0);
+  } finally {
+    releaseBuild();
+  }
+  await click;
 
   // Settled means gone: a chip that outlives its command turns into a permanent
   // "in flight" badge on a control that is idle.

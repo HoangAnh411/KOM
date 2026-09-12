@@ -5,7 +5,7 @@ import type { Army, City, Depot, ResourceNode } from "@kingdoms/shared";
 import { affordable, buildQueueRoom, cargoTotal, cargoWithinCapacity, cargoWithinResources, caravanReady, depotFor, firstReason, frozenReason, hasEnemy, harvestReady, isOwnLiveArmy, mergeCandidates, notFrozen, routeReady } from "./validation.js";
 
 const depot = (capacity: number): Depot => ({ cityId: "c1", level: 1, capacity });
-const city = (resources: Partial<City["resources"]>): City => ({ id: "c1", playerId: "p1", playerName: "P1", name: "Meridian", x: 5, y: 5, resources: { food: 0, wood: 0, stone: 0, iron: 0, ...resources }, buildings: {}, queues: [] });
+const city = (resources: Partial<City["resources"]>): City => ({ id: "c1", playerId: "p1", playerName: "P1", name: "Meridian", x: 5, y: 5, resources: { food: 0, wood: 0, stone: 0, iron: 0, ...resources }, buildings: {}, buildingPlots: [], queues: [], cityLayoutVersion: 2, cityLayoutRevision: 0 });
 const node = (remaining: number): ResourceNode => ({ id: "n1", resourceType: "wood", x: 3, y: 3, remaining, capacity: 500, recoveryRate: 1, kingdomId: "k1", regionId: "r1" });
 const army = (overrides: Partial<Army>): Army => ({ id: "a1", ownerPlayerId: "p1", unitType: "infantry", strength: 100, morale: 70, supply: 90, formation: "line", x: 1, y: 1, ...overrides }) as Army;
 

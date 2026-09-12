@@ -2,6 +2,16 @@
 
 ## REST
 
+### Player hub va cosmetic
+
+`GET /api/player-hub` tra catalog phien ban, vi `Huy hieu`, cosmetic da so huu, cosmetic dang trang bi, ho so va cac phan thuong du dieu kien cua chinh player.
+
+- `POST /api/commands/cosmetics/claim` nhan `{ commandId, rewardId }`.
+- `POST /api/commands/cosmetics/purchase` mua `{ commandId, itemId }`; gia va so du do server quyet dinh.
+- `POST /api/commands/cosmetics/equip` trang bi `{ commandId, slot, itemId }`; gui `itemId: null` de tro ve mac dinh.
+
+Tat ca command tra `CommandResponse` kem hub moi trong `data`, dung cung idempotency va transaction voi canonical `game_state`. Cosmetic khong anh huong tai nguyen, diem chien dau, combat hay do tham.
+
 ### Password authentication
 
 `POST /api/auth/register` nhận `{ username, password, factionId, displayName? }`; `POST /api/auth/login` nhận `{ username, password }`. Password mode yêu cầu `AUTH_MODE=password` và PostgreSQL. Access token chỉ sống 15 phút; refresh secret chỉ nằm trong HttpOnly SameSite=Strict cookie và được rotate tại `POST /api/auth/refresh`. `POST /api/auth/logout` revoke session.
@@ -55,10 +65,43 @@ Header: `Authorization: Bearer <token>`.
 Request:
 
 ```json
-{"commandId":"unique-command-id","cityId":"city-id","buildingId":"warehouse","queueType":"build"}
+{"commandId":"unique-command-id","cityId":"city-id","buildingId":"warehouse","queueType":"build","plotX":1,"plotY":3}
 ```
 
-Server kiểm tra season, rate-limit, schema, ownership, queue capacity, resource cost và idempotency trước khi chấp nhận.
+`plotX` và `plotY` là tọa độ nội thành, cùng bắt đầu từ 0; phải có cả hai hoặc không có cả hai. Khi xây công trình lần đầu, server kiểm tra ô nằm trong kích thước hiện tại và chưa bị chiếm rồi giữ ô ngay lúc lệnh vào queue. Nếu bỏ tọa độ (các nút xây nhanh cũ), server tự lấy ô trống đầu tiên. Nâng cấp dùng lại vị trí công trình đã có. Server còn kiểm tra season, rate-limit, schema, ownership, queue capacity, resource cost và idempotency trước khi chấp nhận.
+
+## Army v2, research và campaign
+
+- `POST /api/commands/recruit-reserve`: tuyển quân vào dự bị của thành qua **hàng đợi huấn luyện** — cùng giá, giới hạn hàng đợi và thời gian với `/api/commands/train`; không tạo đạo quân và không cấp quân tức thời.
+- `POST /api/commands/army/create`: lấy quân dự bị và gán một chỉ huy chưa dùng để lập đạo quân.
+- `POST /api/commands/army/reinforce`, `/api/commands/army/transfer`: bổ sung hoặc chuyển đúng số lượng quân khi các đạo quân cùng ở thành và không có lệnh.
+- `POST /api/commands/army/return-home`: tạo hành trình về thành; chỉ khi đến nơi mới nạp tiếp tế, đưa thương binh vào dự bị và cho phép chỉnh quân.
+- `POST /api/commands/train`, `/api/commands/heal`: dùng hàng đợi doanh trại/quân y riêng. Quân y viện chữa thương bằng lương thực; thiếu tài nguyên thì lệnh bị từ chối, thương binh không mất.
+- `POST /api/commands/research`: bắt đầu một trong sáu công nghệ tại Học viện. Nghiên cứu hoàn tất qua server tick và được giữ qua mùa.
+- `POST /api/commands/campaign/complete`: hoàn thành nhiệm vụ chiến dịch theo **loại nhiệm vụ**. Mỗi nhiệm vụ có `kind` và một tọa độ mục tiêu `target {x, y}` trên lưới 256 (xem `campaignMissions` trong `@kingdoms/shared`):
+  - `combat` (9 nhiệm vụ): cần `armyId` (bỏ trường này trả `ARMY_REQUIRED`), đạo quân phải v2, không đang di chuyển, và đứng trong bán kính Manhattan `gameRules.campaign.arrivalRadius` = 3 ô quanh mục tiêu (`MISSION_TARGET_NOT_REACHED`). NPC spawn **tại mục tiêu**, không phải tại vị trí quân. Thắng mới tính hoàn thành và trả XP cho chỉ huy.
+  - `scout`: điều kiện là ô mục tiêu đã nằm trong vùng khám phá của người chơi — cũng là điều kiện mọi kind đều phải qua (`MISSION_TARGET_UNEXPLORED`).
+  - `build`: cần công trình theo điều kiện (vd `road_depot` cấp 1) ở một thành bất kỳ của người chơi (`MISSION_CONDITION_UNMET`).
+  - `trade`: cần tổng throughput giao thương (wood+stone+iron) đạt mức điều kiện (`MISSION_CONDITION_UNMET`).
+  - Ba nhiệm vụ phi chiến đấu trả `rewardResources` vào thành đầu thay vì XP, và **không cần `armyId`**.
+- `POST /api/commands/campaign/patrol`: sau khi hoàn thành toàn bộ chiến dịch, chạy tuần tra PvE lặp lại tại chỗ quân đứng; mỗi trận **thắng** nhận thêm thưởng tài nguyên theo chương (`gameRules.campaign.patrolRewards`), chỉ hòa/thua thì không. XP vẫn chỉ theo chiến thắng, không nhận lại thưởng mở khóa.
+
+Lưu ý theo mùa: `campaignProgress` được giữ qua season reset, nhưng throughput giao thương thì bị reset — nhiệm vụ `trade` của một season mới phải giao đủ lại từ đầu.
+
+Đạo quân mới phải có tiền tuyến, một chỉ huy và tổng số lính không vượt sức chứa theo cấp chỉ huy. Snapshot trả rõ thành phần quân, thế trận, buff, thương binh, tiếp tế, dự bị và dữ liệu địch đã trinh sát; không dùng một chỉ số `strength` để cam kết thắng.
+
+Khi đóng mùa, thành, chỉ huy/XP, dự bị, đạo quân đang đi, thương binh, nghiên cứu, khám phá và chiến dịch được giữ lại. Chỉ điểm mùa, mục tiêu mùa, thành tích mùa và các NPC theo mùa được làm mới.
+
+## Nhiệm vụ hằng ngày
+
+- `POST /api/commands/daily-quest/claim` nhận `{ commandId, questId }` **hoặc** `{ commandId, milestone }` (đúng một trong hai, nếu thiếu cả hai hoặc thừa cả hai trả `EXACTLY_ONE_TARGET`; `milestone` chỉ nhận `5` hoặc `10`).
+- Mỗi ngày UTC (làm mới lúc **00:00 UTC**, `dayKey` dạng `YYYY-MM-DD`) mọi người chơi nhận cùng một bảng **6 nhiệm vụ** do `selectDailyQuestIds(dayKey)` rút deterministic từ catalog `dailyQuests` trong `@kingdoms/shared`: 3 nhiệm vụ dễ (1đ, rút từ 4), 2 nhiệm vụ vừa (2đ), 1 nhiệm vụ khó (3đ) — tổng 10 điểm.
+- Tiến độ **không lưu trên đường chơi**: server suy ra `max(0, hiện_tại − baseline)` từ các counter đơn điệu (số lượt thu hoạch, tổng cấp công trình, số lô huấn luyện xong, số caravan giao tới, số trận thắng, số nhiệm vụ chiến dịch/tuần tra xong, số điệp vụ gián điệp thành công) trừ baseline chụp khi đổi ngày. Vì vậy không có command nào "tăng tiến độ" — chỉ có claim.
+- Điểm tính theo nhiệm vụ **hoàn thành** (progress ≥ target), độc lập với việc nhận thưởng. Claim nhiệm vụ trả thưởng catalog (wood/stone/iron) vào thành đầu; claim mốc trả thưởng theo `dailyQuestMilestones` (5đ và 10đ).
+- Lỗi: `DAILY_QUEST_STALE_DAY` (quest không thuộc bảng hôm nay), `DAILY_QUEST_ALREADY_CLAIMED`, `DAILY_QUEST_NOT_COMPLETED`, `MILESTONE_NOT_REACHED`, `MILESTONE_ALREADY_CLAIMED`. Replay cùng `commandId` vẫn theo quy tắc idempotency chung (`already_processed`) — kể cả sau khi thưởng đã nhận.
+- **Thưởng chưa nhận mất khi qua 00:00 UTC** — không có cơ chế nhận bù. Khi đóng mùa, `dailyQuests` bị xóa sạch để chụp lại baseline (một phần `militaryThroughput`/`spyMissions` mà baseline tham chiếu đã reset theo mùa).
+
+Snapshot có thêm trường **optional** `dailyQuests` (theo người xem): `{ dayKey, refreshesAt, points, quests: [{ questId, progress, claimed }], claimedMilestones }`. Trường này không bump protocol — client cũ bỏ qua an toàn.
 
 ### `GET /health`, `/health/live`, `/health/ready` và `GET /metrics`
 
@@ -74,19 +117,17 @@ collection bị khoá theo `playerId` lấy từ token, không theo tham số cl
 
 - `battleReports`: chỉ trận mà người xem là attacker hoặc defender.
 - `spyMissions`: chỉ mission do chính người xem khởi chạy.
-- `cities`: city của người khác giữ phần bản đồ hợp pháp hiển thị — `id`, `playerId`,
-  `playerName`, `x`, `y`, `name`, `frozen` — nhưng **nội thất bị che**: `resources` về 0,
-  `buildings` thành `{}`, `queues` thành `[]`. Chỉ city của chính người xem mang số thật.
+- `world`: descriptor của asset world đang chạy; hiện là `meridian-256-v2`, extent 256, chunk size 16 và URL manifest semantic.
+- `exploration`: bitmask base64 64×64 cùng `revision`; vùng đã mở không đóng lại trong season.
+- `cities`: city của người khác chưa scout bị che cả danh tính (`name = Thành chưa xác định`, `playerName = Không rõ`, không có faction) lẫn nội thất. Sau scout thành công, `visibility = scouted` và `intel` là ảnh chụp tại `observedAt`, không phải dữ liệu live.
+- `armies`: quân của chính người xem luôn có; quân khác chỉ đi trên dây khi tọa độ nằm trong vùng đã khám phá.
 
 Nội thất city đúng là thứ mission `scout` của `spy/launch` bán: nó tốn iron, có cooldown, làm
 mờ kết quả theo `accuracy` và có thể bị counter-intel chặn. Nên client **không được** đọc
-`resources`/`buildings`/`queues` của city người khác như dữ liệu — số 0 ở đó nghĩa là "chưa
+`resources`/`buildings`/`buildingPlots`/`queues` của city người khác như dữ liệu — số 0 ở đó nghĩa là "chưa
 biết", không phải "trống". Muốn biết thì scout, và đọc kết quả từ report của mission.
 
-Kiểu dữ liệu không đổi: field bị che được zero chứ không bị bỏ, nên `WorldSnapshot` trong
-`packages/shared` giữ đúng một shape và thay đổi này không cần protocol version mới. Quân
-(`armies`) **không** bị che — sức mạnh của quân đang hành quân là thông tin công khai theo
-thiết kế, bản đồ và HUD đều hiển thị.
+Thay đổi này là snapshot **protocol v4**. Client cũ bị version gate chặn thay vì diễn giải nhầm fog hoặc coi số liệu scout cũ là dữ liệu trực tiếp.
 
 ## WebSocket
 

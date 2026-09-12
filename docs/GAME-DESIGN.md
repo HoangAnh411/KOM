@@ -33,7 +33,26 @@ SCHEDULED → ACTIVE → FINALIZING → CLOSED → season mới
 - Army xa tuyến tiếp tế mất supply, morale và strength theo thời gian/khoảng cách.
 - Mục tiêu tấn công gồm city, depot, caravan và trade route.
 
+## Nội thành và công trình
+
+- Một lần bấm thành chỉ chọn thành và mở dải thông tin. Chỉ nút **Vào thành** hoặc tiếp tục zoom sâu trên thành của mình mới chuyển vào nội thành 3D; thành nước ngoài không bao giờ cho vào. Thành cấp 1 có khu xây **12×12**, mở dần tối đa **20×20** theo cấp Tòa thị chính.
+- Nội thành dùng phối cảnh isometric thay cho lưới phẳng: công trình là landmark có sprite riêng, còn đường, cổng, tường thành, cây và lớp sương tạo chiều sâu. Mỹ thuật nguyên bản dùng đá vôi sáng, mái ngói đất nung, đồng và cờ xanh ngọc; chỉ lấy cảm hứng từ độ giàu chi tiết của game chiến thuật xây thành, không sao chép asset hay giao diện của game khác.
+- Mỗi loại công trình có đúng một vị trí; xây lần đầu cần một ô trống, còn nâng cấp giữ nguyên ô đó. Ô được giữ ngay khi lệnh vào hàng đợi để hai lệnh đồng thời không thể xây chồng.
+- Mỗi cấp Tòa thị chính mở thêm một hàng và một cột, đến tối đa **9×9**. Phần ngoài biên hiện tại vẫn nhìn thấy qua thông tin cấp kế tiếp nhưng chưa thể đặt công trình.
+- Server là nguồn sự thật cho biên, va chạm, quyền sở hữu, tài nguyên và queue. Nút xây nhanh vẫn hợp lệ: khi không gửi tọa độ, server chọn ô trống để tương thích với luồng cũ.
+- `buildingPlots` nằm trong canonical `game_state` JSON và được bổ sung xác định khi đọc save cũ; không cần migration SQL cho dữ liệu đã tồn tại. Layout nội thành của người khác bị che khỏi world snapshot giống tài nguyên, cấp công trình và hàng đợi.
+
 ## Bản đồ và lãnh thổ
+
+### Thiết kế hiện hành — world 3D v2
+
+Thế giới hiện hành là **256×256** và dùng Three.js. Gameplay vẫn phân xử trên tọa độ nguyên, nhưng người chơi nhìn một địa hình 3D liên tục từ model `terrain-lod0.glb`, cây/đá/chợ/thành/quân là GLB thật; renderer không vẽ các ô vuông, hình tròn hay hình thoi đại diện nữa. Snapshot protocol v4 mang `world` descriptor (`id`, `extent`, `chunkSize`, `digest`, `assetManifestUrl`) để asset có thể được đổi theo semantic ID mà không đổi save hoặc gameplay ID.
+
+Khám phá là **vĩnh viễn trong một season**: thành của mình mở vùng ban đầu, quân đang sống mở thêm vùng khi di chuyển, bitmask chỉ được OR thêm và được xóa khi hard reset mùa. Quân địch ngoài vùng đã khám phá không được gửi cho client. Thành nước ngoài trong vùng đã mở nhưng chưa scout chỉ có silhouette và tên/chủ sở hữu “chưa xác định”; scout thành công tạo một ảnh chụp có `observedAt` và `accuracy`, không biến thành dữ liệu live khi tài nguyên thật tiếp tục thay đổi.
+
+Camera là orthographic isometric, hỗ trợ pan, wheel zoom neo theo con trỏ và pinch zoom. Một click chỉ selection; zoom sâu trên thành của mình hoặc lệnh **Vào thành** vào city view. Zoom ra khỏi nội thành quay lại world; khi đặt/sửa building thì zoom không tự thoát. Tọa độ seed mới được scale cùng map. Migration 016 ghi `world_id` theo season và canonical save mới lưu `season.worldId`. Server trả lỗi khởi động `WORLD_VERSION_MISMATCH` khi save thiếu hoặc khác phiên bản để tránh diễn giải sai tọa độ. **Không tự chuyển database 36×36**: giữ save cũ trên release v1, dùng database mới riêng cho v2 cho đến khi có quy trình cutover được kiểm chứng.
+
+Các đoạn 36×36 bên dưới ghi lại luật địa lý nguồn và lý do cân bằng của world v1. V2 lấy mẫu cùng địa lý authored lên 256×256 để server/client vẫn dùng chung terrain, tỉnh và digest; giới hạn một Pixi `RenderTexture` 4096px không còn là giới hạn của renderer hiện hành.
 
 Thế giới là **36×36 ô**, **vẽ tay**, sống ở `packages/shared/src/world-map.ts` dưới dạng hai lưới
 ký tự — một cho terrain, một cho vùng. Trước đó nó là ba phép modulo trong `combat.ts`
@@ -183,6 +202,18 @@ Faction thay đổi decision space, không chỉ cộng vài phần trăm attack
 - Bán cosmetic, title, effect, skin và utility UI không làm tăng power.
 - PvP cân bằng bằng command cap, terrain, counter, timing, supply, morale và matchmaking.
 - Alliance dùng contribution diminishing returns, voting, term limit và audit log.
+
+## Nhiệm vụ hằng ngày
+
+Loop đăng nhập mỗi ngày, thiết kế để **đóng được trong một buổi chơi ngắn** chứ không thay thế meta mùa:
+
+- **Bảng 6 nhiệm vụ, 10 điểm**: 3 dễ (1đ) + 2 vừa (2đ) + 1 khó (3đ). Bảng do `selectDailyQuestIds(dayKey)` rút deterministic theo ngày UTC — mọi người chơi cùng một bảng trong ngày, không re-roll theo từng người.
+- **7 metric đều là hoạt động có sẵn**: thu hoạch, xây công trình, huấn luyện, giao caravan, thắng trận, nhiệm vụ chiến dịch/tuần tra, điệp vụ gián điệp thành công. Không thêm hoạt động mới chỉ để làm quest — quest là cái nhìn khác của việc người chơi vốn làm.
+- **Nhiệm vụ khó là spy** (3đ, 200/140/50) chứ không phải "khám phá N ô": exploration gần bão hòa giữa mùa (reveal radius 14) nên quest khám phá sẽ chết; spy luôn có cost iron + cooldown + rủi ro thất bại, đó mới là cái giá đúng của 3 điểm.
+- **Điểm và claim tách nhau**: điểm tính ngay khi vượt target (server suy ra từ counter), nhận thưởng là hành động riêng cho từng nhiệm vụ và từng mốc. **Thưởng chưa nhận mất khi qua 00:00 UTC** — đúng nghĩa của "hằng ngày"; client có attention item nhắc nhận trước khi hết ngày.
+- **Mốc thưởng 5đ (150/100/40) và 10đ (400/280/100)**: trọn bảng ≈ 1.170 gỗ tương đương ~3 lần thắng tuần tra — đủ có ý nghĩa với người chơi tích cực, không vượt thu nhập của một buổi chơi.
+- **Thưởng chỉ wood/stone/iron**, đồng bộ với campaign/patrol — không food để không phá cân bằng farm/training.
+- Khi đóng mùa, bảng ngày bị xóa để chụp lại baseline (một phần counter mà baseline tham chiếu reset theo mùa). Mất tối đa một ngày dang dở ở biên mùa — chấp nhận.
 
 ## Tình báo và world events
 ### Phase 5 implementation baseline

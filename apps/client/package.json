@@ -12,17 +12,17 @@
   "dependencies": {
     "@kingdoms/shared": "0.1.0",
     "@vitejs/plugin-react": "^4.3.4",
-    "pixi.js": "^7.4.3",
+    "meshoptimizer": "^1.2.0",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
-    "three": "0.180.0",
+    "three": "^0.185.1",
     "vite": "^6.0.5"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
-    "@types/three": "0.180.0",
+    "@types/three": "^0.174.0",
     "typescript": "^5.7.2"
   }
 }

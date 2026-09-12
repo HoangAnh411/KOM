@@ -23,12 +23,9 @@ async function login(page: Page, name: string): Promise<void> {
   await page.goto("/");
   await page.getByPlaceholder("Tên người chơi").fill(name);
   await page.getByRole("button", { name: "Vào kingdom" }).click();
+  await page.getByRole("button", { name: "Vương quốc", exact: true }).click();
   await expect(page.getByRole("complementary", { name: "Bảng điều khiển" })).toBeVisible();
-  // 1280x720 is the default project viewport, which is the medium band: the
-  // activity column starts closed there and the header toggle is how a player
-  // opens it. Driving the real toggle rather than resizing to 1440 also means this
-  // spec covers the band where the column is a track the player asked for.
-  await page.getByRole("button", { name: "Hoạt động", exact: true }).click();
+  await page.getByRole("button", { name: "Nhiệm vụ", exact: true }).click();
   await expect(page.getByRole("complementary", { name: "Dòng hoạt động" })).toBeVisible();
 }
 
@@ -108,7 +105,7 @@ test("a row that names a place is the way to it, and one that does not is not a 
   const kingdom = page.getByRole("complementary", { name: "Bảng điều khiển" });
   const activity = page.getByRole("complementary", { name: "Dòng hoạt động" });
   await expect(kingdom).toBeHidden();
-  await page.getByRole("button", { name: "Hoạt động", exact: true }).click();
+  await page.getByRole("button", { name: "Nhiệm vụ", exact: true }).click();
   await expect(activity).toBeVisible();
 
   await feed(page).locator('[data-kind="build-finished"]').getByRole("button").click();

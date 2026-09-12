@@ -2,8 +2,8 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { worldMapDigest } from "@kingdoms/shared";
 import {
-  armyGeometrySig, asciiPrintable, cityGeometrySig, eventSig, isoDepth, labelCharset, labelFitsAtlas,
-  mapExtent, maxZoom, minZoom, narrowestViewport, originAt, overlayGeometrySig, pickAt,
+  armyGeometrySig, asciiPrintable, cityGeometrySig, eventSig, explorationBit, isoDepth, labelCharset, labelFitsAtlas,
+  mapExtent, mapLabelOffsetY, maxZoom, minZoom, narrowestViewport, originAt, overlayGeometrySig, pickAt,
   regionLabelZoom, regionLabelsVisible, seatSig, terrainBounds,
   terrainPad, terrainResolution, terrainSig, terrainTextureSize, tileHeight, tileWidth,
   vietnameseLetters, worldPoint, type SigArmy,
@@ -52,11 +52,10 @@ test("terrain bounds cover the whole field including the half-tile bleed", () =>
 // may get, and it is asserted rather than left in a comment: extent 20 needs 2244px,
 // extent 36 needs 4036 (60 to spare), extent 40 would want 4484 and would fail to
 // allocate on the guaranteed floor, silently leaving the map unpainted.
-test("the baked terrain texture stays inside the guaranteed 4096px WebGL limit", () => {
+test("the legacy single-texture baker is rejected for the 256 world", () => {
   const { width, height } = terrainTextureSize();
   assert.equal(width, (terrainBounds().width + terrainPad * 2) * terrainResolution);
-  assert.ok(width <= 4096, `terrain texture is ${width}px wide at extent ${mapExtent}: past 4096 the bake needs chunking`);
-  assert.ok(height <= 4096, `terrain texture is ${height}px tall at extent ${mapExtent}: past 4096 the bake needs chunking`);
+  assert.ok(width > 4096 || height > 4096, "the old Pixi terrain bake must not silently become viable again");
 });
 
 // The smallest zoom has to show the whole world on the narrowest viewport the e2e
@@ -66,7 +65,7 @@ test("the baked terrain texture stays inside the guaranteed 4096px WebGL limit",
 // room to spare (0.6 shows 672 of 1120 units), at extent 36 the floor moves itself.
 test("the zoom floor still fits the whole world width on the narrowest viewport", () => {
   const worldWidth = mapExtent * tileWidth;
-  assert.ok(minZoom * worldWidth <= narrowestViewport, `minZoom ${minZoom} shows only ${Math.round(minZoom * worldWidth)}px of a ${worldWidth}-unit world on a ${narrowestViewport}px viewport`);
+  assert.ok(minZoom * worldWidth <= narrowestViewport + Number.EPSILON * worldWidth, `minZoom ${minZoom} shows only ${Math.round(minZoom * worldWidth)}px of a ${worldWidth}-unit world on a ${narrowestViewport}px viewport`);
   assert.ok(minZoom > 0 && maxZoom > minZoom, "the zoom range stays non-empty");
 });
 
@@ -225,6 +224,11 @@ test("overlay ring distinguishes npc from player armies", () => {
 test("terrain and event signatures are stable for equal input and change on real edits", () => {
   const world = worldMapDigest();
   assert.equal(terrainSig(world, { "3,4": "forest" }), terrainSig(world, { "3,4": "forest" }));
+  assert.equal(
+    terrainSig(world, { "3,4": "forest", "1,2": "hills" }),
+    terrainSig(world, { "1,2": "hills", "3,4": "forest" }),
+    "override insertion order is not rendered content",
+  );
   assert.notEqual(terrainSig(world, { "3,4": "forest" }), terrainSig(world, { "3,4": "hill" }));
   assert.equal(terrainSig(world, undefined), terrainSig(world, {}));
   // The grid no longer travels, so a different world reaches the client as a different
@@ -261,6 +265,20 @@ test("province names appear on the way in, and are gone at the zoom floor", () =
   assert.equal(regionLabelsVisible(regionLabelZoom), true, "the gate is inclusive: reaching it shows the names");
   assert.equal(regionLabelsVisible(regionLabelZoom - 0.01), false);
   assert.equal(regionLabelsVisible(maxZoom), true);
+});
+
+test("a port, its province, and the nearby seed city occupy separate label lanes", () => {
+  const portY = worldPoint(10, 10)[1];
+  const cityY = worldPoint(13, 11)[1];
+  const labels = [
+    portY + mapLabelOffsetY("market"),
+    portY + mapLabelOffsetY("region", true),
+    cityY + mapLabelOffsetY("city"),
+  ].sort((a, b) => a - b);
+
+  assert.ok(labels[1]! - labels[0]! >= 24, "port and city labels need distinct lanes");
+  assert.ok(labels[2]! - labels[1]! >= 24, "city and province labels need distinct lanes");
+  assert.equal(mapLabelOffsetY("region"), 34, "ordinary province seats keep their compact offset");
 });
 
 // === LABEL CHARSET ===
@@ -300,4 +318,41 @@ test("strings outside the atlas are rejected so they fall back to Text", () => {
   assert.equal(labelFitsAtlas("À"), false);
   // Map labels are single-line by construction.
   assert.equal(labelFitsAtlas("Đông\nKinh"), false);
+});
+
+// === EXPLORATION ===
+//
+// The pure twin of `exploredAt` in `world-3d/scene.ts`: the panels ask "is this
+// mission target still dark?" once per render, and the answer must match what
+// the map shows for the same tile. The arithmetic quantises to the mask's cells
+// exactly the way the server's `explorationContains` does, so the assertions
+// below are stated in cells, not tiles.
+
+/** A mask with exactly the given cells set, base64-encoded the way the server
+ *  ships it. `cells` are (cx, cy) in a resolution x resolution grid. */
+const maskWith = (resolution: number, cells: Array<[number, number]>): string => {
+  const bytes = new Uint8Array(resolution * resolution / 8);
+  for (const [cx, cy] of cells) {
+    const bit = cy * resolution + cx;
+    bytes[bit >> 3]! |= 1 << (bit & 7);
+  }
+  return btoa(String.fromCharCode(...bytes));
+};
+
+test("exploration bit reads the same cells the map and the server do", () => {
+  const exploration = { resolution: 64, encodedMask: maskWith(64, [[2, 5], [0, 63], [63, 63]]) };
+  // Cell (2,5) covers tiles x 8-11, y 20-23 on the 256 grid: one cell, four
+  // tiles wide, and every tile in it answers together.
+  assert.equal(explorationBit(exploration, 8, 20), true);
+  assert.equal(explorationBit(exploration, 11, 23), true);
+  assert.equal(explorationBit(exploration, 12, 20), false, "one tile over is the next cell");
+  assert.equal(explorationBit(exploration, 11, 24), false);
+  // Out-of-map coordinates clamp rather than miss the array — the same guard
+  // `explorationContains` applies server-side.
+  assert.equal(explorationBit(exploration, -50, 252), true, "x clamps into cell (0, 63)");
+  assert.equal(explorationBit(exploration, 400, 400), true, "both axes clamp");
+  // A mask that has not been sent, or one that did not decode, is dark rather
+  // than an exception in a render pass.
+  assert.equal(explorationBit({ resolution: 64 }, 8, 20), false);
+  assert.equal(explorationBit({ resolution: 64, encodedMask: "%%%" }, 8, 20), false);
 });

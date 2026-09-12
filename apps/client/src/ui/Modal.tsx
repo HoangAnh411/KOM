@@ -19,12 +19,20 @@ import { useEffect, useId, useRef, type ReactNode } from "react";
  */
 const focusableSelector = "button, [href], input, select, textarea, summary, [tabindex]:not([tabindex='-1'])";
 
-export function Modal({ title, children, actions, onClose }: {
+/** Gameplay listeners live outside the dialog tree, so they need an explicit
+ * answer when deciding whether a key belongs to the modal or the game. */
+export function isModalOpen(): boolean {
+  return typeof document !== "undefined"
+    && document.querySelector('[role="dialog"][aria-modal="true"]') !== null;
+}
+
+export function Modal({ title, children, actions, onClose, className }: {
   title: ReactNode;
   children?: ReactNode;
   /** Rendered in the action band. Order is tab order: cancel first, then commit. */
   actions?: ReactNode;
   onClose: () => void;
+  className?: string;
 }) {
   const card = useRef<HTMLDivElement>(null);
   const titleId = useId();
@@ -33,27 +41,36 @@ export function Modal({ title, children, actions, onClose }: {
 
   useEffect(() => {
     const restoreTo = document.activeElement as HTMLElement | null;
-    const focusable = (): HTMLElement[] => Array.from(card.current?.querySelectorAll<HTMLElement>(focusableSelector) ?? []);
+    const focusable = (): HTMLElement[] => Array.from(card.current?.querySelectorAll<HTMLElement>(focusableSelector) ?? [])
+      .filter(element => !element.matches(":disabled"));
     // The first control, not the confirming one: on a destructive dialog that is
     // "Hủy", so a stray Enter cancels instead of committing.
     (focusable()[0] ?? card.current)?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { event.preventDefault(); closeRef.current(); return; }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        // Unmount after the native key event finishes; closing synchronously here
+        // can re-focus the opener while Chromium is still dispatching Escape.
+        window.setTimeout(() => closeRef.current(), 0);
+        return;
+      }
       if (event.key !== "Tab") return;
+      event.stopPropagation();
       const list = focusable();
       if (list.length === 0) { event.preventDefault(); return; }
       const first = list[0]!; const last = list[list.length - 1]!;
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
       else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
     };
-    document.addEventListener("keydown", onKeyDown);
-    return () => { document.removeEventListener("keydown", onKeyDown); restoreTo?.focus?.(); };
+    card.current?.addEventListener("keydown", onKeyDown);
+    return () => { card.current?.removeEventListener("keydown", onKeyDown); restoreTo?.focus?.(); };
   }, []);
 
   return <div className="modal-backdrop" onClick={() => closeRef.current()}>
     {/* `tabIndex={-1}` so a dialog with no controls still takes focus; the trap's
         selector excludes `-1`, so it stays out of the Tab cycle. */}
-    <div ref={card} className="modal-card" role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onClick={event => event.stopPropagation()}>
+    <div ref={card} className={`modal-card${className ? ` ${className}` : ""}`} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onClick={event => event.stopPropagation()}>
       <h2 id={titleId}>{title}</h2>
       {children}
       {actions ? <div className="modal-actions">{actions}</div> : null}

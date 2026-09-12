@@ -1,94 +1,54 @@
-import { gameRules, regionTileCounts, regions, type Army } from "@kingdoms/shared";
+import { gameRules, regionTileCounts, regions, type Army, type RegionState } from "@kingdoms/shared";
+import type { GameState } from "./types.js";
 
-/** Who holds the sixteen provinces, and how much ground that is.
- *
- *  `militaryScore` has always paid up to 300 of its 1000 points for `tilesControlled`, and
- *  until now no line of code ever moved that number: three tenths of the military axis was
- *  dead. This module is the rule that makes the field mean something. The sixteen provinces
- *  themselves are real data — `resource_nodes.region_id` carries the province id the rule reads
- *  below. The `regions` table and `map_tiles.region_id` are still relics: nothing inserts either
- *  one, and clearing them out is a migration rather than part of this rule.
- *
- *  Control is a snapshot of where armies stand, not a running total: it is recomputed every
- *  tick, so a province changes hands the moment someone marches in, and marching away gives
- *  it up. That is the opposite of `victories`, which only ever counts up, and it is why
- *  holding ground has to be *held*.
- *
- *  Pure on purpose — it takes armies and answers with tiles, touching no store and no clock —
- *  so the situation table in `territory.test.ts` can state the rule directly. */
-
-export type ProvinceControl = {
-  readonly code: string;
-  readonly name: string;
-  readonly seatX: number;
-  readonly seatY: number;
-  readonly tileCount: number;
-  readonly controllerPlayerId: string | null;
-};
-
-/** An army that can claim ground: a player's, alive, and not frozen out of the game. A banned
- *  player's armies carry `frozen` (set by `setPlayerStatus`), and the store also passes its own
- *  `isBanned` so a state loaded from a database that disagrees with the flag still resolves the
- *  same way — the same belt-and-braces `applySupplyZones` uses. */
-function canClaim(army: Army, isBanned: (playerId: string) => boolean): army is Army & { ownerPlayerId: string } {
-  if (army.ownerType !== "player" || !army.ownerPlayerId) return false;
-  if (army.strength <= 0 || army.frozen) return false;
-  return !isBanned(army.ownerPlayerId);
+function claimantAt(armies: readonly Army[], seatX: number, seatY: number, isBanned: (playerId: string) => boolean): { playerId: string | null; contested: boolean; armyId: string | null } {
+  const present = armies.filter(army => army.ownerType === "player" && army.ownerPlayerId && army.strength > 0 && !army.frozen && !army.deployedOperationId && !isBanned(army.ownerPlayerId) && Math.abs(army.x - seatX) + Math.abs(army.y - seatY) <= gameRules.territory.captureRadius);
+  if (!present.length) return { playerId: null, contested: false, armyId: null };
+  const nearest = Math.min(...present.map(army => Math.abs(army.x - seatX) + Math.abs(army.y - seatY)));
+  const closest = present.filter(army => Math.abs(army.x - seatX) + Math.abs(army.y - seatY) === nearest);
+  const players = new Set(closest.map(army => army.ownerPlayerId!));
+  if (players.size !== 1) return { playerId: null, contested: players.size > 1, armyId: null };
+  const playerId = [...players][0]!;
+  return { playerId, contested: false, armyId: closest.find(army => army.ownerPlayerId === playerId)?.id ?? null };
 }
 
-/** The player standing closest to the seat, or `null` if nobody is within reach or two of them
- *  are equally close. Ties go unheld rather than to whoever the array happens to list first:
- *  army order in state is an accident of insertion, and a contested province should read as
- *  contested rather than as a scoreboard entry that flips when a row moves. */
-function holderOfSeat(armies: readonly Army[], seatX: number, seatY: number, isBanned: (playerId: string) => boolean): string | null {
-  const { captureRadius } = gameRules.territory;
-  let nearest = Infinity;
-  const closest = new Set<string>();
-  for (const army of armies) {
-    if (!canClaim(army, isBanned)) continue;
-    const distance = Math.abs(army.x - seatX) + Math.abs(army.y - seatY);
-    if (distance > captureRadius || distance > nearest) continue;
-    if (distance < nearest) { nearest = distance; closest.clear(); }
-    closest.add(army.ownerPlayerId);
+export function ensureRegionStates(state: GameState, now = Date.now()): void {
+  state.regionStates ??= {};
+  for (const region of regions) state.regionStates[region.code] ??= { code: region.code, controllerPlayerId: state.regionControl?.[region.code] ?? null, contestingPlayerId: null, captureProgressMs: 0, garrisonArmyId: null, contested: false, revision: 0, lastChangedAt: new Date(now).toISOString() };
+}
+
+export function tickTerritory(state: GameState, deltaMs: number, now = Date.now(), isBanned: (playerId: string) => boolean = () => false): boolean {
+  ensureRegionStates(state, now);
+  let changed = false;
+  for (const region of regions) {
+    const current = state.regionStates[region.code]!;
+    const claimant = claimantAt(state.armies, region.seatX, region.seatY, isBanned);
+    const before = JSON.stringify(current);
+    current.contested = claimant.contested;
+    if (claimant.contested) { /* Pause the active capture; do not discard its progress. */ }
+    else if (!claimant.playerId) {
+      current.contestingPlayerId = null;
+      current.captureProgressMs = Math.max(0, current.captureProgressMs - gameRules.territory.decayPerSecond * deltaMs);
+    } else if (claimant.playerId === current.controllerPlayerId) {
+      current.contestingPlayerId = null; current.captureProgressMs = 0; current.garrisonArmyId = claimant.armyId;
+    } else {
+      if (current.contestingPlayerId !== claimant.playerId) { current.contestingPlayerId = claimant.playerId; current.captureProgressMs = 0; }
+      current.captureProgressMs += deltaMs;
+      if (current.captureProgressMs >= gameRules.territory.captureDurationMs) {
+        current.controllerPlayerId = claimant.playerId; current.contestingPlayerId = null; current.captureProgressMs = 0; current.garrisonArmyId = claimant.armyId; current.revision++; current.lastChangedAt = new Date(now).toISOString();
+      }
+    }
+    if (before !== JSON.stringify(current)) changed = true;
   }
-  return closest.size === 1 ? closest.values().next().value! : null;
+  const next = regionControlFromStates(state.regionStates);
+  if (JSON.stringify(next) !== JSON.stringify(state.regionControl)) { state.regionControl = next; state.regionControlRevision++; changed = true; }
+  return changed;
 }
 
-/** All sixteen provinces in authored order, each with its holder. Returned whole rather than
- *  only the held ones because this is also what the snapshot needs to draw the map: a province
- *  nobody holds is a fact worth showing. */
-export function provinceControl(armies: readonly Army[], isBanned: (playerId: string) => boolean = () => false): ProvinceControl[] {
-  const tileCounts = regionTileCounts();
-  return regions.map(region => ({
-    code: region.code,
-    name: region.name,
-    seatX: region.seatX,
-    seatY: region.seatY,
-    tileCount: tileCounts[region.code] ?? 0,
-    controllerPlayerId: holderOfSeat(armies, region.seatX, region.seatY, isBanned),
-  }));
-}
+export const regionControlFromStates = (states: Record<string, RegionState>): Record<string, string> => Object.fromEntries(Object.values(states).flatMap(region => region.controllerPlayerId && !region.contested ? [[region.code, region.controllerPlayerId]] : []));
+export function controlledTilesFromStates(states: Record<string, RegionState>): Record<string, number> { const counts = regionTileCounts(); const out: Record<string, number> = {}; for (const region of Object.values(states)) if (region.controllerPlayerId && !region.contested) out[region.controllerPlayerId] = (out[region.controllerPlayerId] ?? 0) + (counts[region.code] ?? 0); return out; }
 
-/** Tiles held per player, keyed by player id — the shape `militaryThroughput.tilesControlled`
- *  wants. Players holding nothing are absent rather than zero, so the caller decides whether an
- *  empty result is worth a row. */
-export function controlledTiles(armies: readonly Army[], isBanned?: (playerId: string) => boolean): Record<string, number> {
-  const tiles: Record<string, number> = {};
-  for (const province of provinceControl(armies, isBanned)) {
-    if (province.controllerPlayerId === null) continue;
-    tiles[province.controllerPlayerId] = (tiles[province.controllerPlayerId] ?? 0) + province.tileCount;
-  }
-  return tiles;
-}
-
-/** The same answer keyed the other way — province code → controller player id — which is what
- *  goes on the wire. Unheld provinces are absent rather than mapped to `null`: the client reads
- *  the sixteen provinces from `world-map.ts` and looks each one up here, so absence is already
- *  the word for "nobody", and a season starts as `{}` instead of sixteen nulls. */
-export function regionControl(armies: readonly Army[], isBanned?: (playerId: string) => boolean): Record<string, string> {
-  const held: Record<string, string> = {};
-  for (const province of provinceControl(armies, isBanned)) {
-    if (province.controllerPlayerId !== null) held[province.code] = province.controllerPlayerId;
-  }
-  return held;
-}
+// Compatibility helpers for isolated rules/tests. They describe fully-secured seats.
+export function regionControl(armies: readonly Army[], isBanned: (playerId: string) => boolean = () => false): Record<string, string> { const out: Record<string, string> = {}; for (const region of regions) { const claim = claimantAt(armies, region.seatX, region.seatY, isBanned); if (claim.playerId && !claim.contested) out[region.code] = claim.playerId; } return out; }
+export function controlledTiles(armies: readonly Army[], isBanned?: (playerId: string) => boolean): Record<string, number> { const control = regionControl(armies, isBanned); const counts = regionTileCounts(); const out: Record<string, number> = {}; for (const [code, playerId] of Object.entries(control)) out[playerId] = (out[playerId] ?? 0) + (counts[code] ?? 0); return out; }
+export function provinceControl(armies: readonly Army[], isBanned: (playerId: string) => boolean = () => false) { const control = regionControl(armies, isBanned); const counts = regionTileCounts(); return regions.map(region => ({ code: region.code, name: region.name, seatX: region.seatX, seatY: region.seatY, tileCount: counts[region.code] ?? 0, controllerPlayerId: control[region.code] ?? null })); }

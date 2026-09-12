@@ -1,6 +1,5 @@
 import { test, expect } from "@playwright/test";
 import { gameRules, regionAt, regions, regionTileCounts } from "@kingdoms/shared";
-import { worldPoint } from "../apps/client/src/map-geometry.js";
 
 const api = process.env.PLAYWRIGHT_API ?? "http://127.0.0.1:3000";
 // Fresh world per file: the placement cap would 500 later logins in a shared world.
@@ -39,26 +38,21 @@ test("standing on a seat takes the province, and the feed says so once", async (
   await page.goto("/");
   await page.getByPlaceholder("Tên người chơi").fill(`Territory E2E ${testInfo.project.name} ${Date.now()}`);
   await page.getByRole("button", { name: "Vào kingdom" }).click();
+  await page.getByRole("button", { name: "Vương quốc", exact: true }).click();
   await expect(page.getByRole("complementary", { name: "Bảng điều khiển" })).toBeVisible();
+  await page.getByRole("button", { name: "Nhiệm vụ", exact: true }).click();
   await expect(page.getByRole("complementary", { name: "Dòng hoạt động" })).toBeVisible();
 
-  // --- An army of our own. Cavalry covers two tiles a tick, so the march is a tick or
-  // two rather than three or four. ---
-  const barracks = page.waitForResponse(response => response.url().endsWith("/api/commands/build"));
-  await page.getByRole("button", { name: "Xây trại lính" }).click();
-  expect((await barracks).ok()).toBeTruthy();
-  await expect(page.getByText("Hàng đợi xây: 0/2")).toBeVisible({ timeout: 25000 });
-  await page.getByRole("button", { name: "Tuyển quân mới" }).click();
-  const recruitModal = page.getByRole("dialog", { name: "Tuyển quân" });
-  await recruitModal.getByRole("radio", { name: /^Kỵ binh/ }).check();
-  const recruited = page.waitForResponse(response => response.url().endsWith("/api/commands/recruit"));
-  await recruitModal.getByRole("button", { name: /^Tuyển 10/ }).click();
-  expect((await recruited).ok()).toBeTruthy();
+  // --- Provision a composition army for this territory scenario. The existing
+  // campaign coverage owns train → reserve → create; this file should stay about
+  // territory selection, movement, activity and navigation. ---
+  const session = await page.evaluate(() => JSON.parse(sessionStorage.getItem("kingdoms-session")!) as { token: string });
+  const provisioned = await request.post(`${api}/api/dev/army-v2`, { headers: { authorization: `Bearer ${session.token}` } });
+  expect(provisioned.ok()).toBeTruthy();
 
   // Where we are, and which seat is nearest: asked of the server and of the authored
   // world, never written down here. Placement is deterministic but it is also the thing
   // M-4 changed, and a spec that pinned (12,2) would fail for the wrong reason.
-  const session = await page.evaluate(() => JSON.parse(sessionStorage.getItem("kingdoms-session")!) as { token: string });
   const bootstrap = await request.get(`${api}/api/bootstrap`, { headers: { authorization: `Bearer ${session.token}` } });
   expect(bootstrap.ok()).toBeTruthy();
   const { player, snapshot } = await bootstrap.json() as {
@@ -77,8 +71,12 @@ test("standing on a seat takes the province, and the feed says so once", async (
    *  focused city is the projection of the grid delta — the renderer's own arithmetic,
    *  imported from it rather than restated as 56 and 28. */
   const at = (x: number, y: number): [number, number] => {
-    const [dx, dy] = worldPoint(x - city.x, y - city.y);
-    return [centerX + dx, centerY + dy];
+    const dx = x - city.x;
+    const dy = y - city.y;
+    const pixelsPerWorldUnit = 0.075 * box.height / 55;
+    const screenRight = (dx - dy) * 6 / Math.sqrt(2) * pixelsPerWorldUnit;
+    const screenDown = (dx + dy) * 6 * (1.08 / Math.sqrt(2)) * pixelsPerWorldUnit;
+    return [centerX + screenRight, centerY + screenDown];
   };
 
   // --- The seat before anyone holds it. One tile in eighty decides a province, and
@@ -92,7 +90,7 @@ test("standing on a seat takes the province, and the feed says so once", async (
 
   // --- Take it: select the army standing on the city, then march it onto the seat ---
   await page.mouse.click(centerX, centerY);
-  await expect(tray).toContainText("Kỵ binh · 10");
+  await expect(tray).toContainText("Bộ binh · 10");
   await tray.locator('[data-command="move"]').click();
   const moved = page.waitForResponse(response => response.url().endsWith("/api/commands/move-army"));
   await page.mouse.click(...at(seat.seatX, seat.seatY));
@@ -114,17 +112,47 @@ test("standing on a seat takes the province, and the feed says so once", async (
   await page.waitForTimeout(6000);
   await expect(captured).toHaveCount(1);
 
-  // --- Claim 2. Any tile of the province, not just the seat, now names its holder. The
-  // seat itself is no good for this: our own army is standing on it and wins the pick. ---
-  const inside = ([[seat.seatX + 1, seat.seatY], [seat.seatX - 1, seat.seatY], [seat.seatX, seat.seatY + 1], [seat.seatX, seat.seatY - 1]] as const)
-    .find(([x, y]) => regionAt(x, y)?.code === seat.code && !(x === city.x && y === city.y))!;
-  // Re-clicked on every poll: the suite runs with WORLD_EVENT_SPAWN_CHANCE=1, so mobs
-  // are wandering and one parked on the tile would win the pick instead. They move every
-  // tick, which is why polling gets the tile back rather than waiting for nothing.
+  // --- Claim 2. Any tile of the province, not just the seat, names its holder. The
+  // seat itself is no good for this: our own army is standing on it and wins the
+  // pick. Its neighbours are no better: the entity pick takes any army marker within
+  // ~50px (six to ten tiles) of the click, and with WORLD_EVENT_SPAWN_CHANCE=1 a
+  // migration mob can park that close. Waiting it out is not a recovery — mobs act
+  // every 10s and only when a player army is within 3 tiles, so one dormant by the
+  // seat is a permanent squatter. A tile of the province's interior, clear of every
+  // seat, city and army on the live snapshot, can only ever be picked as ground. ---
+  const held = `Vùng ${seat.name} · bạn đang giữ`;
+  const liveSnapshot = async () => {
+    const live = await request.get(`${api}/api/bootstrap`, { headers: { authorization: `Bearer ${session.token}` } });
+    expect(live.ok()).toBeTruthy();
+    return await live.json() as { snapshot: { armies: { x: number; y: number }[]; cities: { x: number; y: number }[] } };
+  };
+  const clearTile = (snapshot: { armies: { x: number; y: number }[]; cities: { x: number; y: number }[] }) => {
+    const clear = (x: number, y: number) =>
+      regions.every(region => Math.abs(x - region.seatX) + Math.abs(y - region.seatY) > 16)
+      && snapshot.cities.every(city => Math.abs(x - city.x) + Math.abs(y - city.y) > 16)
+      && snapshot.armies.every(army => Math.abs(x - army.x) + Math.abs(y - army.y) > 12);
+    // Closest clear tile to the seat: still "a tile of the province", and as deep in
+    // it as the squatters allow. Terrain relief is ±2.5 world units, so the flat
+    // projection below lands within a few pixels of the tile the renderer picks.
+    return [...Array(65 * 65).keys()].map(index => ({ x: seat.seatX - 32 + index % 65, y: seat.seatY - 32 + Math.floor(index / 65) }))
+      .filter(({ x, y }) => x >= 0 && y >= 0 && x < 256 && y < 256 && regionAt(x, y)?.code === seat.code && clear(x, y))
+      .sort((a, b) => (Math.abs(a.x - seat.seatX) + Math.abs(a.y - seat.seatY)) - (Math.abs(b.x - seat.seatX) + Math.abs(b.y - seat.seatY)))[0];
+  };
+  let target = clearTile((await liveSnapshot()).snapshot);
+  expect(target, "a click-safe tile of the province exists").toBeDefined();
   await expect.poll(async () => {
-    await page.mouse.click(...at(inside[0], inside[1]));
-    return await subject.textContent();
-  }, { timeout: 15_000 }).toContain(`Vùng ${seat.name} · bạn đang giữ`);
+    await page.mouse.click(...at(target!.x, target!.y));
+    const text = await subject.textContent();
+    // A migration event can land on the chosen tile after it was chosen; re-derive
+    // the tile from a fresh snapshot instead of clicking into the squatter until
+    // the timeout. The refetch only happens on a mismatch, so the good path costs
+    // one read against the 60/min bucket.
+    if (!text?.includes(held)) {
+      const next = clearTile((await liveSnapshot()).snapshot);
+      if (next) target = next;
+    }
+    return text;
+  }, { timeout: 15_000 }).toContain(held);
 
   // --- Claim 3. Move off the army panel first: a jump that lands where the player
   // already was would pass for free. ---

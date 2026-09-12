@@ -1,7 +1,69 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { GameStore } from "./store.js";
-import { gameRules, militaryScore, regionTileCounts, regions } from "@kingdoms/shared";
+import { cityGridSize, gameRules, militaryScore, regionTileCounts, regions } from "@kingdoms/shared";
+
+test("loading an old world rejects before repositories can write or replace its coordinates", async () => {
+  const store = new GameStore();
+  const current = store.snapshot;
+  const legacy = structuredClone(current);
+  delete legacy.season.worldId;
+  legacy.cities[0]!.x = 8;
+  const queries: string[] = [];
+  Object.defineProperty(store, "pool", { value: {
+    query: async (sql: string) => {
+      queries.push(sql);
+      assert.match(sql, /^SELECT state FROM game_state/);
+      return { rows: [{ state: legacy }] };
+    },
+  } });
+  await assert.rejects(store.load(), /WORLD_VERSION_MISMATCH/);
+  assert.equal(store.snapshot, current, "legacy coordinates were not loaded into the new world");
+  assert.equal(queries.length, 1, "no repository loading or mutation after a version mismatch");
+  assert.equal(legacy.cities[0]!.x, 8);
+});
+
+test("inactive seasons gate gameplay after idempotency while allowing onboarding and cosmetics", async () => {
+  const store = new GameStore();
+  const player = store.snapshot.players[0]!;
+  let calls = 0;
+  const committed = { eventType: "build.accepted", aggregateType: "build", aggregateId: player.id, commandId: "season-retry", actorPlayerId: player.id };
+  await store.executeCommand(committed, () => { calls += 1; return "accepted"; });
+  store.snapshot.season.status = "FINALIZING";
+  const replay = await store.executeCommand(committed, () => { calls += 1; return "accepted"; });
+  assert.equal(replay.alreadyApplied, true);
+  assert.equal(calls, 1);
+  await assert.rejects(store.executeCommand({ ...committed, commandId: "season-blocked" }, () => "accepted"), /SEASON_NOT_ACTIVE/);
+  const bypass = await store.executeCommand({ ...committed, aggregateType: "onboarding_ack", commandId: "season-onboarding" }, () => "accepted");
+  assert.equal(bypass.result, "accepted");
+  const cosmetic = await store.executeCommand({ ...committed, aggregateType: "cosmetics_equip", commandId: "season-cosmetic" }, () => "accepted");
+  assert.equal(cosmetic.result, "accepted");
+});
+
+test("store tick completes research exactly once", () => {
+  const store = new GameStore();
+  const player = store.snapshot.players[0]!;
+  store.snapshot.researchQueues[player.id] = { playerId: player.id, items: [{ id: "done", playerId: player.id, technologyId: "crop_rotation", startedAt: new Date(0).toISOString(), completesAt: new Date(0).toISOString() }] };
+  store.tick();
+  assert.deepEqual(store.snapshot.technologyProgress[player.id]?.unlocked, ["crop_rotation"]);
+  assert.equal(store.snapshot.researchQueues[player.id]!.items.length, 0);
+  store.tick();
+  assert.deepEqual(store.snapshot.technologyProgress[player.id]?.unlocked, ["crop_rotation"]);
+});
+
+test("territory revision advances only when controller map changes", () => {
+  const store = new GameStore();
+  for (const army of store.snapshot.armies.filter(item => item.ownerType === "player")) { army.x = 0; army.y = 0; }
+  store.recalculateScores();
+  const first = store.snapshot.regionControlRevision;
+  store.recalculateScores();
+  assert.equal(store.snapshot.regionControlRevision, first);
+  const province = regions.find(region => region.name === "Cửa Chợ Meridian")!;
+  store.snapshot.armies[0]!.x = province.seatX;
+  store.snapshot.armies[0]!.y = province.seatY;
+  store.recalculateScores();
+  assert.ok(store.snapshot.regionControlRevision > first);
+});
 
 test("build commands enforce ownership, costs, and the two-queue limit", () => {
   const store = new GameStore();
@@ -31,6 +93,81 @@ test("the server charges exactly the price the client shows", () => {
   }
 });
 
+test("city plots are reserved on build and reject collisions or locked expansion tiles", () => {
+  const placed = new GameStore();
+  const player = placed.snapshot.players[0]!;
+  const city = placed.snapshot.cities.find(item => item.playerId === player.id)!;
+  assert.equal(cityGridSize(city.buildings.town_hall!), 12);
+  assert.deepEqual(city.buildingPlots.find(plot => plot.buildingId === "town_hall"), { buildingId: "town_hall", x: 4, y: 4, rotation: 0 });
+  assert.equal(placed.startBuild(player.id, "plot-build-1", city.id, "warehouse", "build", { x: 1, y: 2, rotation: 0 }), "accepted");
+  assert.deepEqual(city.buildingPlots.find(plot => plot.buildingId === "warehouse"), { buildingId: "warehouse", x: 1, y: 2, rotation: 0 });
+  assert.equal(city.queues[0]?.plotX, 1, "the in-flight order names its reserved plot");
+  assert.equal(city.queues[0]?.plotRotation, 0);
+  assert.throws(() => placed.startBuild(player.id, "plot-build-2", city.id, "barracks", "build", { x: 1, y: 2 }), /CITY_PLOT_OCCUPIED/);
+
+  const outside = new GameStore();
+  const outsidePlayer = outside.snapshot.players[0]!;
+  const outsideCity = outside.snapshot.cities.find(item => item.playerId === outsidePlayer.id)!;
+  assert.equal(cityGridSize(outsideCity.buildings.town_hall!), 12);
+  // warehouse 2x2 at x=11 reaches 13 > 12
+  assert.throws(() => outside.startBuild(outsidePlayer.id, "plot-build-3", outsideCity.id, "warehouse", "build", { x: 11, y: 0 }), /CITY_PLOT_OUT_OF_BOUNDS/);
+});
+
+test("finishing a town hall upgrade expands the buildable city grid", () => {
+  const store = new GameStore();
+  const player = store.snapshot.players[0]!;
+  const city = store.snapshot.cities.find(item => item.playerId === player.id)!;
+  store.startBuild(player.id, "town-upgrade-1", city.id, "town_hall", "build");
+  city.queues[0]!.completesAt = new Date(Date.now() - 1).toISOString();
+  store.tick();
+  assert.equal(city.buildings.town_hall, 2);
+  assert.equal(cityGridSize(city.buildings.town_hall), 14);
+  // warehouse at x=12 in size 14 occupies 12..13, inside 14
+  assert.equal(store.startBuild(player.id, "plot-build-4", city.id, "warehouse", "build", { x: 12, y: 12 }), "accepted");
+});
+
+test("updateCityLayout updates placements atomically and enforces revisions and locks", () => {
+  const store = new GameStore();
+  const player = store.snapshot.players[0]!;
+  const city = store.snapshot.cities.find(item => item.playerId === player.id)!;
+  assert.equal(city.cityLayoutRevision, 0);
+
+  // Stale revision rejection
+  assert.throws(
+    () => store.updateCityLayout(player.id, "layout-1", city.id, 2, 99, city.buildingPlots),
+    /CITY_LAYOUT_STALE/
+  );
+
+  // Invalid set rejection (cannot add or drop buildings)
+  assert.throws(
+    () => store.updateCityLayout(player.id, "layout-2", city.id, 2, 0, [
+      { buildingId: "town_hall", x: 4, y: 4, rotation: 0 },
+      { buildingId: "warehouse", x: 0, y: 0, rotation: 0 },
+    ]),
+    /CITY_LAYOUT_INVALID_SET/
+  );
+
+  // Successful rearrangement with rotation
+  const validLayout = [
+    { buildingId: "town_hall" as const, x: 2, y: 2, rotation: 0 as const },
+  ];
+  const res = store.updateCityLayout(player.id, "layout-3", city.id, 2, 0, validLayout);
+  assert.equal(res.previousRevision, 0);
+  assert.equal(res.revision, 1);
+  assert.equal(city.cityLayoutRevision, 1);
+  assert.deepEqual(city.buildingPlots[0], { buildingId: "town_hall", x: 2, y: 2, rotation: 0 });
+
+  // Building currently in queue cannot be moved or rotated
+  store.startBuild(player.id, "build-locked", city.id, "warehouse", "build", { x: 8, y: 8 });
+  assert.throws(
+    () => store.updateCityLayout(player.id, "layout-4", city.id, 2, 1, [
+      { buildingId: "town_hall", x: 2, y: 2, rotation: 0 },
+      { buildingId: "warehouse", x: 0, y: 0, rotation: 0 }, // moved while in queue!
+    ]),
+    /CITY_BUILDING_LOCKED/
+  );
+});
+
 test("command transaction restores domain state and ledger when the action fails", async () => {
   const store = new GameStore(); const player = store.snapshot.players[0]; const city = store.snapshot.cities.find(item => item.playerId === player.id)!; const before = city.resources.wood;
   await assert.rejects(store.executeCommand({ eventType: "test.accepted", aggregateType: "test", aggregateId: player.id, commandId: "rollback-command", actorPlayerId: player.id }, () => { city.resources.wood -= 50; throw new Error("COMMAND_FAILED"); }), /COMMAND_FAILED/);
@@ -50,6 +187,27 @@ test("supply catch-up applies attrition only for minutes actually below the thre
   assert.equal(army.supply, 0, "supply drained fully at -5/min over 20 minutes");
   assert.equal(army.strength, 83, "one strength lost per minute below threshold (20 - 3)");
   assert.equal(army.morale, 66, "two morale lost per minute below threshold (20 - 3)");
+});
+
+test("supply attrition removes troops from squads and keeps strength in sync", () => {
+  const store = new GameStore();
+  const player = store.snapshot.players[0];
+  const army = store.snapshot.armies.find(item => item.ownerPlayerId === player.id)!;
+  for (const raider of store.snapshot.armies.filter(item => item.ownerType === "npc" && item.npcKind === "raider")) raider.nextActionAt = new Date(Date.now() + 3600_000).toISOString();
+  army.x = 0; army.y = 0;
+  army.composition = {
+    frontline: { id: "attrition-front", troopType: "shield_infantry", position: "frontline", count: 60 },
+    backline: { id: "attrition-back", troopType: "archers", position: "backline", count: 40 },
+    flank: null,
+  };
+  army.strength = 100;
+  army.supply = 0;
+  army.morale = 100;
+  army.lastSupplyAt = new Date(Date.now() - 10 * 60_000).toISOString();
+  store.tick();
+  assert.equal(army.composition?.frontline?.count, 50, "the largest squad absorbs the losses first");
+  assert.equal(army.composition?.backline?.count, 40);
+  assert.equal(army.strength, 90, "strength mirrors the composition total instead of drifting");
 });
 
 test("player-vs-raider battles are audited in the ledger", () => {

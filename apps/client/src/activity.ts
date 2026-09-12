@@ -14,7 +14,7 @@
 // parts that are actually easy to get wrong — ordering, the ring's cap, the
 // dedupe of a repeated snapshot, and one row per fact per kind of change.
 
-import { gameRules, regions, regionTileCounts } from "@kingdoms/shared";
+import { gameRules, regions, regionTileCounts, campaignMissions, dailyQuests, dailyQuestMilestones } from "@kingdoms/shared";
 import type { BattleReport, WorldSnapshot } from "@kingdoms/shared";
 import type { PendingCommand } from "./commands.js";
 import type { PanelAnchorId } from "./panel-anchors.js";
@@ -28,8 +28,9 @@ export type ActivityKind =
   | "battle" | "build-finished" | "caravan-delivered" | "caravan-ambushed"
   | "spy-success" | "spy-failed" | "spy-intercepted"
   | "treaty-proposed" | "treaty-active" | "treaty-ended" | "treaty-violated"
-  | "region-captured" | "region-lost"
-  | "world-event" | "order-canceled" | "connection";
+  | "region-captured" | "region-lost" | "mission-completed"
+  | "world-event" | "order-canceled" | "connection"
+  | "daily-quest-completed";
 
 export type ActivityEvent = {
   /** Derived from the fact, never from a counter: the same snapshot pair yields
@@ -64,9 +65,11 @@ export const activityKindLabels: Record<ActivityKind, string> = {
   "treaty-violated": "Hiệp ước bị phá",
   "region-captured": "Chiếm được vùng",
   "region-lost": "Mất vùng",
+  "mission-completed": "Nhiệm vụ xong",
   "world-event": "Sự kiện thế giới",
   "order-canceled": "Lệnh bị hủy",
   connection: "Kết nối",
+  "daily-quest-completed": "Nhiệm vụ hằng ngày",
 };
 
 /** The glyph and the chip a kind wears by default. Three kinds refine the state
@@ -91,9 +94,11 @@ export const activityIcons: Record<ActivityKind, IconName> = {
   "treaty-violated": "treaty",
   "region-captured": "banner",
   "region-lost": "banner",
+  "mission-completed": "banner",
   "world-event": "alert",
   "order-canceled": "ban",
   connection: "link-off",
+  "daily-quest-completed": "check",
 };
 
 export const activityStates: Record<ActivityKind, UiState> = {
@@ -113,9 +118,11 @@ export const activityStates: Record<ActivityKind, UiState> = {
   "treaty-violated": "hostile",
   "region-captured": "success",
   "region-lost": "hostile",
+  "mission-completed": "success",
   "world-event": "warning",
   "order-canceled": "warning",
   connection: "warning",
+  "daily-quest-completed": "success",
 };
 
 /** Where a row's anchor points. `undefined` means the fact has no panel to open
@@ -135,7 +142,9 @@ export const activityAnchors: Partial<Record<ActivityKind, PanelAnchorId>> = {
   "treaty-violated": "diplomacy",
   "region-captured": "army",
   "region-lost": "army",
+  "mission-completed": "progression",
   "order-canceled": "army",
+  "daily-quest-completed": "progression",
 };
 
 /** The feed is a ring, not a log: 50 rows is more than the column can show in a
@@ -347,18 +356,19 @@ function snapshotDrafts(previous: WorldSnapshot | undefined, next: WorldSnapshot
   // Provinces, ours only. Territory is public — the map paints every province's
   // holder — but a row is a thing that happened *to us*, and in a full kingdom
   // sixteen provinces trading hands between strangers would bury the four rows a
-  // player can act on. The id carries both the province and the new holder, so a
-  // seat that changes hands twice reports twice while a repeated snapshot reports
-  // nothing.
+  // player can act on. When present, the public transition revision makes a
+  // return transition (A→B→A) a new fact instead of colliding with the first A.
+  // Older servers omit it and retain the legacy stable id shape.
   const heldBefore = previous.regionControl ?? {};
   const heldNow = next.regionControl ?? {};
+  const transition = next.regionControlRevision === undefined ? "" : `:${next.regionControlRevision}`;
   for (const code of new Set([...Object.keys(heldBefore), ...Object.keys(heldNow)])) {
     const before = heldBefore[code];
     const after = heldNow[code];
     if (before === after) continue;
     if (after === playerId) {
       rows.push({
-        id: `region-captured:${code}:${playerId}`,
+        id: `region-captured:${code}:${playerId}${transition}`,
         kind: "region-captured",
         message: `Đã kiểm soát ${provinceName(code)} — ${provinceTiles[code] ?? 0} ô.`,
       });
@@ -367,11 +377,45 @@ function snapshotDrafts(previous: WorldSnapshot | undefined, next: WorldSnapshot
       // or nobody holds it any more — we marched away, or a rival drew level and
       // the rule leaves a contested seat unheld.
       rows.push({
-        id: `region-lost:${code}:${after ?? "none"}`,
+        id: `region-lost:${code}:${after ?? "none"}${transition}`,
         kind: "region-lost",
         message: after
           ? `Mất ${provinceName(code)} vào tay ${nameOf(next, after)}.`
           : `Mất ${provinceName(code)} — không còn ai giữ ô lỵ sở.`,
+      });
+    }
+  }
+
+  // Campaign missions, ours only, on the transition into `completedMissionIds`.
+  // Titles come from the shared catalog rather than the wire — the snapshot
+  // carries only ids — and a completed mission never un-completes, so the diff
+  // fires once per mission no matter how many snapshots follow.
+  const doneBefore = new Set(previous.campaignProgress?.[playerId]?.completedMissionIds ?? []);
+  for (const missionId of next.campaignProgress?.[playerId]?.completedMissionIds ?? []) {
+    if (doneBefore.has(missionId)) continue;
+    const mission = campaignMissions.find(item => item.id === missionId);
+    rows.push({
+      id: `mission-completed:${missionId}`,
+      kind: "mission-completed",
+      message: `Hoàn thành nhiệm vụ "${mission?.title ?? missionId}".`,
+    });
+  }
+
+  // Daily quests, on the transition of one quest past its target. The dayKey
+  // guard mirrors the season guard above: a new day means a whole new board,
+  // and none of yesterday's completions are news about today's. Titles and
+  // point values join from the shared catalog, never from the wire.
+  const board = next.dailyQuests;
+  if (board && previous.dailyQuests?.dayKey === board.dayKey) {
+    const before = new Map(previous.dailyQuests.quests.map(quest => [quest.questId, quest.progress]));
+    for (const quest of board.quests) {
+      const definition = dailyQuests.find(item => item.id === quest.questId);
+      if (!definition || quest.progress < definition.target) continue;
+      if ((before.get(quest.questId) ?? 0) >= definition.target) continue;
+      rows.push({
+        id: `daily-quest:${board.dayKey}:${quest.questId}`,
+        kind: "daily-quest-completed",
+        message: `Hoàn thành nhiệm vụ hằng ngày "${definition.title}" (+${definition.points}đ).`,
       });
     }
   }
@@ -463,6 +507,35 @@ export function attentionItems(snapshot: WorldSnapshot | undefined, pending: Pen
       message: `${unitName(army.unitType)} ở ô ${army.x},${army.y} chỉ còn ${army.supply}% tiếp tế.`,
       anchor: "army",
     });
+  }
+  // 5. Daily quests and milestones that are earned but unclaimed. Both are
+  //    forfeit when the day rolls at 00:00 UTC, so the nudge is time-sensitive
+  //    in a way the rows above are not — and both vanish on their own the
+  //    moment the claim lands.
+  const board = snapshot.dailyQuests;
+  if (board) {
+    for (const quest of board.quests) {
+      if (quest.claimed) continue;
+      const definition = dailyQuests.find(item => item.id === quest.questId);
+      if (!definition || quest.progress < definition.target) continue;
+      items.push({
+        id: `attention:daily-quest:${quest.questId}`,
+        state: "success",
+        icon: "check",
+        message: `Nhiệm vụ hằng ngày "${definition.title}" đã xong — nhận thưởng trước khi hết ngày.`,
+        anchor: "progression",
+      });
+    }
+    for (const milestone of dailyQuestMilestones) {
+      if (board.claimedMilestones.includes(milestone.points) || board.points < milestone.points) continue;
+      items.push({
+        id: `attention:daily-milestone:${milestone.points}`,
+        state: "warning",
+        icon: "banner",
+        message: `Đã đủ ${milestone.points} điểm nhiệm vụ — nhận thưởng mốc trước khi hết ngày.`,
+        anchor: "progression",
+      });
+    }
   }
   return items.slice(0, attentionLimit);
 }

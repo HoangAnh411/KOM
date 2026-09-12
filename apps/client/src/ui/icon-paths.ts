@@ -29,4 +29,8 @@ export const iconPaths: Record<IconName, string> = {
   // A banner on a pole, for the alliance. The swallowtail is what tells it apart
   // from `treaty` at 14px, where both are otherwise a pale rectangle.
   banner: "M6 3v18M6 4h12l-3 4 3 4H6",
+  food: "M12 21V9M12 13c-3.8 0-6.5-2.1-7.5-5.5C8.2 7.1 10.9 8.6 12 11M12 11c1.1-2.4 3.8-3.9 7.5-3.5C18.5 10.9 15.8 13 12 13",
+  wood: "M5 7h12a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V9a2 2 0 0 1 2-2M7 7v10M17 7v10M9 10h6M9 14h6",
+  stone: "M5 8l4-4h6l4 4-2 10H7L5 8M5 8h14M9 4l2 4-1 10M15 4l-2 4 1 10",
+  iron: "M4 18 19 5M14 4l6 1-1 6M6 16l4 4M5 13l6 6",
 };

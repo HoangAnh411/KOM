@@ -1,0 +1,40 @@
+{"version":8,"type":"context-options","origin":"library","browserName":"","playwrightVersion":"1.62.1","options":{},"platform":"win32","wallTime":1788808915451,"monotonicTime":906151.143,"sdkLanguage":"javascript","contextId":"request-context@3814e0f153ba4303093596041eaf3835","title":"territory.spec.ts:27 › standing on a seat takes the province, and the feed says so once"}
+{"type":"before","callId":"call@2888","startTime":906153.011,"class":"APIRequestContext","method":"fetch","params":{"url":"http://127.0.0.1:3000/api/dev/reset","method":"POST"},"stepId":"pw:api@24"}
+{"type":"log","callId":"call@2888","time":906153.602,"message":"→ POST http://127.0.0.1:3000/api/dev/reset"}
+{"type":"log","callId":"call@2888","time":906153.615,"message":"  user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.7922.34 Safari/537.36"}
+{"type":"log","callId":"call@2888","time":906153.619,"message":"  accept: */*"}
+{"type":"log","callId":"call@2888","time":906153.623,"message":"  accept-encoding: gzip,deflate,br"}
+{"type":"log","callId":"call@2888","time":906236.672,"message":"← 200 OK"}
+{"type":"log","callId":"call@2888","time":906236.704,"message":"  vary: Origin"}
+{"type":"log","callId":"call@2888","time":906236.713,"message":"  access-control-allow-credentials: true"}
+{"type":"log","callId":"call@2888","time":906236.72,"message":"  content-type: application/json; charset=utf-8"}
+{"type":"log","callId":"call@2888","time":906236.726,"message":"  x-content-type-options: nosniff"}
+{"type":"log","callId":"call@2888","time":906236.732,"message":"  x-frame-options: DENY"}
+{"type":"log","callId":"call@2888","time":906236.737,"message":"  referrer-policy: no-referrer"}
+{"type":"log","callId":"call@2888","time":906236.743,"message":"  content-security-policy: default-src 'none'; frame-ancestors 'none'"}
+{"type":"log","callId":"call@2888","time":906236.748,"message":"  permissions-policy: camera=(), microphone=(), geolocation=()"}
+{"type":"log","callId":"call@2888","time":906236.754,"message":"  content-length: 11"}
+{"type":"log","callId":"call@2888","time":906236.763,"message":"  date: Mon, 07 Sep 2026 19:21:55 GMT"}
+{"type":"log","callId":"call@2888","time":906236.769,"message":"  connection: keep-alive"}
+{"type":"log","callId":"call@2888","time":906236.775,"message":"  keep-alive: timeout=72"}
+{"type":"after","callId":"call@2888","endTime":906237.077,"result":{"response":{"url":"http://127.0.0.1:3000/api/dev/reset","status":200,"statusText":"OK","headers":[{"name":"vary","value":"Origin"},{"name":"access-control-allow-credentials","value":"true"},{"name":"content-type","value":"application/json; charset=utf-8"},{"name":"x-content-type-options","value":"nosniff"},{"name":"x-frame-options","value":"DENY"},{"name":"referrer-policy","value":"no-referrer"},{"name":"content-security-policy","value":"default-src 'none'; frame-ancestors 'none'"},{"name":"permissions-policy","value":"camera=(), microphone=(), geolocation=()"},{"name":"content-length","value":"11"},{"name":"Date","value":"Mon, 07 Sep 2026 19:21:55 GMT"},{"name":"Connection","value":"keep-alive"},{"name":"Keep-Alive","value":"timeout=72"}],"serverAddr":{"ipAddress":"127.0.0.1","port":3000},"timing":{"startTime":1788808915453,"domainLookupStart":-1,"domainLookupEnd":-1,"connectStart":-1,"secureConnectionStart":-1,"connectEnd":-1,"requestStart":0.5439999999944121,"responseStart":82.43599999998696},"responseEndTiming":82.83499999996275,"fetchUid":"80eaf3a2ce45fa07a88a07c15ba48a94"}}}
+{"type":"before","callId":"call@2937","startTime":939087.859,"class":"APIRequestContext","method":"fetch","params":{"url":"http://127.0.0.1:3000/api/bootstrap","method":"GET","headers":[{"name":"authorization","value":"Bearer 2b3ce4ad-f219-4bcb-9515-3189e99dba6e"}]},"stepId":"pw:api@48"}
+{"type":"log","callId":"call@2937","time":939088.423,"message":"→ GET http://127.0.0.1:3000/api/bootstrap"}
+{"type":"log","callId":"call@2937","time":939088.442,"message":"  user-agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/151.0.7922.34 Safari/537.36"}
+{"type":"log","callId":"call@2937","time":939088.45,"message":"  accept: */*"}
+{"type":"log","callId":"call@2937","time":939088.456,"message":"  accept-encoding: gzip,deflate,br"}
+{"type":"log","callId":"call@2937","time":939088.463,"message":"  authorization: Bearer 2b3ce4ad-f219-4bcb-9515-3189e99dba6e"}
+{"type":"log","callId":"call@2937","time":939097.785,"message":"← 200 OK"}
+{"type":"log","callId":"call@2937","time":939097.803,"message":"  vary: Origin"}
+{"type":"log","callId":"call@2937","time":939097.81,"message":"  access-control-allow-credentials: true"}
+{"type":"log","callId":"call@2937","time":939097.817,"message":"  content-type: application/json; charset=utf-8"}
+{"type":"log","callId":"call@2937","time":939097.823,"message":"  x-content-type-options: nosniff"}
+{"type":"log","callId":"call@2937","time":939097.829,"message":"  x-frame-options: DENY"}
+{"type":"log","callId":"call@2937","time":939097.835,"message":"  referrer-policy: no-referrer"}
+{"type":"log","callId":"call@2937","time":939097.841,"message":"  content-security-policy: default-src 'none'; frame-ancestors 'none'"}
+{"type":"log","callId":"call@2937","time":939097.847,"message":"  permissions-policy: camera=(), microphone=(), geolocation=()"}
+{"type":"log","callId":"call@2937","time":939097.853,"message":"  content-length: 15548"}
+{"type":"log","callId":"call@2937","time":939097.859,"message":"  date: Mon, 07 Sep 2026 19:22:28 GMT"}
+{"type":"log","callId":"call@2937","time":939097.865,"message":"  connection: keep-alive"}
+{"type":"log","callId":"call@2937","time":939097.871,"message":"  keep-alive: timeout=72"}
+{"type":"after","callId":"call@2937","endTime":939098.033,"result":{"response":{"url":"http://127.0.0.1:3000/api/bootstrap","status":200,"statusText":"OK","headers":[{"name":"vary","value":"Origin"},{"name":"access-control-allow-credentials","value":"true"},{"name":"content-type","value":"application/json; charset=utf-8"},{"name":"x-content-type-options","value":"nosniff"},{"name":"x-frame-options","value":"DENY"},{"name":"referrer-policy","value":"no-referrer"},{"name":"content-security-policy","value":"default-src 'none'; frame-ancestors 'none'"},{"name":"permissions-policy","value":"camera=(), microphone=(), geolocation=()"},{"name":"content-length","value":"15548"},{"name":"Date","value":"Mon, 07 Sep 2026 19:22:28 GMT"},{"name":"Connection","value":"keep-alive"},{"name":"Keep-Alive","value":"timeout=72"}],"serverAddr":{"ipAddress":"127.0.0.1","port":3000},"timing":{"startTime":1788808948388,"domainLookupStart":-1,"domainLookupEnd":-1,"connectStart":-1,"secureConnectionStart":-1,"connectEnd":-1,"requestStart":0.3769999999785796,"responseStart":9.000999999931082},"responseEndTiming":9.201999999932013,"fetchUid":"27b9e20763fc71f53fc8a5bfc69150dc"}}}

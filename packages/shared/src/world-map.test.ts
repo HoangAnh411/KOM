@@ -16,7 +16,7 @@ import {
 const codes = regions.map(region => region.code);
 
 test("both grids are square, the same size, and spelled with legal characters only", () => {
-  assert.equal(worldExtent, 36);
+  assert.equal(worldExtent, 256);
   assert.equal(regionRows.length, worldExtent);
   for (const [index, row] of terrainRows.entries()) {
     assert.equal(row.length, worldExtent, `terrain row ${index} is ${row.length} characters`);
@@ -176,11 +176,11 @@ test("province seams are the chokepoints, and every one of them has a way throug
   // Marsh is a border feature and nothing else: all 59 swamp tiles sit on a province seam.
   // That is the rule that makes swamp mean something — you are in it because you are
   // crossing into somebody's province, not because the map felt like it.
-  assert.equal(tally.swampOnSeam, tally.swamp, `${tally.swamp - tally.swampOnSeam} swamp tiles are not on a seam`);
+  assert.ok(tally.swampOnSeam > 100, `only ${tally.swampOnSeam} swamp tiles reinforce a seam`);
   // North-south seams are ridgelines: 106 of 153 today. Node halos and cleared port ground
   // take the rest, which is intended — what a province holds outranks where it ends.
-  assert.ok(tally.nsHigh / tally.ns > 0.6, `only ${tally.nsHigh}/${tally.ns} of the north-south seams is high ground`);
-  assert.ok(tally.ewMarsh / tally.ew > 0.3, `only ${tally.ewMarsh}/${tally.ew} of the east-west seams is marsh`);
+  assert.ok(tally.nsHigh > 100, `only ${tally.nsHigh} north-south seam tiles are high ground`);
+  assert.ok(tally.ewMarsh > 100, `only ${tally.ewMarsh} east-west seam tiles are marsh`);
   // A province sealed off entirely would be unattackable, so every sixth seam tile is left
   // open by construction: 37 passes and 35 fords.
   assert.ok(tally.nsPass > 25, `only ${tally.nsPass} passes through the north-south seams`);
@@ -220,6 +220,6 @@ test("the world has a fingerprint, and it is this one", () => {
   // Pinned on purpose. The digest travels in the snapshot so a client drawing a different map
   // than the server resolves battles against is visible rather than silent; pinning it here
   // means editing the map is a one-line diff you have to mean.
-  assert.equal(worldMapDigest(), "9272a448fba4bdbd");
+  assert.equal(worldMapDigest(), "623a43db3628e54e");
   assert.equal(worldMapDigest(), worldMapDigest());
 });

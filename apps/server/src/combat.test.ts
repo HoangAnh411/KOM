@@ -1,6 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { GameStore } from "./store.js";
+import { armyCompositionTotal, type Army, type BattleReport } from "@kingdoms/shared";
+import { battleReportMemoryLimit } from "./combat.js";
 
 test("recruit creates an army if barracks present and deducts resources", () => {
   const store = new GameStore();
@@ -37,15 +39,21 @@ test("move army updates target and ticks process movement", () => {
 test("merge armies combines strength and removes source", () => {
   const store = new GameStore();
   const player = store.snapshot.players[0];
-  
-  // Fake another army on same tile
+
+  // Fake another army on same tile with its own composition object
   const army1 = store.snapshot.armies.find(a => a.ownerPlayerId === player.id)!;
-  const army2 = { ...army1, id: "fake-2", strength: 50 };
+  store.snapshot.commanders.find(item => item.id === army1.commanderId)!.level = 10; // room for 150
+  const army2 = structuredClone(army1);
+  army2.id = "fake-2";
+  army2.commanderId = undefined;
+  army2.composition = { frontline: { id: "fake-2-front", troopType: "shield_infantry", position: "frontline", count: 50 }, backline: null, flank: null };
+  army2.strength = 50;
   store.snapshot.armies.push(army2);
-  
+
   store.combat.mergeArmies("merge-1", army2.id, army1.id, player.id, store.snapshot);
-  
+
   assert.equal(army1.strength, 150);
+  assert.equal(army1.composition?.frontline?.count, 150);
   assert.equal(store.snapshot.armies.find(a => a.id === army2.id), undefined);
 });
 
@@ -53,19 +61,18 @@ test("attack resolves battle and updates military stats", () => {
   const store = new GameStore();
   const player1 = store.snapshot.players[0];
   const player2 = store.snapshot.players[1];
-  
+
   const army1 = store.snapshot.armies.find(a => a.ownerPlayerId === player1.id)!;
   const army2 = store.snapshot.armies.find(a => a.ownerPlayerId === player2.id)!;
-  
+
   // Force them to same tile
   army2.x = army1.x;
   army2.y = army1.y;
-  
-  // Make army1 much stronger to ensure victory
+
+  // Make army1 much stronger to ensure victory (a legal 500-troop force)
+  store.snapshot.commanders.find(item => item.id === army1.commanderId)!.level = 10;
+  army1.composition = { frontline: { id: "attacker-front", troopType: "shield_infantry", position: "frontline", count: 500 }, backline: null, flank: null };
   army1.strength = 500;
-  army1.unitType = "infantry";
-  army2.strength = 100;
-  army2.unitType = "archer"; // infantry counters archer
   
   const result = store.combat.attack("att-1", army1.id, army2.id, player1.id, store.snapshot);
   assert.ok("victor" in result, "same-tile attack resolves immediately");
@@ -251,4 +258,212 @@ test("a treaty is re-checked when the pursuit actually resolves", () => {
   assert.ok(store.ledger.all().some(event => event.eventType === "combat.resolved" && (event.payload as { attackerArmyId: string }).attackerArmyId === army1.id), "tick-resolved player battle recorded in the ledger");
   // The derived id used to land in `state.processedCommands`; P0.3b moved it to the shared registry.
   assert.ok(store.commands.has("purs-8-violate"), "treaty break recorded with the resolution");
+});
+
+test("a PvP loss releases the losing commander instead of leaving them stuck", () => {
+  const store = new GameStore();
+  const player1 = store.snapshot.players[0];
+  const player2 = store.snapshot.players[1];
+  const army1 = store.snapshot.armies.find(a => a.ownerPlayerId === player1.id)!;
+  const army2 = store.snapshot.armies.find(a => a.ownerPlayerId === player2.id)!;
+  army2.x = army1.x;
+  army2.y = army1.y;
+  const commander1 = store.snapshot.commanders.find(item => item.id === army1.commanderId)!;
+  const commander2 = store.snapshot.commanders.find(item => item.id === army2.commanderId)!;
+  // A legal 300-troop veteran force annihilates the 100-troop defender.
+  commander1.level = 10;
+  army1.composition = { frontline: { id: "pvp-front", troopType: "shield_infantry", position: "frontline", count: 300 }, backline: null, flank: null };
+  army1.strength = 300;
+
+  const report = store.combat.attack("pvp-release-1", army1.id, army2.id, player1.id, store.snapshot) as { victor: string };
+
+  assert.equal(report.victor, "attacker");
+  assert.equal(store.snapshot.armies.some(a => a.id === army2.id), false, "the losing army is destroyed");
+  assert.equal(commander2.assignedArmyId, undefined, "the losing commander is released for reassignment");
+  assert.equal(commander1.assignedArmyId, army1.id, "the winner keeps leading");
+});
+
+test("canonical battle reports keep only the newest in-memory window", () => {
+  const store = new GameStore();
+  const player = store.snapshot.players[0]!;
+  const attacker = store.snapshot.armies.find(item => item.ownerPlayerId === player.id)!;
+  const defender = store.snapshot.armies.find(item => item.ownerType === "npc")!;
+  attacker.x = defender.x;
+  attacker.y = defender.y;
+  const oldReports = Array.from({ length: battleReportMemoryLimit }, (_, index) => ({
+    id: `old-report-${index}`,
+    kingdomId: store.snapshot.kingdom.id,
+    seasonId: store.snapshot.season.id,
+    tileX: 0,
+    tileY: 0,
+    terrain: "plains" as const,
+    victor: "draw" as const,
+    seed: index,
+    resolvedAt: new Date(index).toISOString(),
+    rounds: [],
+    attacker: { ownerType: "npc" as const, playerId: null, armyId: `old-a-${index}`, unitType: "infantry" as const, formation: "line" as const, strengthBefore: 1, strengthAfter: 1, moraleBefore: 100, moraleAfter: 100, supplyBefore: 100 },
+    defender: { ownerType: "npc" as const, playerId: null, armyId: `old-d-${index}`, unitType: "infantry" as const, formation: "line" as const, strengthBefore: 1, strengthAfter: 1, moraleBefore: 100, moraleAfter: 100, supplyBefore: 100 },
+  })) satisfies BattleReport[];
+  store.snapshot.battleReports = oldReports;
+
+  const newest = store.combat.attack("report-cap-1", attacker.id, defender.id, player.id, store.snapshot) as BattleReport;
+
+  assert.equal(store.snapshot.battleReports.length, battleReportMemoryLimit);
+  assert.equal(store.snapshot.battleReports[0]!.id, "old-report-1");
+  assert.equal(store.snapshot.battleReports.at(-1)!.id, newest.id);
+});
+
+test("world NPCs carry the composition model so battles against them produce mixed reports", () => {
+  const store = new GameStore();
+  const player = store.snapshot.players[0];
+  const army = store.snapshot.armies.find(a => a.ownerPlayerId === player.id)!;
+  const commander = store.snapshot.commanders.find(item => item.id === army.commanderId)!;
+  commander.level = 10;
+  army.composition = { frontline: { id: "npc-test-front", troopType: "shield_infantry", position: "frontline", count: 500 }, backline: null, flank: null };
+  army.strength = 500;
+  const raider = store.snapshot.armies.find(a => a.npcKind === "raider")!;
+  assert.ok(raider.composition, "raiders spawn with the composition model");
+  assert.ok(raider.commanderId, "raiders spawn with an NPC commander");
+  raider.x = army.x;
+  raider.y = army.y;
+
+  const report = store.combat.attack("npc-mixed-1", army.id, raider.id, player.id, store.snapshot) as { victor: string; mixed?: unknown };
+
+  assert.ok(report.mixed, "player-vs-NPC battles resolve through the mixed engine");
+  assert.equal(report.victor, "attacker");
+  assert.equal(store.snapshot.armies.some(a => a.id === raider.id), false, "the raider band is destroyed");
+  // Strength and composition can no longer drift apart after a battle.
+  assert.equal(army.strength, armyCompositionTotal(army.composition!));
+});
+
+test("wounded cargo matches the report for both PvP and PvE losses", () => {
+  // PvP: both sides are players, so both used to leave the hospital empty
+  // while the report claimed 80% of losses were merely wounded.
+  {
+    const store = new GameStore();
+    const player1 = store.snapshot.players[0];
+    const player2 = store.snapshot.players[1];
+    const army1 = store.snapshot.armies.find(a => a.ownerPlayerId === player1.id)!;
+    const army2 = store.snapshot.armies.find(a => a.ownerPlayerId === player2.id)!;
+    army2.x = army1.x;
+    army2.y = army1.y;
+    // Two near-even forces grind each other down without a wipe — the draw
+    // guarantees both survivors carry wounded worth reporting.
+    army1.composition = { frontline: { id: "wounded-pvp-front-1", troopType: "shield_infantry", position: "frontline", count: 100 }, backline: { id: "wounded-pvp-back-1", troopType: "archers", position: "backline", count: 30 }, flank: null };
+    army1.strength = 130;
+    army2.composition = { frontline: { id: "wounded-pvp-front-2", troopType: "spearmen", position: "frontline", count: 100 }, backline: { id: "wounded-pvp-back-2", troopType: "archers", position: "backline", count: 30 }, flank: null };
+    army2.strength = 130;
+
+    const report = store.combat.attack("wounded-pvp-1", army1.id, army2.id, player1.id, store.snapshot) as {
+      victor: string;
+      mixed?: { attacker: { killed: number; wounded: number }; defender: { killed: number; wounded: number } };
+    };
+
+    assert.ok(report.mixed, "even PvP forces resolve through the mixed engine");
+    const woundedTotal = (army: Army) => Object.values(army.wounded ?? {}).reduce((sum, count) => sum + count, 0);
+    assert.ok(woundedTotal(army1) > 0 || woundedTotal(army2) > 0, "a grinding PvP battle must leave wounded on at least one side");
+    if (woundedTotal(army1) > 0) assert.equal(woundedTotal(army1), report.mixed!.attacker.wounded, "the attacker's wounded cargo equals the report");
+    if (woundedTotal(army2) > 0) assert.equal(woundedTotal(army2), report.mixed!.defender.wounded, "the defender's wounded cargo equals the report");
+  }
+  // PvE: same allocation, same rounding — per troop type, not per side, so
+  // small losses in two troop types no longer round differently between the
+  // report and the reserve.
+  {
+    const store = new GameStore();
+    const player = store.snapshot.players[0];
+    const army = store.snapshot.armies.find(a => a.ownerPlayerId === player.id)!;
+    army.composition = { frontline: { id: "wounded-pve-front", troopType: "shield_infantry", position: "frontline", count: 500 }, backline: { id: "wounded-pve-back", troopType: "archers", position: "backline", count: 100 }, flank: null };
+    army.strength = 600;
+    const raider = store.snapshot.armies.find(a => a.npcKind === "raider")!;
+    raider.x = army.x;
+    raider.y = army.y;
+
+    const report = store.combat.attack("wounded-pve-1", army.id, raider.id, player.id, store.snapshot) as {
+      victor: string;
+      mixed?: { attacker: { killed: number; wounded: number } };
+    };
+
+    assert.equal(report.victor, "attacker");
+    assert.ok(report.mixed!.attacker.wounded > 0, "a won PvE battle with losses still leaves wounded");
+    const woundedTotal = Object.values(army.wounded ?? {}).reduce((sum, count) => sum + count, 0);
+    assert.equal(woundedTotal, report.mixed!.attacker.wounded, "PvE wounded cargo equals the report too");
+  }
+});
+
+test("PvP victories award no commander XP while PvE victories still do", () => {
+  // PvP, attacker side wins: the winner trained nothing — the loser was
+  // another player, not an NPC. Alt-account farming stays pointless.
+  {
+    const store = new GameStore();
+    const player1 = store.snapshot.players[0];
+    const player2 = store.snapshot.players[1];
+    const army1 = store.snapshot.armies.find(a => a.ownerPlayerId === player1.id)!;
+    const army2 = store.snapshot.armies.find(a => a.ownerPlayerId === player2.id)!;
+    army2.x = army1.x;
+    army2.y = army1.y;
+    const commander1 = store.snapshot.commanders.find(item => item.id === army1.commanderId)!;
+    army1.composition = { frontline: { id: "pvp-xp-front", troopType: "shield_infantry", position: "frontline", count: 300 }, backline: null, flank: null };
+    army1.strength = 300;
+    const before = commander1.xp;
+
+    const report = store.combat.attack("pvp-xp-1", army1.id, army2.id, player1.id, store.snapshot) as { victor: string };
+
+    assert.equal(report.victor, "attacker");
+    assert.equal(commander1.xp, before, "beating another player's army is worth no XP");
+  }
+  // PvP, defender side wins: same rule from the other direction.
+  {
+    const store = new GameStore();
+    const player1 = store.snapshot.players[0];
+    const player2 = store.snapshot.players[1];
+    const army1 = store.snapshot.armies.find(a => a.ownerPlayerId === player1.id)!;
+    const army2 = store.snapshot.armies.find(a => a.ownerPlayerId === player2.id)!;
+    army2.x = army1.x;
+    army2.y = army1.y;
+    const commander2 = store.snapshot.commanders.find(item => item.id === army2.commanderId)!;
+    army2.composition = { frontline: { id: "pvp-xp-front", troopType: "shield_infantry", position: "frontline", count: 300 }, backline: null, flank: null };
+    army2.strength = 300;
+    const before = commander2.xp;
+
+    const report = store.combat.attack("pvp-xp-2", army1.id, army2.id, player1.id, store.snapshot) as { victor: string };
+
+    assert.equal(report.victor, "defender");
+    assert.equal(commander2.xp, before, "successfully defending against a player is worth no XP");
+  }
+  // PvE, attacker side wins: the +25 stands.
+  {
+    const store = new GameStore();
+    const player = store.snapshot.players[0];
+    const army = store.snapshot.armies.find(a => a.ownerPlayerId === player.id)!;
+    const commander = store.snapshot.commanders.find(item => item.id === army.commanderId)!;
+    army.composition = { frontline: { id: "pve-xp-front", troopType: "shield_infantry", position: "frontline", count: 500 }, backline: null, flank: null };
+    army.strength = 500;
+    const raider = store.snapshot.armies.find(a => a.npcKind === "raider")!;
+    raider.x = army.x;
+    raider.y = army.y;
+    const before = commander.xp;
+
+    const report = store.combat.attack("pve-xp-1", army.id, raider.id, player.id, store.snapshot) as { victor: string };
+
+    assert.equal(report.victor, "attacker");
+    assert.equal(commander.xp, before + 25, "beating an NPC band still trains the commander");
+  }
+  // PvE, defender side wins: a player army ambushed by an NPC also learns.
+  {
+    const store = new GameStore();
+    const player = store.snapshot.players[0];
+    const army = store.snapshot.armies.find(a => a.ownerPlayerId === player.id)!;
+    const commander = store.snapshot.commanders.find(item => item.id === army.commanderId)!;
+    army.composition = { frontline: { id: "pve-xp-front", troopType: "shield_infantry", position: "frontline", count: 500 }, backline: null, flank: null };
+    army.strength = 500;
+    const raider = store.snapshot.armies.find(a => a.npcKind === "raider")!;
+    raider.x = army.x;
+    raider.y = army.y;
+    const before = commander.xp;
+
+    const report = store.combat.resolveEncounter(raider, army, 42, store.snapshot) as { victor: string };
+
+    assert.equal(report.victor, "defender");
+    assert.equal(commander.xp, before + 25, "repelling an NPC attack still trains the commander");
+  }
 });

@@ -177,7 +177,8 @@ export function overlayGeometrySig(army: SigArmy, selected: boolean): string {
  *  map on every snapshot to discover nothing had changed. A different world must rebuild,
  *  which is why the digest is part of the signature and not an assertion elsewhere. */
 export function terrainSig(worldMapDigest: string | undefined, overrides: Record<string, string> | undefined): string {
-  return `${worldMapDigest ?? ""}|${JSON.stringify(overrides ?? {})}`;
+  const stableOverrides = Object.entries(overrides ?? {}).sort(([left], [right]) => left.localeCompare(right));
+  return `${worldMapDigest ?? ""}|${JSON.stringify(stableOverrides)}`;
 }
 
 export function eventSig(events: readonly { id: string; eventType: string; severity: unknown; affectedTiles: unknown }[]): string {
@@ -199,6 +200,16 @@ export function seatSig(controllerPlayerId: string | undefined, ownPlayerId: str
  *  literal in the wheel handler so `map-geometry.test.ts` can hold it against `minZoom`. */
 export const regionLabelZoom = 1;
 export const regionLabelsVisible = (zoom: number): boolean => zoom >= regionLabelZoom;
+
+/** Vertical label lanes around an occupied tile. Ports are also province seats,
+ *  so using the ordinary below-marker offsets put the port name, province name,
+ *  and the nearby seed city's label into the same narrow strip. Keep the port
+ *  name above its marker and give a co-located province its own lower lane. */
+export function mapLabelOffsetY(kind: "city" | "market" | "region", sharesMarket = false): number {
+  if (kind === "city") return -42;
+  if (kind === "market") return -28;
+  return sharesMarket ? 52 : 34;
+}
 
 // === LABEL CHARSET ===
 //
@@ -231,4 +242,26 @@ const atlasChars = new Set(Array.from(labelCharset));
 export function labelFitsAtlas(text: string): boolean {
   for (const char of text) if (!atlasChars.has(char)) return false;
   return true;
+}
+
+// === EXPLORATION ===
+
+/** Point test against a base64 exploration mask, decoding per call. The 3D scene
+ *  keeps its own cached copy (it tests many points per frame); this is the pure
+ *  version for panels that ask once per render — "is the mission target still
+ *  dark?" — and for `map-geometry.test.ts`, which runs on compiled output with
+ *  no DOM and no WebGL. Arithmetic mirrors `exploredAt` in `world-3d/scene.ts`:
+ *  both derive from `explorationContains` on the server, so a divergence is a
+ *  bug in exactly one of the three. */
+export function explorationBit(exploration: { resolution: number; encodedMask?: string }, x: number, y: number): boolean {
+  if (!exploration.encodedMask) return false;
+  const cx = Math.min(exploration.resolution - 1, Math.max(0, Math.floor(x * exploration.resolution / mapExtent)));
+  const cy = Math.min(exploration.resolution - 1, Math.max(0, Math.floor(y * exploration.resolution / mapExtent)));
+  try {
+    const bytes = Uint8Array.from(atob(exploration.encodedMask), character => character.charCodeAt(0));
+    const bit = cy * exploration.resolution + cx;
+    return (bytes[bit >> 3]! & (1 << (bit & 7))) !== 0;
+  } catch {
+    return false;
+  }
 }

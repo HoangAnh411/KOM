@@ -8,7 +8,7 @@ import { useGame } from "./state.js";
  * (`document.querySelector(".city-panel")`), which ties behaviour to styling and
  * breaks silently whenever the styles are reworked. Panels register their own
  * element here instead, so the jump goes through a real reference. */
-export type PanelAnchorId = "city" | "army" | "logistics" | "diplomacy" | "hud";
+export type PanelAnchorId = "city" | "army" | "logistics" | "progression" | "alliance" | "events" | "diplomacy" | "hud";
 
 const anchors = new Map<PanelAnchorId, HTMLElement>();
 
@@ -44,8 +44,8 @@ export function usePanelJump(reveal: (id: SurfaceId) => void): (anchor: PanelAnc
     reveal("kingdom");
     // `"hud"` is the column itself rather than one of the panels the nav lists,
     // so there is nothing for `activePanel` to mark.
-    if (anchor !== "hud") setActivePanel(anchor);
-    if (anchor === "diplomacy") setAdvancedOpen(true);
+    if (anchor === "city" || anchor === "army" || anchor === "logistics" || anchor === "diplomacy") setActivePanel(anchor);
+    if (anchor === "alliance" || anchor === "events" || anchor === "diplomacy") setAdvancedOpen(true);
     setTimeout(() => revealPanel(anchor), 60);
   };
 }

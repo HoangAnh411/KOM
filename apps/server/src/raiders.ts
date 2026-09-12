@@ -5,6 +5,7 @@ import { gameRules } from "@kingdoms/shared";
 import type { GameState } from "./types.js";
 import { CombatRepository } from "./combat.js";
 import { EventLedger } from "./event-ledger.js";
+import { npcCommanderFor, npcComposition, normalizeNpcArmies } from "./army-model.js";
 
 const unitTypes: UnitType[] = ["infantry", "cavalry", "archer"];
 const mapExtent = gameRules.map.extent;
@@ -33,6 +34,9 @@ export class RaiderEngine {
 
   private normalize(state: GameState): void {
     state.raiderSpawnState ??= { sequence: 0 };
+    // Covers NPCs saved before the composition model existed, raider and world
+    // event alike — this is the one pass over state.armies the engine owns.
+    normalizeNpcArmies(state);
     for (const army of state.armies) { army.ownerType ??= "player"; army.ownerPlayerId ??= null; }
   }
 
@@ -46,11 +50,18 @@ export class RaiderEngine {
       const tile = this.spawnTile(state, sequence);
       const strength = gameRules.raiders.strengthMin + hash(`raider:${sequence}:${state.season.id}`) % (gameRules.raiders.strengthMax - gameRules.raiders.strengthMin + 1);
       const unitType = unitTypes[hash(`raider:${sequence}:unit`) % unitTypes.length];
+      const id = randomUUID();
+      // World NPCs carry the full composition model (composition, commander,
+      // stance) so player combat against them resolves through the mixed
+      // engine — never the strength-only legacy resolver.
       const army: Army = {
-        id: randomUUID(), ownerType: "npc", ownerPlayerId: null, npcKind: "raider",
+        id, ownerType: "npc", ownerPlayerId: null, npcKind: "raider",
         x: tile.x, y: tile.y, unitType, strength, morale: 100, formation: "line", supply: 100,
         lastSupplyAt: new Date(now).toISOString(),
         nextActionAt: new Date(now + gameRules.raiders.actionIntervalMs).toISOString(),
+        commanderId: npcCommanderFor(state, { npcKind: "raider", unitType }).id,
+        composition: npcComposition(id, unitType, strength),
+        stance: "balanced",
       };
       state.armies.push(army);
       this.ledger.append({ eventType: "raider.spawned", aggregateType: "raider", aggregateId: army.id, payload: { sequence, x: tile.x, y: tile.y, strength, unitType } });

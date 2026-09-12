@@ -7,10 +7,25 @@ import { fileURLToPath } from "node:url";
 // so stale chunks from older builds are never counted.
 const root = dirname(dirname(fileURLToPath(import.meta.url)));
 const outDir = join(root, "apps", "client", "dist-web");
-const limit = 500 * 1024;
+const defaultLimit = 500 * 1024;
+const threeLimit = 750 * 1024;
 
 const manifestPath = join(outDir, ".vite", "manifest.json");
 const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
+const appEntry = Object.values(manifest).find(entry => entry.isEntry);
+const threeKey = Object.keys(manifest).find(key => manifest[key]?.name === "three");
+if (!appEntry || !threeKey || (appEntry.imports ?? []).includes(threeKey)) {
+  console.error("City renderer gate failed: Three.js must not be a static dependency of the application entry.");
+  process.exit(1);
+}
+if (!(appEntry.dynamicImports ?? []).some(key => key.endsWith("/CityView.tsx"))) {
+  console.error("City renderer gate failed: CityView must remain a lazy dynamic entry.");
+  process.exit(1);
+}
+if (!(appEntry.dynamicImports ?? []).some(key => key.endsWith("/world-3d/scene.ts"))) {
+  console.error("World renderer gate failed: the Three.js world must remain a lazy dynamic entry.");
+  process.exit(1);
+}
 
 const files = new Set();
 for (const entry of Object.values(manifest)) {
@@ -27,13 +42,14 @@ if (jsFiles.length === 0) {
 let failed = false;
 for (const file of jsFiles.sort()) {
   const size = (await stat(join(outDir, file))).size;
+  const fileLimit = file.includes("three") ? threeLimit : defaultLimit;
   const display = (size / 1024).toFixed(1);
-  const flag = size > limit ? "✗ TOO LARGE" : "ok";
-  if (size > limit) failed = true;
-  console.log(`${flag.padEnd(12)} ${display.padStart(9)} KiB  ${file}`);
+  const flag = size > fileLimit ? "✗ TOO LARGE" : "ok";
+  if (size > fileLimit) failed = true;
+  console.log(`${flag.padEnd(12)} ${display.padStart(9)} KiB  ${file} (limit ${Math.round(fileLimit / 1024)} KiB)`);
 }
 if (failed) {
-  console.error(`\nBundle gate failed: a chunk exceeds ${Math.round(limit / 1024)} KiB.`);
+  console.error("\nBundle gate failed: a chunk exceeds its size limit.");
   process.exit(1);
 }
-console.log(`\nAll ${jsFiles.length} shipped chunks within ${Math.round(limit / 1024)} KiB.`);
+console.log(`\nAll ${jsFiles.length} shipped chunks within their size limits.`);
