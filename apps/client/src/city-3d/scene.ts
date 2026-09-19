@@ -9,6 +9,7 @@ import {
 import type { BuildingId, BuildingPlacement, CityRotation, EquippedCosmetics, FactionId } from "@kingdoms/shared";
 import { CITY_ASSET_SET_ID, cityBuildingVisuals, type CityAssetKey } from "./manifest.js";
 import { cloneCityAsset, getLoadedAsset } from "./loader.js";
+import { cityEffectTierFor } from "./effect-tiers.js";
 import { graphicsDpr } from "../graphics.js";
 import { isModalOpen } from "../ui/Modal.js";
 import { citySceneContentSignatures, type CityBuildingState, type CitySceneInstance, type CitySceneOptions } from "./types.js";
@@ -385,6 +386,12 @@ export function createCityScene(container: HTMLElement, initialOptions: CityScen
   let walkPaths: THREE.Vector3[][] = [];
   let roadCellKeys = new Set<string>();
   let placementIsValid = false;
+  // A finished build pops in rather than appearing: scale from just under size
+  // with an ease-out, staggered per building so a fresh city assembles itself
+  // one rooftop at a time. `knownBuildings` decides which placements are new —
+  // a rebuild that changed nothing must not replay the whole city.
+  const buildingAnimations: Array<{ group: THREE.Group; start: number; delay: number; duration: number }> = [];
+  const knownBuildings = new Map<BuildingId, string>();
 
   function updateProjection(): void {
     const viewportWidth = container.clientWidth || window.innerWidth;
@@ -484,7 +491,9 @@ export function createCityScene(container: HTMLElement, initialOptions: CityScen
     clearGroup(buildingsGroup);
     colliders.length = 0;
     buildingMeshes.clear();
-    for (const building of options.buildings) {
+    buildingAnimations.length = 0;
+    const tier = cityEffectTierFor(options.quality);
+    for (const [index, building] of options.buildings.entries()) {
       const placement = new THREE.Group();
       placement.name = `building-${building.buildingId}`;
       const visual = createBuildingVisual(building, options.factionId);
@@ -508,6 +517,16 @@ export function createCityScene(container: HTMLElement, initialOptions: CityScen
       if (building.isUpgrading) createScaffold(placement, Math.max(baseDims.width, baseDims.height) * 0.7);
       buildingsGroup.add(placement);
       buildingMeshes.set(building.buildingId, placement);
+
+      // The signature the animation cares about is "what the player just saw
+      // appear": a first sighting, or a level change, or a scaffold going up.
+      const stateKey = `${building.level}:${building.isUpgrading ? 1 : 0}`;
+      const known = knownBuildings.get(building.buildingId);
+      knownBuildings.set(building.buildingId, stateKey);
+      if (tier.buildAnimation && known !== stateKey) {
+        buildingAnimations.push({ group: placement, start: -1, delay: known === undefined ? index * 45 : 0, duration: tier.buildAnimationMs });
+        placement.scale.setScalar(0.55);
+      }
     }
   }
 
@@ -618,6 +637,37 @@ export function createCityScene(container: HTMLElement, initialOptions: CityScen
         [-2.8, 2.4], [2.8, 2.4], [-2.8, 5.2], [2.8, 5.2],
       ].map(([dx, dz]) => ({ position: new THREE.Vector3(centerX + dx, 0, centerZ + dz), scale: 1.55 }));
       addInstancedAsset(propsGroup, "fantasy.lantern", lamps);
+      // A lantern model is unlit geometry; the glow and the light are what make
+      // it a lamp. The marker is a tiny emissive sphere inside each lantern —
+      // one draw call's worth of cheap on every tier — while the actual point
+      // lights are desktop-only: four of them recompile every standard material
+      // in the scene, which is exactly the cost "medium" exists to skip.
+      const tier = cityEffectTierFor(options.quality);
+      const lampHeads: Array<[number, number, number]> = [
+        [centerX - 2.8, 1.45, centerZ + 2.4], [centerX + 2.8, 1.45, centerZ + 2.4],
+        [centerX - 2.8, 1.45, centerZ + 5.2], [centerX + 2.8, 1.45, centerZ + 5.2],
+      ];
+      if (tier.lanternGlow) {
+        const glowGeometry = new THREE.SphereGeometry(0.22, 10, 8);
+        const glowMaterial = new THREE.MeshBasicMaterial({ color: 0xffd9a0 });
+        lampHeads.forEach(([x, y, z], index) => {
+          const marker = new THREE.Mesh(glowGeometry, glowMaterial);
+          marker.position.set(x, y, z);
+          // One clone of the pair is marked owned; `clearGroup` disposes each
+          // owned pair exactly once, so the shared geometry and material are
+          // freed on rebuild without being freed four times.
+          marker.userData.cityOwnedGeometry = index === 0;
+          marker.userData.cityOwnedMaterial = index === 0;
+          propsGroup.add(marker);
+        });
+      }
+      if (tier.lanternLights) {
+        for (const [x, y, z] of lampHeads) {
+          const light = new THREE.PointLight(0xffc98a, 14, 9.5, 2);
+          light.position.set(x, y, z);
+          propsGroup.add(light);
+        }
+      }
     }
   }
 
@@ -969,6 +1019,23 @@ export function createCityScene(container: HTMLElement, initialOptions: CityScen
         direction.normalize();
         citizen.group.position.addScaledVector(direction, citizen.speed * delta);
         citizen.group.rotation.y = Math.atan2(direction.x, direction.z);
+      }
+    }
+    if (buildingAnimations.length) {
+      const now = performance.now();
+      for (let index = buildingAnimations.length - 1; index >= 0; index -= 1) {
+        const animation = buildingAnimations[index]!;
+        if (animation.start < 0) animation.start = now + animation.delay;
+        const progress = (now - animation.start) / animation.duration;
+        if (progress >= 1) {
+          animation.group.scale.setScalar(1);
+          buildingAnimations.splice(index, 1);
+        } else if (progress > 0) {
+          // Ease-out cubic: the pop is fast and settles, so the eye reads a
+          // finished building and not a growing one.
+          const eased = 1 - (1 - progress) ** 3;
+          animation.group.scale.setScalar(0.55 + 0.45 * eased);
+        }
       }
     }
     renderer.render(scene, camera);

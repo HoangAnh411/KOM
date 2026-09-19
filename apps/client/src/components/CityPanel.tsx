@@ -8,6 +8,8 @@ import { Button } from "../ui/Button.js";
 import { Icon } from "../ui/Icon.js";
 import { Panel, PanelBody, PanelHeader } from "../ui/Panel.js";
 import { PendingChip } from "./PendingChip.js";
+import { queueProgress } from "../queue-progress.js";
+import { ProgressMeter } from "../ui/ProgressMeter.js";
 
 type BuildingId = keyof typeof gameRules.buildings;
 
@@ -98,7 +100,18 @@ export function CityPanel() {
             <div className="building-title"><strong>{rule.name}</strong><span className="kom-meta">{level > 0 ? `Cấp ${level}` : "Chưa xây"}</span></div>
             <p className="kom-meta">{rule.description}</p>
             {building
-              ? <p className="kom-meta"><Icon name="clock" size="sm" /> Đang xây · còn <span className="kom-num">{Math.max(0, Math.ceil((Date.parse(building.completesAt) - now) / 1000))}</span>s</p>
+              ? <div className="city-queue-meter">
+                {/* The ring carries the pace, the number the patience: "còn
+                    45s" alone says nothing about how long the whole order
+                    was, and the ring alone cannot be glanced at a distance. */}
+                <ProgressMeter
+                  fraction={queueProgress(building.startedAt, building.completesAt, now)}
+                  icon="hammer"
+                  size="sm"
+                  label={`Đang xây ${rule.name}, còn ${Math.max(0, Math.ceil((Date.parse(building.completesAt) - now) / 1000))} giây`}
+                />
+                <p className="kom-meta">còn <span className="kom-num">{Math.max(0, Math.ceil((Date.parse(building.completesAt) - now) / 1000))}</span>s</p>
+              </div>
               : <div className="row-actions">
                 <Button
                   variant="ghost"

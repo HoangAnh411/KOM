@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, type ReactNode } from "react";
+import { Button } from "./Button.js";
 
 /** The one dialog in the client. `role="dialog"` is written here and nowhere else
  *  — `ui-primitives.test.ts` scans the source to keep that true — because a
@@ -43,9 +44,11 @@ export function Modal({ title, children, actions, onClose, className }: {
     const restoreTo = document.activeElement as HTMLElement | null;
     const focusable = (): HTMLElement[] => Array.from(card.current?.querySelectorAll<HTMLElement>(focusableSelector) ?? [])
       .filter(element => !element.matches(":disabled"));
-    // The first control, not the confirming one: on a destructive dialog that is
-    // "Hủy", so a stray Enter cancels instead of committing.
-    (focusable()[0] ?? card.current)?.focus();
+    // The first control, not the confirming one and not the header ×: on a
+    // destructive dialog that is "Hủy", so a stray Enter cancels instead of
+    // committing. The × closes too, but it is a one-glyph target — focus
+    // belongs to the labelled control (and `phase7c` asserts exactly that).
+    (focusable().find(element => !element.classList.contains("modal-close")) ?? focusable()[0] ?? card.current)?.focus();
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
@@ -71,7 +74,13 @@ export function Modal({ title, children, actions, onClose, className }: {
     {/* `tabIndex={-1}` so a dialog with no controls still takes focus; the trap's
         selector excludes `-1`, so it stays out of the Tab cycle. */}
     <div ref={card} className={`modal-card${className ? ` ${className}` : ""}`} role="dialog" aria-modal="true" aria-labelledby={titleId} tabIndex={-1} onClick={event => event.stopPropagation()}>
-      <h2 id={titleId}>{title}</h2>
+      <div className="modal-head">
+        <h2 id={titleId}>{title}</h2>
+        {/* Escape and the backdrop already close, but neither is visible. A
+            player who opens the hub from the dock sees the map go inert — the
+            game is "frozen" unless a close control is right there on the card. */}
+        <Button variant="ghost" density="compact" className="modal-close" aria-label="Đóng" onClick={() => closeRef.current()}>×</Button>
+      </div>
       {children}
       {actions ? <div className="modal-actions">{actions}</div> : null}
     </div>

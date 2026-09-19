@@ -4,8 +4,10 @@ import { useGame } from "../state.js";
 import { usePanelAnchor } from "../panel-anchors.js";
 import { explorationBit } from "../map-geometry.js";
 import { formatResources, missionKindLabels } from "../vocabulary.js";
+import { queueProgress } from "../queue-progress.js";
 import { Button } from "../ui/Button.js";
 import { Panel, PanelBody, PanelHeader } from "../ui/Panel.js";
+import { ProgressMeter } from "../ui/ProgressMeter.js";
 import { PendingChip } from "./PendingChip.js";
 
 const branchLabels = { production: "Sản xuất", transport: "Vận tải", military_logistics: "Hậu cần quân đội" } as const;
@@ -144,6 +146,16 @@ export function ProgressionPanel() {
       </section>
       <section>
         <strong>Nghiên cứu</strong>
+        {/* The same dial the build rows wear: ring for the pace, seconds for
+            the patience, one accessible sentence carrying both. */}
+        {queue?.items[0] && (() => {
+          const item = queue.items[0];
+          const seconds = Math.max(0, Math.ceil((Date.parse(item.completesAt) - now) / 1000));
+          return <div className="city-queue-meter">
+            <ProgressMeter fraction={queueProgress(item.startedAt, item.completesAt, now)} icon="hourglass" size="sm" label={`Đang nghiên cứu ${technologyCatalog[item.technologyId].name}, còn ${seconds} giây`} />
+            <p className="kom-meta">còn <span className="kom-num">{seconds}</span>s</p>
+          </div>;
+        })()}
         <p className="kom-meta">{queue?.items[0] ? `Đang nghiên cứu ${technologyCatalog[queue.items[0].technologyId].name}.` : city && (city.buildings.academy ?? 0) > 0 ? "Học viện sẵn sàng." : "Cần xây Học viện."}</p>
         <div className="progression-tech-list">
           {technologyIds.map(id => {

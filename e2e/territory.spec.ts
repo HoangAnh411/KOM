@@ -26,9 +26,14 @@ const tileCounts = regionTileCounts();
 
 test("standing on a seat takes the province, and the feed says so once", async ({ page, request }, testInfo) => {
   test.skip(testInfo.project.name === "mobile", "desktop-sized HUD interaction");
-  // Barracks (~15s), recruit, march, the tick that recomputes control, then six seconds
-  // of standing still to prove the row does not multiply.
-  test.setTimeout(90_000);
+  // Login and the two drawer opens under SwiftShader, then the march (three tiles,
+  // a tick each), then capture — which is not arrival: the seat must be *held* for
+  // `captureDurationMs` before the province flips, and the row lands on the next
+  // snapshot after that — then six seconds of standing still to prove the row does
+  // not multiply, and the Claims 2–3 sweeps. The 30s standing time is why the
+  // expect below and this timeout both read the rule instead of a number that
+  // would silently rot the next time the rule changes.
+  test.setTimeout(150_000);
   // The wide band, and not for coverage: at 1440 both columns are tracks from the start,
   // so `focusCity` centres the city in the canvas the map is finally going to have.
   // Opening a column later shrinks the map, and the camera compensates for the origin
@@ -101,7 +106,11 @@ test("standing on a seat takes the province, and the feed says so once", async (
 
   const feed = page.getByRole("region", { name: "Hoạt động gần đây" });
   const captured = feed.locator('[data-kind="region-captured"]');
-  await expect(captured).toHaveCount(1, { timeout: 30_000 });
+  // The order returns the moment the army starts walking, not when the province is
+  // taken: march (a tick per tile) + `captureDurationMs` of standing on the seat +
+  // one snapshot push all happen after it. A flat 30s missed the row by three
+  // seconds every run once capture gained its standing time.
+  await expect(captured).toHaveCount(1, { timeout: gameRules.territory.captureDurationMs + 25_000 });
   // The name and the size, because the size is what the 300 territory points are made
   // of — and never the province code, which is an authoring detail of two char grids.
   await expect(captured).toContainText(`Đã kiểm soát ${seat.name} — ${tileCounts[seat.code]} ô.`);

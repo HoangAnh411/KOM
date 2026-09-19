@@ -34,7 +34,9 @@ export function BattleReportModal({ report, onClose }: { report: BattleReport; o
   const shownMixedRounds = report.mixed
     ? report.mixed.rounds.slice(0, roundCount > 0 ? replayRound : report.mixed.rounds.length)
     : [];
-  return <Modal title="Báo cáo trận đánh" onClose={onClose} actions={<Button variant="ghost" onClick={onClose}>Đóng</Button>}>
+  // The × in the modal header closes; a second "Đóng" button here meant two
+  // buttons of the same name in one dialog (army/campaign specs click "Đóng").
+  return <Modal title="Báo cáo trận đánh" onClose={onClose}>
     <p className="report-meta">{terrainNames[report.terrain]} · Ô {report.tileX},{report.tileY} · <strong>{victorNames[report.victor]}</strong></p>
     <div className="report-sides">
       {([report.attacker, report.defender] as const).map((side, index) => (

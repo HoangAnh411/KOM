@@ -294,6 +294,9 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
 .strategic-minimap__head span { color: var(--kom-text-muted); }
 .strategic-minimap svg { display: block; width: 144px; height: 144px; margin: auto; border: 1px solid var(--kom-minimap-border); cursor: crosshair; }
 .modal-card { width: min(440px, calc(100vw - 32px)); max-height: 80vh; overflow-y: auto; padding: 20px; border: 1px solid var(--kom-border-strong); border-radius: 16px; background: var(--kom-bg-chrome); box-shadow: var(--kom-shadow-modal); }
+.modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--kom-space-3); }
+.modal-head h2 { margin: 0; }
+.modal-close { flex: none; min-width: 36px; padding: var(--kom-space-2); font-size: var(--kom-text-lg); }
 /* CityView 3D full-screen view */
 .city-view {
   position: fixed;
@@ -1027,6 +1030,13 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
   bottom: var(--kom-space-4);
   right: var(--kom-space-4);
   display: flex;
+  justify-content: flex-end;
+  /* ~1242px of buttons, right-anchored: below 1440px it ran onto the minimap
+     and below 1280px off the left edge of the screen, clipping buttons away.
+     The dock now never crosses the minimap's corner, and the buttons share the
+     squeeze (flex + ellipsis) instead of wrapping — a wrapped second row would
+     tuck itself under the kingdom/activity columns and the idle tray. */
+  max-width: min(1242px, calc(100vw - 208px));
   gap: var(--kom-space-2);
   padding: var(--kom-space-2);
   border: 1px solid var(--kom-border-strong);
@@ -1037,14 +1047,15 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
 }
 
 .header-surfaces .kom-btn {
-  min-width: 112px;
+  min-width: 0;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: 2px;
   border-radius: 12px;
   color: var(--kom-text-muted);
 }
 
-.header-surfaces .kom-btn span { font-size: var(--kom-text-2xs); }
+.header-surfaces .kom-btn span { font-size: var(--kom-text-2xs); max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .header-surfaces .header-toggle--on {
   color: var(--kom-primary);
   background: var(--kom-primary-tint);
@@ -1104,6 +1115,14 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
   align-items: flex-end;
 }
 
+/* The activity column opens over the toolbar's corner (column z-40 beats
+   toolbar z-20), which buried the two map-navigation buttons. When the column
+   is open, slide the toolbar left of it. `--activity-closed` is absent while
+   the column is up — see `shellClass()` in layout.ts. */
+.situation-room:not(.situation-room--activity-closed) .map-toolbar {
+  right: calc(var(--kom-space-4) + min(380px, calc(100vw - 32px)) + var(--kom-space-2));
+}
+
 .map-toolbar .kom-btn {
   border: 1px solid var(--kom-border-strong);
   border-radius: 999px;
@@ -1129,9 +1148,14 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
   left: var(--kom-space-4);
 }
 
+/* The idle pill floats at the right edge, above the dock — the bottom-left
+   corner belongs to the minimap, and the dock is wide enough to reach past
+   x=180 at 1440px, so a left-anchored pill landed on top of both and ate
+   their clicks. */
 .command-tray--idle {
-  bottom: var(--kom-space-4);
-  left: var(--kom-space-4);
+  right: var(--kom-space-4);
+  bottom: 92px;
+  left: auto;
   width: auto;
   max-width: min(420px, calc(100vw - 32px));
 }
@@ -1146,7 +1170,6 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
   .strategic-header .resource-grid { left: auto; right: var(--kom-space-4); transform: none; }
   .strategic-header .connection-pill { top: 72px; }
   .map-toolbar { top: 110px; }
-  .command-tray--idle { bottom: 92px; }
 }
 
 @media (max-width: 1023px) {
@@ -1222,28 +1245,56 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
 .hub-tabs .kom-btn { border-radius: var(--kom-radius-sm) var(--kom-radius-sm) 0 0; }
 .hub-wallet { display: flex; align-items: center; gap: var(--kom-space-3); margin-bottom: var(--kom-space-5); padding: var(--kom-space-4); border: 1px solid var(--kom-border-accent); background: var(--kom-primary-tint); color: var(--kom-text-accent); }
 .hub-wallet strong { color: var(--kom-primary); font-size: var(--kom-text-xl); }
-.hub-profile { display: grid; grid-template-columns: auto 1fr; gap: var(--kom-space-4); align-items: center; }
+.hub-profile { display: grid; gap: var(--kom-space-4); }
+.hub-profile__head { display: grid; grid-template-columns: auto 1fr; gap: var(--kom-space-4); align-items: center; }
 .hub-profile-crest { display: grid; place-items: center; width: 64px; height: 64px; border: 3px solid var(--kom-primary); border-radius: 50%; color: var(--kom-primary); font-size: var(--kom-text-2xl); font-weight: var(--kom-weight-bold); }
-.hub-profile h3, .hub-item h3, .hub-slot h3, .hub-rewards h3 { margin: 0; color: var(--kom-text-heading); }
+.hub-profile h3, .hub-item h3, .hub-slot h3, .hub-rewards h3 { display: flex; align-items: center; gap: var(--kom-space-2); margin: 0; color: var(--kom-text-heading); }
 .hub-profile p, .hub-item p, .hub-slot p { margin: var(--kom-space-2) 0 0; color: var(--kom-text-muted); }
-.hub-score-grid { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, 1fr); gap: var(--kom-space-2); }
-.hub-score-grid span { display: grid; gap: 2px; padding: var(--kom-space-3); background: var(--kom-surface-sunken); }
-.hub-score-grid small { color: var(--kom-text-hint); text-transform: uppercase; font-size: var(--kom-text-2xs); }
+/* The progress dial: one glyph in the hollow of a stroke ring. Track and fill
+   colours live here, not in the component, so the theme owns them and the
+   component stays geometry. */
+.kom-meter { position: relative; display: grid; place-items: center; }
+.kom-meter--sm { width: 34px; height: 34px; }
+.kom-meter--md { width: 56px; height: 56px; }
+.kom-meter__ring { position: absolute; inset: 0; width: 100%; height: 100%; }
+.kom-meter__track { stroke: var(--kom-border-strong); stroke-width: 3; }
+.kom-meter__fill { stroke: var(--kom-primary); stroke-width: 3; stroke-linecap: round; }
+.hub-meters { display: grid; grid-template-columns: repeat(5, 1fr); gap: var(--kom-space-3); }
+.hub-meter { display: grid; justify-items: center; gap: var(--kom-space-2); padding: var(--kom-space-3); background: var(--kom-surface-sunken); }
+.hub-meter .kom-num { color: var(--kom-text-heading); font-weight: var(--kom-weight-bold); }
 .hub-catalog, .hub-inventory { display: grid; gap: var(--kom-space-3); }
-.hub-item { display: grid; grid-template-columns: 56px 1fr auto; gap: var(--kom-space-4); align-items: center; padding: var(--kom-space-3); border: 1px solid var(--kom-border-subtle); background: var(--kom-surface); }
-.hub-preview { display: grid; place-items: center; width: 56px; height: 56px; border: 2px solid var(--kom-primary); color: var(--kom-primary); background: var(--kom-bg-rail); }
-.hub-preview.flag-ember { border-color: var(--kom-hostile); color: var(--kom-hostile); }
-.hub-preview.nameplate-slate { border-color: var(--kom-neutral); color: var(--kom-neutral); }
-.hub-item strong { display: block; margin-top: var(--kom-space-2); color: var(--kom-primary); }
+.hub-item { display: grid; grid-template-columns: auto 1fr auto; gap: var(--kom-space-4); align-items: center; padding: var(--kom-space-3); border: 1px solid var(--kom-border-subtle); background: var(--kom-surface); }
+.hub-item__copy { display: grid; gap: var(--kom-space-1); min-width: 0; }
+.hub-item strong { display: flex; align-items: center; gap: var(--kom-space-1); color: var(--kom-primary); }
+/* The cosmetic preview box borrows its shape from the slot it decorates: a
+   round frame, a flying flag, a pill nameplate. Same classes at full size in
+   the shop and scaled down inside inventory rows. */
+.hub-preview-v2 { display: grid; place-items: center; color: var(--kom-primary); background: var(--kom-bg-rail); }
+.hub-preview-v2--avatar_frame { width: 56px; height: 56px; border: 2px solid var(--kom-primary); border-radius: 50%; }
+.hub-preview-v2--flag_color { width: 56px; height: 56px; border: 2px solid var(--kom-primary); border-radius: var(--kom-radius-sm); }
+.hub-preview-v2--nameplate { width: 72px; height: 40px; border: 2px solid var(--kom-primary); border-radius: var(--kom-radius-pill); }
+.hub-preview-v2--avatar_frame-frame-meridian { border-color: var(--kom-cosmetic-frame-meridian); }
+.hub-preview-v2--avatar_frame-frame-sentinel { border-color: var(--kom-cosmetic-frame-sentinel); }
+.hub-preview-v2--flag_color-flag-sea { border-color: var(--kom-cosmetic-flag-sea); color: var(--kom-cosmetic-flag-sea); }
+.hub-preview-v2--flag_color-flag-ember { border-color: var(--kom-cosmetic-flag-ember); color: var(--kom-cosmetic-flag-ember); }
+.hub-preview-v2--nameplate-nameplate-brass { border-color: var(--kom-cosmetic-brass); color: var(--kom-cosmetic-brass); }
+.hub-preview-v2--nameplate-nameplate-slate { border-color: var(--kom-cosmetic-slate); color: var(--kom-cosmetic-slate); }
 .hub-slot, .hub-rewards { padding: var(--kom-space-4); border: 1px solid var(--kom-border-subtle); background: var(--kom-surface-sunken); }
-.hub-owned { display: flex; align-items: center; justify-content: space-between; gap: var(--kom-space-4); padding: var(--kom-space-3) 0; border-bottom: 1px solid var(--kom-border-subtle); }
+.hub-owned { display: flex; align-items: center; gap: var(--kom-space-3); padding: var(--kom-space-2) 0; border-bottom: 1px solid var(--kom-border-subtle); }
 .hub-owned:last-child { border-bottom: 0; }
+.hub-owned span { flex: 1; min-width: 0; }
+.hub-owned--equipped { padding-inline: var(--kom-space-2); border-radius: var(--kom-radius-sm); background: var(--kom-primary-tint); }
+.hub-owned .hub-preview-v2--avatar_frame, .hub-owned .hub-preview-v2--flag_color { width: 36px; height: 36px; }
+.hub-owned .hub-preview-v2--nameplate { width: 48px; height: 28px; }
+.hub-reward { display: flex; align-items: center; gap: var(--kom-space-3); padding: var(--kom-space-2) 0; border-bottom: 1px solid var(--kom-border-subtle); }
+.hub-reward:last-child { border-bottom: 0; }
+.hub-reward span { flex: 1; min-width: 0; }
+.hub-reward--claimed span, .hub-reward--claimed .kom-meter__fill { opacity: .55; }
 @media (max-width: 700px) {
   .player-hub-modal { width: calc(100vw - 16px); }
-  .hub-item { grid-template-columns: 44px 1fr; }
+  .hub-item { grid-template-columns: auto 1fr; }
   .hub-item .kom-btn { grid-column: 2; justify-self: start; }
-  .hub-preview { width: 44px; height: 44px; }
-  .hub-score-grid { grid-template-columns: repeat(2, 1fr); }
+  .hub-meters { grid-template-columns: repeat(2, 1fr); }
 }
 .world-map-alternatives { position: absolute; z-index: var(--kom-z-map-overlay); right: max(var(--kom-space-4), env(safe-area-inset-right)); bottom: max(var(--kom-space-4), env(safe-area-inset-bottom)); width: min(300px, calc(100% - 32px)); max-height: min(50vh, 360px); overflow: auto; padding: var(--kom-space-3); border: 1px solid var(--kom-border-strong); border-radius: var(--kom-radius-md); background: var(--kom-bg-chrome); box-shadow: var(--kom-shadow-raised); }
 .world-map-alternatives > summary { cursor: pointer; color: var(--kom-text-heading); font-weight: var(--kom-weight-bold); }
@@ -1290,6 +1341,10 @@ button, input, select { border: 0; border-radius: 9px; padding: 11px 12px; font:
 .progression-panel section { display: grid; gap: .45rem; }
 .progression-tech-list { display: grid; gap: .35rem; }
 .progression-tech { justify-content: space-between; border-top: 1px solid var(--kom-border-subtle); padding-top: .35rem; }
+/* The build/research countdown row: dial + seconds side by side, shared by
+   CityPanel's building rows and ProgressionPanel's research line. */
+.city-queue-meter { display: flex; align-items: center; gap: var(--kom-space-2); margin: var(--kom-space-1) 0; }
+.city-queue-meter .kom-meta { margin: 0; }
 @media (max-width: 800px) {
   .army-preparation-slots { grid-template-columns: 1fr; }
 }
