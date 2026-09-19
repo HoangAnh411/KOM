@@ -16,6 +16,7 @@ export class ApiError extends Error {
 }
 
 let currentAccessToken: string | undefined;
+let refreshInFlight: Promise<Session> | undefined;
 let snapshotSink: ((snapshot: WorldSnapshot) => void) | undefined;
 /** The game store registers here so command responses can apply their snapshot immediately. */
 export function setSnapshotSink(sink: ((snapshot: WorldSnapshot) => void) | undefined): void { snapshotSink = sink; }
@@ -120,7 +121,15 @@ export function openSocket(handlers: SocketHandlers): { close: () => void } {
 export async function passwordLogin(username: string, password: string): Promise<Session> { const response = await fetch(`${apiBase}/api/auth/login`, { method: "POST", headers: { "content-type": "application/json" }, credentials: "include", body: JSON.stringify({ username, password }) }); if (!response.ok) throw new ApiError(((await response.json()) as { code?: string }).code ?? "INVALID_REQUEST"); return readSession(response); }
 export async function register(username: string, password: string, factionId: FactionId): Promise<Session> { const response = await fetch(`${apiBase}/api/auth/register`, { method: "POST", headers: { "content-type": "application/json" }, credentials: "include", body: JSON.stringify({ username, password, factionId }) }); if (!response.ok) throw new ApiError(((await response.json()) as { code?: string }).code ?? "INVALID_REQUEST"); return readSession(response); }
 
-export async function refresh(): Promise<Session> { const response = await fetch(`${apiBase}/api/auth/refresh`, { method: "POST", credentials: "include" }); if (!response.ok) throw new ApiError("SESSION_EXPIRED"); return readSession(response); }
+export async function refresh(): Promise<Session> {
+  if (!refreshInFlight) {
+    const pending = fetch(`${apiBase}/api/auth/refresh`, { method: "POST", credentials: "include" })
+      .then(async response => { if (!response.ok) throw new ApiError("SESSION_EXPIRED"); return readSession(response); })
+      .finally(() => { if (refreshInFlight === pending) refreshInFlight = undefined; });
+    refreshInFlight = pending;
+  }
+  return refreshInFlight;
+}
 export async function logout(): Promise<void> { currentAccessToken = undefined; await fetch(`${apiBase}/api/auth/logout`, { method: "POST", credentials: "include" }); }
 
 /** Sends a command with an externally minted commandId (the client owns the id

@@ -22,7 +22,10 @@ test("authored 3D city supports exact building placement, layout editing, and on
   await page.getByRole("button", { name: "Vương quốc" }).click();
   await expect(page.getByRole("complementary", { name: "Bảng điều khiển" })).toBeVisible();
   const historyBefore = await page.evaluate(() => history.length);
-  await page.getByRole("button", { name: "Xem nội thành" }).click();
+  // Scoped to the city panel: the onboarding "next action" card shows a CTA
+  // with the same label while city_inspected is pending, so the page-wide
+  // role lookup resolves to two buttons (strict mode violation).
+  await page.getByRole("region", { name: "Thành phố & công trình" }).getByRole("button", { name: "Xem nội thành" }).click();
 
   const cityView = page.getByTestId("city-view");
   const cityCanvas = cityView.locator("canvas[data-city-asset-set]");
@@ -125,7 +128,8 @@ test.describe("touch city controls", () => {
   test("placement controls fit and two-pointer pinch is handled without overflow", async ({ page }) => {
     await login(page, `Touch City ${Date.now()}`);
     await page.getByRole("button", { name: "Vương quốc" }).click();
-    await page.getByRole("button", { name: "Xem nội thành" }).click();
+    // Same scoping as the desktop spec: the onboarding CTA shares this label.
+    await page.getByRole("region", { name: "Thành phố & công trình" }).getByRole("button", { name: "Xem nội thành" }).click();
 
     const cityView = page.getByTestId("city-view");
     const canvas = cityView.locator("canvas[data-city-asset-set]");

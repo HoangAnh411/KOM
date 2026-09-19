@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { GameProvider, useGame } from "./state.js";
 import { AuthScreen } from "./components/AuthScreen.js";
 import { SituationRoom } from "./components/SituationRoom.js";
@@ -59,6 +59,9 @@ function Root() {
   </main>;
 }
 
+const AdminApp = lazy(() => import("./admin/AdminApp.js"));
+
 export default function App() {
+  if (window.location.pathname === "/admin" || window.location.pathname.startsWith("/admin/")) return <Suspense fallback={<main><p>Đang tải trang quản trị…</p></main>}><AdminApp /></Suspense>;
   return <GameProvider><Root /></GameProvider>;
 }

@@ -134,13 +134,16 @@ Sau mỗi milestone phải chạy verification và cập nhật docs/GAME-DESIGN
 - [X] Versioned hard-reset template `v1_hard_reset`.
 - [X] Cross-season player reputation cosmetic-only; alliance structure được giữ lại.
 - [X] Historical buildings, season stats và authenticated season archive.
-- [X] Admin early-close command có token permission và audit.
+- [X] Admin early-close yêu cầu current season ID + reason, stale confirmation bị từ chối; mutation và attributable audit commit cùng transaction. Legacy token chỉ còn compatibility window.
 
 **Tiêu chí hoàn thành:** ranking không đổi sau chốt; reset đúng policy; legacy chỉ tạo danh tiếng/title/cosmetic.
 
 ## Phase 7 — Production hardening
 
 **Mục tiêu:** sẵn sàng load test, vận hành và anti-cheat thực tế.
+
+- [X] **Admin console v1 (2026-09-10):** PostgreSQL admin identity không cần player giả; typed player/admin principal và refresh family/cookie tách biệt; `/admin` lazy entry không mount gameplay/Pixi/WS; dashboard, player search/detail/moderation, recent seasons, stale-safe early close và attributable audit history. `ADMIN_TOKEN` chỉ giữ một rollback window trên ba mutation cũ, không đọc console hoặc đăng nhập gameplay. Bootstrap dùng CLI migration-first với hidden TTY, không có default account/password. Local evidence: server 169 test (151 pass, 18 PostgreSQL skip), client 161/161; PostgreSQL integration và production-password admin E2E phải chạy trên runner có database.
+- [ ] PostgreSQL admin-console integration + production-password Playwright phải xanh trên CI/provisioned stack trước rollout; quan sát `auth_method='legacy_token'` về 0 rồi xoá compatibility token ở deploy kế tiếp.
 
 **Phase 7A Closed Beta Production Gate: baseline kỹ thuật hoàn thành; còn hai operational drill trước beta**
 
@@ -149,7 +152,7 @@ Sau mỗi milestone phải chạy verification và cập nhật docs/GAME-DESIGN
 - [ ] Stateless WebSocket gateway, economy worker và battle worker (deferred 7B).
 - [X] Redis Streams/outbox publisher: migration 012, claim SKIP LOCKED, retry exponential 1s→5m, DLQ sau 10 lỗi, envelope `{id,type,payload,createdAt}`, metrics backlog/age/latency/retry/DLQ.
 - [X] Migration runner: advisory lock, `schema_migrations` + checksum, transaction từng file, `db:migrate` / `db:migrate:check` / `db:migrate:baseline` / `test:postgres`.
-- [X] Env validation bằng Zod + production gate (AUTH_MODE=password, PG/Redis, token ≥32 ký tự, CLIENT_ORIGIN HTTPS).
+- [X] Env validation bằng Zod + production gate (`AUTH_MODE=password`, PG/Redis, `METRICS_TOKEN` ≥32 ký tự, `CLIENT_ORIGIN` HTTPS; rollback `ADMIN_TOKEN` là tùy chọn nhưng nếu đặt cũng phải ≥32).
 - [X] Security baseline: headers, body limit 64 KB, request timeout, trustProxy, exact Origin trên refresh/logout, `/health` + `/health/live` + `/health/ready` (PG/Redis ping + tick lag ≤3 cycles), `/metrics` bảo vệ bằng METRICS_TOKEN, graceful shutdown SIGTERM/SIGINT (WS 1012). — `TRUST_PROXY` từ security review giờ là **số hop** chứ không phải boolean (`"true"` vẫn nhận, nghĩa là 1 hop); xem S-1 trong `docs/SECURITY-REVIEW.md`.
 - [X] Production compose: game + outbox worker + PG/Redis + Caddy (TLS, proxy `/api` `/ws`), profile Prometheus/Grafana, secrets qua `.env.prod`.
 - [X] Backup (`pg_dump` daily/7 + weekly/4, checksum, log) và restore drill script; drill trước beta + mỗi tháng.
@@ -159,7 +162,7 @@ Sau mỗi milestone phải chạy verification và cập nhật docs/GAME-DESIGN
 - [X] Ban/unban baseline, atomic audit/session revoke, frozen entities và action guards; abuse detection nâng cao còn deferred.
 - [X] CI thành 10 gates: `npm ci` → migrate fresh → idempotency+checksum → typecheck/build → PostgreSQL integration → unit/regression → Playwright Chromium desktop (7C) → `check:bundle` → `git diff --check` → `npm audit --audit-level=high`. Hai việc cần Docker (`test:prod-smoke`, `drill:web-beta`) là job riêng — xem Phase 7D.
 - [X] Restore drill log trong operations runbook (trước beta). — chạy 2026-09-02 qua `drill:web-beta`: 3/3 pass, RPO 0 ms, RTO 5795 ms; kết quả ở mục "Kết quả drill" của `docs/OPERATIONS.md`, báo cáo đầy đủ ở `infra/backup/drill-report.md`. Caveat đã ghi trong runbook: drill dùng `docker compose exec postgres pg_dump`, nên `infra/backup/backup.sh` / `restore.sh` vẫn chưa được kiểm chứng.
-- [X] Security review auth, permissions, input và secrets. — `docs/SECURITY-REVIEW.md` (2026-09-02): 10 finding, 2 High đã sửa kèm test hồi quy (`request.ip` do client tự khai làm vô hiệu mọi hạn mức theo IP; snapshot phát nội thất city của mọi người chơi), 1 Low hardening (redact `password`). **S-5 (`ambush` không có tiền đề không gian) đã được owner chốt 2026-09-03 và đã sửa xong**: đòi người tấn công có quân còn sống trong bán kính Manhattan 3 quanh vị trí caravan hiện tại, và `ambush` chuyển sang bucket `combat` (10/phút) — xem section "Command path và sức chứa" bên dưới. Hai việc còn treo cho owner: có bắt buộc `TRUST_PROXY` ở production hay không (S-9), và xác nhận lại chuỗi Caddy → Fastify trên stack thật (S-1, máy contributor không có Docker); thêm S-7 (Zod cho hai route admin) và S-8 (trần WS connection) chờ gộp/chốt số.
+- [X] Security review auth, permissions, input và secrets. — `docs/SECURITY-REVIEW.md` (2026-09-02): 10 finding, 2 High đã sửa kèm test hồi quy (`request.ip` do client tự khai làm vô hiệu mọi hạn mức theo IP; snapshot phát nội thất city của mọi người chơi), 1 Low hardening (redact `password`). **S-5 (`ambush` không có tiền đề không gian) đã được owner chốt 2026-09-03 và đã sửa xong**: đòi người tấn công có quân còn sống trong bán kính Manhattan 3 quanh vị trí caravan hiện tại, và `ambush` chuyển sang bucket `combat` (10/phút) — xem section "Command path và sức chứa" bên dưới. Admin console ngày 2026-09-10 đóng **S-7** (UUID + reason 3–500 bằng Zod) và **S-10** (404 nhất quán khi mọi admin mechanism đều tắt). Hai việc còn treo cho owner: có bắt buộc `TRUST_PROXY` ở production hay không (S-9), xác nhận lại chuỗi Caddy → Fastify trên stack thật (S-1, máy contributor không có Docker), và chốt trần WS connection (S-8).
 
 **Tiêu chí hoàn thành:** có SLO, load profile, alert và recovery khi worker/gateway restart.
 

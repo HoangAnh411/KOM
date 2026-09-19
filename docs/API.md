@@ -16,7 +16,23 @@ Tat ca command tra `CommandResponse` kem hub moi trong `data`, dung cung idempot
 
 `POST /api/auth/register` nhận `{ username, password, factionId, displayName? }`; `POST /api/auth/login` nhận `{ username, password }`. Password mode yêu cầu `AUTH_MODE=password` và PostgreSQL. Access token chỉ sống 15 phút; refresh secret chỉ nằm trong HttpOnly SameSite=Strict cookie và được rotate tại `POST /api/auth/refresh`. `POST /api/auth/logout` revoke session.
 
-`POST /api/admin/player/ban` và `/unban` nhận `{ playerId, reason }`, yêu cầu `Authorization: Bearer <ADMIN_TOKEN>`. Ban trả `ACCOUNT_BANNED` cho account và đánh dấu city/army/caravan là `frozen`; endpoint bị disable khi token rỗng.
+### Admin authentication và console
+
+Trang `/admin` dùng PostgreSQL admin account, không dùng player account hay `ADMIN_TOKEN`:
+
+- `POST /api/admin/auth/login` nhận `{ username, password }`;
+- `POST /api/admin/auth/refresh` rotate cookie HttpOnly `admin_refresh_token`, `SameSite=Strict`, path `/api/admin/auth`;
+- `POST /api/admin/auth/logout` revoke refresh family;
+- `GET /api/admin/dashboard` trả count vận hành và current season;
+- `GET /api/admin/players[?search=&status=&cursor=&limit=]` và `GET /api/admin/players/:id` trả status projection bounded;
+- `GET /api/admin/seasons` trả current/recent season;
+- `GET /api/admin/audit-actions[?actionType=&actorId=&targetId=&cursor=&limit=]` trả attributable audit history.
+
+Các route đọc không trả world snapshot, resources, buildings, queues, armies, credential hashes hoặc token digests. Cursor là opaque base64url keyset; cursor/query sai trả 400. Thiếu/expired admin token trả 401; player principal đã xác thực trả 403. Admin auth POST áp exact-Origin và fail-closed rate limiting trong production.
+
+`POST /api/admin/player/ban` và `/unban` nhận `{ playerId, reason }`, với UUID hợp lệ và reason sau trim dài 3–500 ký tự. Admin access token được ưu tiên. Trong cửa sổ rollback, `Authorization: Bearer <ADMIN_TOKEN>` vẫn được nhận **chỉ** ở ba mutation cũ; nó không đọc console và không dùng được trên gameplay HTTP/WebSocket. Ban revoke session ngay và đánh dấu entity player là `frozen`.
+
+Không có public admin registration. Tạo/rotate account qua CLI migration-first trong `docs/OPERATIONS.md`.
 
 ### `POST /api/auth/dev`
 
@@ -40,7 +56,7 @@ Yêu cầu Bearer player token. Trả public ranking các season đã đóng và
 
 ### `POST /api/admin/season/close`
 
-Yêu cầu `Authorization: Bearer <ADMIN_TOKEN>` và body `{ "reason": "..." }`. Endpoint finalize ngay trong request; trả `ADMIN_DISABLED` khi chưa cấu hình token và ghi `admin_actions` khi thành công.
+Yêu cầu admin access token hoặc legacy `ADMIN_TOKEN` trong cửa sổ rollback và body `{ "seasonId": "<current-season-uuid>", "reason": "..." }`. `seasonId` phải đúng season hiện tại; confirmation cũ trả 409 `STALE_SEASON` mà không mutate state. Endpoint chốt ranking/reset và ghi attributable audit trong cùng transaction. Khi không có cả DB-backed admin support lẫn legacy token, route trả 404 `ADMIN_DISABLED`.
 
 ### `POST /api/commands/build`
 
@@ -148,7 +164,8 @@ Nguyên tắc: **một bucket = một hạn mức**. Nhóm command được khai
 - Login ở `AUTH_MODE=password`: 5 lần mỗi 15 phút, khoá theo IP **và** username — `login:<ip>:<username>`.
 - Login dev (`POST /api/auth/dev`): 30/phút/IP — `login:<ip>`.
 - Refresh: 30/phút/IP — `refresh:<ip>`.
-- Admin: moderation 10/phút/IP, season close 5/phút/IP — `admin:<ip>`.
+- Admin account login: 5 lần mỗi 15 phút, khoá theo IP **và** normalized username — `admin-login:<ip>:<username>`; admin refresh 30/phút/IP.
+- Admin mutation: moderation 10/phút/IP, season close 5/phút/IP — `admin:<ip>`.
 - WebSocket: không có hạn mức command, vì WS không nhận command (xem mục WebSocket).
 
 Ở production limiter **fail-closed**: khi Redis không dùng được, request trả 503 `DEPENDENCY_UNAVAILABLE` chứ không cho qua. Điều này áp dụng cho cả route đọc và route auth/admin, không chỉ command.

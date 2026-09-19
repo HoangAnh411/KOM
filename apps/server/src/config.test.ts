@@ -25,11 +25,11 @@ test("invalid CLIENT_ORIGIN is rejected in any mode", () => {
   assert.ok(result.output.includes("CLIENT_ORIGIN"), result.output);
 });
 
-test("production refuses AUTH_MODE=dev and short tokens", () => {
+test("production refuses AUTH_MODE=dev and a configured short legacy token", () => {
   const result = loadConfig({ AUTH_MODE: "dev", ADMIN_TOKEN: "short", METRICS_TOKEN: "short" }, "production");
   assert.equal(result.ok, false);
   assert.ok(result.output.includes("AUTH_MODE must be 'password'"), result.output);
-  assert.ok(result.output.includes("ADMIN_TOKEN must be at least 32 characters"), result.output);
+  assert.ok(result.output.includes("ADMIN_TOKEN must be at least 32 characters when configured"), result.output);
 });
 
 test("production requires DATABASE_URL and REDIS_URL", () => {
@@ -48,6 +48,14 @@ test("production refuses non-HTTPS CLIENT_ORIGIN", () => {
   }, "production");
   assert.equal(result.ok, false);
   assert.ok(result.output.includes("HTTPS origin"), result.output);
+});
+
+test("production accepts database admins without the legacy ADMIN_TOKEN", () => {
+  const result = loadConfig({
+    AUTH_MODE: "password", ADMIN_TOKEN: "", METRICS_TOKEN: "b".repeat(32),
+    DATABASE_URL: "postgres://x", REDIS_URL: "redis://x", CLIENT_ORIGIN: "https://play.example.com",
+  }, "production");
+  assert.ok(result.ok, result.output);
 });
 
 test("production accepts complete valid configuration", () => {

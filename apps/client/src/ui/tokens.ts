@@ -26,10 +26,16 @@ export type PanelAccent = (typeof panelAccents)[number];
  *  (`stateIcons` below), the last five are the HUD's own subjects — a city, an
  *  army, a caravan, a treaty, an alliance. They are in the same registry because
  *  the pairing test is what stops `iconPaths` and this list from drifting, and
- *  a second registry would need a second one. */
+ *  a second registry would need a second one.
+ *
+ *  The rest are the visualisation set — the "fewer words" pass gave numbers and
+ *  nouns glyphs so meters, chips and feed rows can carry meaning without a
+ *  sentence: subjects (crown, shield, …) and actions (hammer, pickaxe, …). */
 export const iconNames = [
   "clock", "alert", "ban", "lock", "link-off", "check", "crosshair", "eye",
   "city", "sword", "caravan", "treaty", "banner", "food", "wood", "stone", "iron",
+  "crown", "shield", "scroll", "coin", "gem", "chest", "star", "hourglass",
+  "hammer", "pickaxe", "wheat", "map-pin", "flag", "flame", "target", "plus", "minus", "horse",
 ] as const;
 export type IconName = (typeof iconNames)[number];
 

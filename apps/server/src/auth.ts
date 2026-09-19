@@ -10,8 +10,21 @@ const SCRYPT_R = 8;
 const SCRYPT_P = 1;
 type ScryptOptions = { N: number; r: number; p: number; maxmem: number };
 const scrypt = (password: string, salt: string, keylen: number, options: ScryptOptions): Promise<Buffer> => new Promise((resolve, reject) => scryptCallback(password, salt, keylen, options, (error, result) => error ? reject(error) : resolve(result as Buffer)));
-export type AuthUser = { id: string; username: string; playerId: string; status: "active" | "banned" };
-export type AuthSession = { accessToken: string; refreshToken: string; user: AuthUser; accessExpiresAt: string };
+export type PrincipalKind = "player" | "admin";
+type PrincipalBase = { id: string; username: string; status: "active" | "banned" };
+export type PlayerPrincipal = PrincipalBase & { kind: "player"; playerId: string };
+export type AdminPrincipal = PrincipalBase & { kind: "admin" };
+export type AuthPrincipal = PlayerPrincipal | AdminPrincipal;
+export type AuthSession<User extends AuthPrincipal = AuthPrincipal> = { accessToken: string; refreshToken: string; user: User; accessExpiresAt: string };
+export type AuthUserRow = {
+  id: string;
+  username_normalized: string;
+  password_hash: string;
+  status: "active" | "banned";
+  role: PrincipalKind;
+  player_id: string | null;
+  player_status: "active" | "banned" | null;
+};
 export type RegisteredPlayer = { player: Player; city: CityState; state: GameState };
 
 export function normalizeUsername(value: string): string { return value.trim().toLowerCase(); }
@@ -39,14 +52,29 @@ export async function verifyPassword(password: string, encoded: string): Promise
 let dummyHashPromise: Promise<string> | undefined;
 export function dummyPasswordHash(): Promise<string> { return dummyHashPromise ??= hashPassword("this password is never accepted"); }
 
+export function principalFromRow(row: AuthUserRow): AuthPrincipal | undefined {
+  if (row.status !== "active") return undefined;
+  if (row.role === "admin") return { kind: "admin", id: row.id, username: row.username_normalized, status: row.status };
+  if (!row.player_id || row.player_status !== "active") return undefined;
+  return { kind: "player", id: row.id, username: row.username_normalized, playerId: row.player_id, status: row.status };
+}
+
 export class AuthRepository {
   constructor(private readonly pool?: Pool) {}
-  async findUser(username: string): Promise<any | undefined> { if (!this.pool) return undefined; const result = await this.pool.query("SELECT u.id, u.username_normalized, u.password_hash, u.status, p.id AS player_id FROM users u JOIN players p ON p.user_id=u.id WHERE u.username_normalized=$1", [normalizeUsername(username)]); return result.rows[0]; }
+  async findUser(username: string): Promise<AuthUserRow | undefined> {
+    if (!this.pool) return undefined;
+    const result = await this.pool.query<AuthUserRow>(
+      "SELECT u.id,u.username_normalized,u.password_hash,u.status,u.role,p.id AS player_id,p.status AS player_status " +
+      "FROM users u LEFT JOIN players p ON p.user_id=u.id WHERE u.username_normalized=$1",
+      [normalizeUsername(username)]
+    );
+    return result.rows[0];
+  }
 
   async register(username: string, passwordHash: string, registration: RegisteredPlayer): Promise<AuthSession> {
     if (!this.pool) throw new Error("DATABASE_REQUIRED");
     const client = await this.pool.connect(); const userId = randomUUID();
-    const user: AuthUser = { id: userId, username: normalizeUsername(username), playerId: registration.player.id, status: "active" };
+    const user: PlayerPrincipal = { kind: "player", id: userId, username: normalizeUsername(username), playerId: registration.player.id, status: "active" };
     registration.player.userId = userId;
     try {
       await client.query("BEGIN");
@@ -69,34 +97,60 @@ export class AuthRepository {
     } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }
   }
 
-  async createSession(user: AuthUser): Promise<AuthSession> {
+  async createSession(user: AuthPrincipal, expectedPasswordHash?: string): Promise<AuthSession> {
     if (!this.pool) throw new Error("DATABASE_REQUIRED"); const client = await this.pool.connect();
-    try { return await this.insertSession(client, user); } finally { client.release(); }
+    try {
+      await client.query("BEGIN");
+      const current = await client.query<{ password_hash: string; role: PrincipalKind; status: "active" | "banned" }>("SELECT password_hash,role,status FROM users WHERE id=$1 FOR UPDATE", [user.id]);
+      const row = current.rows[0];
+      if (!row || row.role !== user.kind || row.status !== "active" || (expectedPasswordHash && row.password_hash !== expectedPasswordHash)) { await client.query("ROLLBACK"); throw new Error("STALE_CREDENTIALS"); }
+      const session = await this.insertSession(client, user); await client.query("COMMIT"); return session;
+    } catch (error) { await client.query("ROLLBACK").catch(() => undefined); throw error; } finally { client.release(); }
   }
 
-  private async insertSession(client: Pick<PoolClient, "query">, user: AuthUser, familyId = randomUUID(), refreshExpiresAt: Date | string = new Date(Date.now() + REFRESH_MS), rotationCounter = 0): Promise<AuthSession> {
+  private async insertSession(client: Pick<PoolClient, "query">, user: AuthPrincipal, familyId = randomUUID(), refreshExpiresAt: Date | string = new Date(Date.now() + REFRESH_MS), rotationCounter = 0): Promise<AuthSession> {
     const accessToken = randomBytes(32).toString("base64url"); const refreshToken = randomBytes(32).toString("base64url"); const now = Date.now();
-    await client.query("INSERT INTO auth_sessions(id,user_id,player_id,access_token_hash,refresh_token_hash,expires_at,refresh_expires_at,rotation_counter,family_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)", [randomUUID(), user.id, user.playerId, digest(accessToken), digest(refreshToken), new Date(now + ACCESS_MS), refreshExpiresAt, rotationCounter, familyId]);
+    const playerId = user.kind === "player" ? user.playerId : null;
+    await client.query("INSERT INTO auth_sessions(id,user_id,player_id,principal_type,access_token_hash,refresh_token_hash,expires_at,refresh_expires_at,rotation_counter,family_id) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)", [randomUUID(), user.id, playerId, user.kind, digest(accessToken), digest(refreshToken), new Date(now + ACCESS_MS), refreshExpiresAt, rotationCounter, familyId]);
     return { accessToken, refreshToken, user, accessExpiresAt: new Date(now + ACCESS_MS).toISOString() };
   }
 
-  async authenticateAccess(token: string): Promise<AuthUser | undefined> {
+  // Overloads narrow the union so game paths get `PlayerPrincipal` (with `playerId`)
+  // and admin paths get `AdminPrincipal`, without a cast at every call site.
+  async authenticateAccess(token: string, expectedKind: "player"): Promise<PlayerPrincipal | undefined>;
+  async authenticateAccess(token: string, expectedKind: "admin"): Promise<AdminPrincipal | undefined>;
+  async authenticateAccess(token: string, expectedKind?: PrincipalKind): Promise<AuthPrincipal | undefined>;
+  async authenticateAccess(token: string, expectedKind?: PrincipalKind): Promise<AuthPrincipal | undefined> {
     if (!this.pool) return undefined;
-    const result = await this.pool.query("SELECT u.id,u.username_normalized,u.status,p.id AS player_id FROM auth_sessions s JOIN users u ON u.id=s.user_id JOIN players p ON p.id=s.player_id WHERE s.access_token_hash=$1 AND s.expires_at>now() AND s.revoked_at IS NULL AND u.status='active' AND p.status='active'", [digest(token)]);
-    const row = result.rows[0]; return row && { id: row.id, username: row.username_normalized, playerId: row.player_id, status: row.status };
+    const result = await this.pool.query<AuthUserRow>("SELECT u.id,u.username_normalized,u.status,u.role,p.id AS player_id,p.status AS player_status FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN players p ON p.id=s.player_id WHERE s.access_token_hash=$1 AND s.expires_at>now() AND s.revoked_at IS NULL AND s.principal_type=u.role", [digest(token)]);
+    const principal = result.rows[0] && principalFromRow(result.rows[0]);
+    return principal && (!expectedKind || principal.kind === expectedKind) ? principal : undefined;
   }
 
-  async revokeRefresh(token: string): Promise<void> { if (this.pool) await this.pool.query("WITH family AS (SELECT family_id FROM auth_sessions WHERE refresh_token_hash=$1) UPDATE auth_sessions SET revoked_at=COALESCE(revoked_at,now()),updated_at=now() WHERE family_id IN (SELECT family_id FROM family)", [digest(token)]); }
+  async revokeRefresh(token: string, expectedKind?: PrincipalKind): Promise<void> { if (this.pool) await this.pool.query("WITH family AS (SELECT family_id,principal_type FROM auth_sessions WHERE refresh_token_hash=$1 AND ($2::text IS NULL OR principal_type=$2)) UPDATE auth_sessions s SET revoked_at=now(),updated_at=now() FROM family f WHERE s.family_id=f.family_id AND s.principal_type=f.principal_type AND s.revoked_at IS NULL", [digest(token), expectedKind ?? null]); }
   async revokePlayerSessions(playerId: string, client?: PoolClient): Promise<void> { const executor = client ?? this.pool; if (executor) await executor.query("UPDATE auth_sessions SET revoked_at=COALESCE(revoked_at,now()),updated_at=now() WHERE player_id=$1 AND revoked_at IS NULL", [playerId]); }
 
-  async rotateRefresh(token: string): Promise<AuthSession | undefined> {
+  async rotateRefresh(token: string, expectedKind: "player"): Promise<AuthSession<PlayerPrincipal> | undefined>;
+  async rotateRefresh(token: string, expectedKind: "admin"): Promise<AuthSession<AdminPrincipal> | undefined>;
+  async rotateRefresh(token: string, expectedKind?: PrincipalKind): Promise<AuthSession | undefined>;
+  async rotateRefresh(token: string, expectedKind?: PrincipalKind): Promise<AuthSession | undefined> {
     if (!this.pool) return undefined; const client = await this.pool.connect();
     try {
       await client.query("BEGIN");
-      const result = await client.query("SELECT s.*,u.username_normalized,u.status AS user_status,p.id AS player_id,p.status AS player_status FROM auth_sessions s JOIN users u ON u.id=s.user_id JOIN players p ON p.id=s.player_id WHERE s.refresh_token_hash=$1 FOR UPDATE", [digest(token)]); const row = result.rows[0];
-      if (!row || row.revoked_at || row.user_status !== "active" || row.player_status !== "active" || new Date(row.refresh_expires_at).getTime() <= Date.now()) { if (row) await client.query("UPDATE auth_sessions SET revoked_at=COALESCE(revoked_at,now()),updated_at=now() WHERE family_id=$1", [row.family_id]); await client.query("COMMIT"); return undefined; }
+      const result = await client.query("SELECT s.*,u.username_normalized,u.status AS user_status,u.role,p.id AS resolved_player_id,p.status AS player_status FROM auth_sessions s JOIN users u ON u.id=s.user_id LEFT JOIN players p ON p.id=s.player_id WHERE s.refresh_token_hash=$1 FOR UPDATE OF s", [digest(token)]); const row = result.rows[0];
+      const rowKind: PrincipalKind | undefined = row?.principal_type === "player" || row?.principal_type === "admin" ? row.principal_type : undefined;
+      if (row && rowKind && expectedKind && rowKind !== expectedKind) { await client.query("ROLLBACK"); return undefined; }
+      const validPlayer = rowKind !== "player" || (row.resolved_player_id && row.player_status === "active");
+      if (!row || !rowKind || row.role !== rowKind || row.user_status !== "active" || !validPlayer || new Date(row.refresh_expires_at).getTime() <= Date.now()) { if (row && rowKind) await client.query("UPDATE auth_sessions SET revoked_at=now(),updated_at=now() WHERE family_id=$1 AND principal_type=$2 AND revoked_at IS NULL", [row.family_id, rowKind]); await client.query("COMMIT"); return undefined; }
+      if (row.revoked_at) {
+        const successor = await client.query("SELECT 1 FROM auth_sessions WHERE family_id=$1 AND principal_type=$2 AND rotation_counter>$3 AND revoked_at IS NULL FOR UPDATE", [row.family_id, rowKind, row.rotation_counter]);
+        if (successor.rowCount) await client.query("UPDATE auth_sessions SET revoked_at=now(),updated_at=now() WHERE family_id=$1 AND principal_type=$2 AND revoked_at IS NULL", [row.family_id, rowKind]);
+        await client.query("COMMIT"); return undefined;
+      }
       await client.query("UPDATE auth_sessions SET revoked_at=now(),updated_at=now() WHERE id=$1", [row.id]);
-      const user: AuthUser = { id: row.user_id, username: row.username_normalized, playerId: row.player_id, status: "active" };
+      const user: AuthPrincipal = rowKind === "admin"
+        ? { kind: "admin", id: row.user_id, username: row.username_normalized, status: "active" }
+        : { kind: "player", id: row.user_id, username: row.username_normalized, playerId: row.resolved_player_id, status: "active" };
       const session = await this.insertSession(client, user, row.family_id, row.refresh_expires_at, Number(row.rotation_counter) + 1);
       await client.query("COMMIT"); return session;
     } catch (error) { await client.query("ROLLBACK"); throw error; } finally { client.release(); }

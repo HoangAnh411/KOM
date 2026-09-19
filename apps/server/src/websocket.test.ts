@@ -27,6 +27,18 @@ test("WebSocket rejects URL tokens and requires an AUTH message", async () => {
   assert.equal(code, 4401); await server.app.close();
 });
 
+test("legacy admin tokens cannot authenticate gameplay HTTP or WebSocket", async () => {
+  const original = config.adminToken; config.adminToken = "websocket-legacy-admin-token"; const server = createServer(); await server.app.listen({ host: "127.0.0.1", port: 0 });
+  try {
+    const bootstrap = await server.app.inject({ method: "GET", url: "/api/bootstrap", headers: { authorization: "Bearer websocket-legacy-admin-token" } });
+    assert.equal(bootstrap.statusCode, 401);
+    const address = server.app.server.address(); assert.ok(address && typeof address !== "string");
+    const socket = new WebSocket(`ws://127.0.0.1:${address.port}/ws`);
+    const code = await new Promise<number>((resolve, reject) => { socket.once("open", () => socket.send(JSON.stringify({ type: "AUTH", token: "websocket-legacy-admin-token" }))); socket.once("close", resolve); socket.once("error", reject); });
+    assert.equal(code, 4401);
+  } finally { config.adminToken = original; await server.app.close(); }
+});
+
 test("banning a player closes their authenticated WebSocket", async () => {
   const original = config.adminToken; config.adminToken = "websocket-ban-token"; const server = createServer(); await server.app.listen({ host: "127.0.0.1", port: 0 });
   try { const address = server.app.server.address(); assert.ok(address && typeof address !== "string"); const login = await server.app.inject({ method: "POST", url: "/api/auth/dev", payload: { displayName: "WebSocket Ban Target", factionId: "veiled" } }); const session = login.json() as { token: string; player: { id: string } }; const socket = new WebSocket(`ws://127.0.0.1:${address.port}/ws`); await new Promise<void>((resolve, reject) => { socket.once("open", () => socket.send(JSON.stringify({ type: "AUTH", token: session.token }))); socket.once("message", () => resolve()); socket.once("error", reject); }); const closed = new Promise<number>((resolve, reject) => { socket.once("close", resolve); socket.once("error", reject); }); const ban = await server.app.inject({ method: "POST", url: "/api/admin/player/ban", headers: { authorization: "Bearer websocket-ban-token" }, payload: { playerId: session.player.id, reason: "websocket moderation" } }); assert.equal(ban.statusCode, 200); assert.equal(await closed, 4401); }

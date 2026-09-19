@@ -49,11 +49,11 @@ export class CombatRepository {
     state.terrainMap = {};
   }
 
-  async load(state: GameState): Promise<void> {
+  async load(state: GameState, executor: Pick<Pool, "query"> | Pick<PoolClient, "query"> = this.pool!, strict = false): Promise<void> {
     this.seed(state);
-    if (!this.pool) return;
+    if (!executor) return;
     try {
-      const terrainRes = await this.pool.query<{ x: number; y: number; terrain_type: string }>(
+      const terrainRes = await executor.query<{ x: number; y: number; terrain_type: string }>(
         `SELECT x, y, terrain_type FROM map_tiles WHERE kingdom_id = $1`, [state.kingdom.id]
       );
       // Only rows that disagree with the authored world are kept. A `map_tiles` row that merely
@@ -64,14 +64,14 @@ export class CombatRepository {
         if (terrain !== terrainAt(row.x, row.y)) state.terrainMap[`${row.x},${row.y}`] = terrain;
       }
       
-      const battleRes = await this.pool.query(
+      const battleRes = await executor.query(
         `SELECT id, season_id, tile_x, tile_y, terrain, attacker_army_id, defender_army_id, victor, seed, rounds FROM battle_reports WHERE season_id = $1`, [state.season.id]
       );
       // Not loading full battle report payload to save memory, just a stub or we could if needed.
       // But let's assume we don't load historical reports into active state unless we want clients to see them.
       // For MVP, we'll keep them in state.battleReports.
       
-      const statsRes = await this.pool.query(
+      const statsRes = await executor.query(
         `SELECT player_id, victories, defeats, draws, strength_destroyed, strength_lost, tiles_controlled, successful_defenses FROM military_throughput WHERE season_id = $1`, [state.season.id]
       );
       for (const row of statsRes.rows) {
@@ -81,7 +81,7 @@ export class CombatRepository {
           tilesControlled: row.tiles_controlled, successfulDefenses: row.successful_defenses
         };
       }
-    } catch (error) { console.warn("combat load skipped", error instanceof Error ? error.message : error); }
+    } catch (error) { if (strict) throw error; console.warn("combat load skipped", error instanceof Error ? error.message : error); }
   }
 
   async persist(client: PoolClient, state: GameState): Promise<void> {

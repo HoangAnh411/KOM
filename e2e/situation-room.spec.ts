@@ -102,8 +102,33 @@ test("desktop drawers overlay the same map and can close from either control", a
   expect(closedAgain.canvas).toEqual(closed.canvas);
 });
 
-test("compact opens one drawer at a time without shrinking the map", async ({ page }, testInfo) => {
-  await page.setViewportSize({ width: 900, height: 800 });
+// The dock is ~a dozen buttons anchored to the bottom-right. Twice it has been
+// let run loose across the map: onto the minimap's corner below 1440px, and off
+// the left edge of the viewport below 1280px — buttons clipped out of existence
+// that a player reads as "the game stopped responding". The geometry is the
+// contract: every button on screen, and none of them on the minimap.
+test("the bottom dock stays inside the viewport and off the minimap at every width", async ({ page }, testInfo) => {
+  await login(page, `Dock Fit ${testInfo.project.name} ${Date.now()}`);
+  for (const { width, height } of [...sizes, { name: "1366x768", width: 1366, height: 768 }]) {
+    await page.setViewportSize({ width, height });
+    await page.waitForTimeout(250);
+    const fit = await page.evaluate(() => {
+      const rect = element => { const r = element.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; };
+      const dock = rect(document.querySelector(".header-surfaces")!);
+      const minimap = rect(document.querySelector(".strategic-minimap")!);
+      const buttons = [...document.querySelectorAll(".header-surfaces .kom-btn")].map(rect);
+      const inside = buttons.every(b => b.x >= 0 && b.y >= 0 && b.x + b.w <= window.innerWidth + 1 && b.y + b.h <= window.innerHeight + 1);
+      const hitsMinimap = dock.x < minimap.x + minimap.w && minimap.x < dock.x + dock.w
+        && dock.y < minimap.y + minimap.h && minimap.y < dock.y + dock.h;
+      return { dock, inside, hitsMinimap, buttonCount: buttons.length };
+    });
+    expect(fit.buttonCount).toBeGreaterThan(0);
+    expect(fit.inside, `${width}x${height}: dock buttons must be on screen`).toBe(true);
+    expect(fit.hitsMinimap, `${width}x${height}: dock must not cover the minimap`).toBe(false);
+  }
+});
+
+test("compact opens one drawer at a time without shrinking the map", async ({ page }, testInfo) => {  await page.setViewportSize({ width: 900, height: 800 });
   await login(page, `Compact E2E ${testInfo.project.name} ${Date.now()}`);
   const kingdom = page.getByRole("button", { name: "Vương quốc", exact: true });
   const activity = page.getByRole("button", { name: "Nhiệm vụ", exact: true });

@@ -2,8 +2,72 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
+import { bootstrapAdmin } from "./admin-bootstrap.js";
+import { hashPassword } from "./auth.js";
 
 const testDatabaseUrl = process.env.RUN_POSTGRES_INTEGRATION === "1" ? process.env.TEST_DATABASE_URL : undefined;
+
+function cookieValue(response: { headers: Record<string, string | number | string[] | undefined> }, name: string): string {
+  const value = response.headers["set-cookie"];
+  const serialized = Array.isArray(value) ? value.join(";") : String(value ?? "");
+  const match = serialized.match(new RegExp(`${name}=([^;]+)`));
+  assert.ok(match, `${name} cookie missing`);
+  return match[1]!;
+}
+
+test("PostgreSQL admin sessions, bounded reads and attributable moderation survive restart", { skip: !testDatabaseUrl }, async () => {
+  process.env.DATABASE_URL = testDatabaseUrl; process.env.AUTH_MODE = "password"; process.env.ADMIN_TOKEN = "postgres-integration-admin"; process.env.CLIENT_ORIGIN = "http://localhost:5173";
+  const pool = new Pool({ connectionString: testDatabaseUrl, max: 2 });
+  let first: ReturnType<(typeof import("./app.js"))["createServer"]> | undefined;
+  let second: ReturnType<(typeof import("./app.js"))["createServer"]> | undefined;
+  try {
+    const adminUsername = `admin_${randomUUID().replaceAll("-", "").slice(0, 16)}`; const adminPassword = "AdminIntegrationPass123!";
+  assert.equal(await bootstrapAdmin(pool, adminUsername, await hashPassword(adminPassword, 1024), false), "created");
+  assert.equal(await bootstrapAdmin(pool, adminUsername, undefined, false), "unchanged");
+  const adminRow = await pool.query<{ id: string; player_count: number }>("SELECT u.id,(SELECT count(*)::int FROM players p WHERE p.user_id=u.id) AS player_count FROM users u WHERE u.username_normalized=$1 AND u.role='admin'", [adminUsername]);
+  assert.equal(adminRow.rows[0]?.player_count, 0, "admin identity has no synthetic player row");
+  const bootstrapAudit = await pool.query<{ actor_id: string | null; target_id: string; auth_method: string }>("SELECT actor_id,target_id,auth_method FROM admin_actions WHERE action_type='admin.create' AND target_id=$1 ORDER BY created_at DESC,id DESC LIMIT 1", [adminRow.rows[0]?.id]);
+  assert.equal(bootstrapAudit.rows[0]?.actor_id, null); assert.equal(bootstrapAudit.rows[0]?.target_id, adminRow.rows[0]?.id); assert.equal(bootstrapAudit.rows[0]?.auth_method, "bootstrap");
+  const playerUsername = `target_${randomUUID().replaceAll("-", "").slice(0, 16)}`; const playerPassword = "PlayerIntegrationPass123!";
+  const { createServer } = await import("./app.js"); first = createServer(); await first.store.load();
+  const register = await first.app.inject({ method: "POST", url: "/api/auth/register", headers: { origin: "http://localhost:5173" }, payload: { username: playerUsername, password: playerPassword, displayName: "Admin Target", factionId: "meridian" } });
+  assert.equal(register.statusCode, 200, register.body); const playerSession = register.json() as { token: string; player: { id: string } };
+  const login = await first.app.inject({ method: "POST", url: "/api/admin/auth/login", headers: { origin: "http://localhost:5173" }, payload: { username: adminUsername, password: adminPassword } });
+  assert.equal(login.statusCode, 200, login.body); const adminSession = login.json() as { token: string; admin: { id: string } }; const refreshToken = cookieValue(login, "admin_refresh_token");
+  assert.match(String(login.headers["set-cookie"]), /HttpOnly/i); assert.match(String(login.headers["set-cookie"]), /SameSite=Strict/i); assert.match(String(login.headers["set-cookie"]), /Path=\/api\/admin\/auth/i);
+  const adminHeaders = { authorization: `Bearer ${adminSession.token}` };
+  assert.equal((await first.app.inject({ method: "GET", url: "/api/bootstrap", headers: adminHeaders })).statusCode, 401);
+  assert.equal((await first.app.inject({ method: "GET", url: "/api/admin/dashboard", headers: { authorization: `Bearer ${playerSession.token}` } })).statusCode, 403);
+  const playerRefreshToken = register.cookies.find(item => item.name === "refresh_token")?.value;
+  assert.ok(playerRefreshToken, "player refresh cookie missing");
+  assert.equal((await first.app.inject({ method: "POST", url: "/api/admin/auth/refresh", headers: { origin: "http://localhost:5173", cookie: `admin_refresh_token=${playerRefreshToken}` } })).statusCode, 401);
+  const rightfulPlayerRefresh = await first.app.inject({ method: "POST", url: "/api/auth/refresh", headers: { origin: "http://localhost:5173", cookie: `refresh_token=${playerRefreshToken}` } });
+  assert.equal(rightfulPlayerRefresh.statusCode, 200, rightfulPlayerRefresh.body);
+  const dashboard = await first.app.inject({ method: "GET", url: "/api/admin/dashboard", headers: adminHeaders }); assert.equal(dashboard.statusCode, 200, dashboard.body); assert.equal("armies" in dashboard.json(), false);
+  const players = await first.app.inject({ method: "GET", url: "/api/admin/players?search=Admin%20Target&limit=1", headers: adminHeaders }); assert.equal(players.statusCode, 200, players.body); const playerPage = players.json() as { items: Array<{ id: string }>; nextCursor?: string }; assert.equal(playerPage.items[0]?.id, playerSession.player.id);
+  const playerDetail = await first.app.inject({ method: "GET", url: `/api/admin/players/${playerSession.player.id}`, headers: adminHeaders }); assert.equal(playerDetail.statusCode, 200, playerDetail.body); assert.equal(playerDetail.json().displayName, "Admin Target");
+  const seasons = await first.app.inject({ method: "GET", url: "/api/admin/seasons", headers: adminHeaders }); assert.equal(seasons.statusCode, 200, seasons.body); assert.ok(seasons.json().items.length > 0);
+  const badPlayerCursor = Buffer.from(JSON.stringify({ displayName: "Admin Target", id: "not-a-uuid" })).toString("base64url"); assert.equal((await first.app.inject({ method: "GET", url: `/api/admin/players?cursor=${badPlayerCursor}`, headers: adminHeaders })).statusCode, 400);
+  const ban = await first.app.inject({ method: "POST", url: "/api/admin/player/ban", headers: adminHeaders, payload: { playerId: playerSession.player.id, reason: "admin integration moderation" } }); assert.equal(ban.statusCode, 200, ban.body);
+  const audits = await first.app.inject({ method: "GET", url: `/api/admin/audit-actions?actorId=${adminSession.admin.id}&targetId=${playerSession.player.id}&limit=1`, headers: adminHeaders }); assert.equal(audits.statusCode, 200, audits.body); const auditPage = audits.json() as { items: Array<{ actor: { id: string }; authMethod: string; outcome: string; requestId: string }>; nextCursor?: string }; const action = auditPage.items[0]!; assert.equal(action.actor.id, adminSession.admin.id); assert.equal(action.authMethod, "admin_session"); assert.equal(action.outcome, "applied"); assert.ok(action.requestId);
+  const badAuditCursor = Buffer.from(JSON.stringify({ createdAt: "2026-02-30", id: randomUUID() })).toString("base64url"); assert.equal((await first.app.inject({ method: "GET", url: `/api/admin/audit-actions?cursor=${badAuditCursor}`, headers: adminHeaders })).statusCode, 400);
+  const legacyHeaders = { authorization: "Bearer postgres-integration-admin" };
+  assert.equal((await first.app.inject({ method: "GET", url: "/api/admin/dashboard", headers: legacyHeaders })).statusCode, 401);
+  const legacyUnban = await first.app.inject({ method: "POST", url: "/api/admin/player/unban", headers: legacyHeaders, payload: { playerId: playerSession.player.id, reason: "legacy integration cleanup" } }); assert.equal(legacyUnban.statusCode, 200, legacyUnban.body);
+  const legacyAudit = await pool.query<{ actor_id: string | null; auth_method: string }>("SELECT actor_id,auth_method FROM admin_actions WHERE target_id=$1 AND action_type='player.unban' ORDER BY created_at DESC,id DESC LIMIT 1", [playerSession.player.id]); assert.equal(legacyAudit.rows[0]?.actor_id, null); assert.equal(legacyAudit.rows[0]?.auth_method, "legacy_token");
+  const refreshed = await first.app.inject({ method: "POST", url: "/api/admin/auth/refresh", headers: { origin: "http://localhost:5173", cookie: `admin_refresh_token=${refreshToken}` } }); assert.equal(refreshed.statusCode, 200, refreshed.body); const rotatedRefresh = cookieValue(refreshed, "admin_refresh_token"); assert.notEqual(rotatedRefresh, refreshToken);
+  const replay = await first.app.inject({ method: "POST", url: "/api/admin/auth/refresh", headers: { origin: "http://localhost:5173", cookie: `admin_refresh_token=${refreshToken}` } }); assert.equal(replay.statusCode, 401, replay.body);
+  const revokedFamily = await first.app.inject({ method: "POST", url: "/api/admin/auth/refresh", headers: { origin: "http://localhost:5173", cookie: `admin_refresh_token=${rotatedRefresh}` } }); assert.equal(revokedFamily.statusCode, 401, revokedFamily.body);
+  const relogin = await first.app.inject({ method: "POST", url: "/api/admin/auth/login", headers: { origin: "http://localhost:5173" }, payload: { username: adminUsername, password: adminPassword } }); assert.equal(relogin.statusCode, 200, relogin.body); const logoutRefresh = cookieValue(relogin, "admin_refresh_token");
+  const logout = await first.app.inject({ method: "POST", url: "/api/admin/auth/logout", headers: { origin: "http://localhost:5173", cookie: `admin_refresh_token=${logoutRefresh}` } }); assert.equal(logout.statusCode, 200, logout.body); assert.match(String(logout.headers["set-cookie"]), /Max-Age=0/);
+  assert.equal((await first.app.inject({ method: "POST", url: "/api/admin/auth/refresh", headers: { origin: "http://localhost:5173", cookie: `admin_refresh_token=${logoutRefresh}` } })).statusCode, 401);
+  await first.app.close(); first = undefined; second = createServer(); await second.store.load(); const loginAfterRestart = await second.app.inject({ method: "POST", url: "/api/admin/auth/login", headers: { origin: "http://localhost:5173" }, payload: { username: adminUsername, password: adminPassword } }); assert.equal(loginAfterRestart.statusCode, 200, loginAfterRestart.body);
+  } finally {
+    await first?.app.close().catch(() => undefined);
+    await second?.app.close().catch(() => undefined);
+    await pool.end();
+  }
+});
 
 test("PostgreSQL auth, command idempotency and moderation survive restart", { skip: !testDatabaseUrl }, async () => {
   process.env.DATABASE_URL = testDatabaseUrl;
@@ -35,6 +99,20 @@ test("two server instances serialize the same command id", { skip: !testDatabase
   const login = await second.app.inject({ method: "POST", url: "/api/auth/login", headers: { origin: "http://localhost:5173" }, payload: { username, password } }); assert.equal(login.statusCode, 200, login.body); const secondToken = (login.json() as { token: string }).token; const cityId = registered.snapshot.cities.find(city => city.playerId === registered.player.id)!.id; const payload = { commandId, cityId, buildingId: "warehouse", queueType: "build" };
   const [left, right] = await Promise.all([first.app.inject({ method: "POST", url: "/api/commands/build", headers: { authorization: `Bearer ${registered.token}` }, payload }), second.app.inject({ method: "POST", url: "/api/commands/build", headers: { authorization: `Bearer ${secondToken}` }, payload })]); assert.equal(left.statusCode, 200, left.body); assert.equal(right.statusCode, 200, right.body); assert.equal([left.json().result, right.json().result].filter(result => result === "already_processed").length, 1);
   await Promise.all([first.app.close(), second.app.close()]); const pool = new Pool({ connectionString: testDatabaseUrl }); const result = await pool.query("SELECT count(*)::int AS count FROM event_ledger WHERE command_id=$1", [commandId]); assert.equal(result.rows[0].count, 1); await pool.end();
+});
+
+test("two server instances validate forced close against authoritative season", { skip: !testDatabaseUrl }, async () => {
+  process.env.DATABASE_URL = testDatabaseUrl; process.env.AUTH_MODE = "password"; process.env.ADMIN_TOKEN = "postgres-season-admin"; process.env.CLIENT_ORIGIN = "http://localhost:5173";
+  const { createServer } = await import("./app.js"); const first = createServer(); const second = createServer();
+  try {
+    await Promise.all([first.store.load(), second.store.load()]);
+    const oldSeasonId = second.store.snapshot.season.id;
+    const closed = await first.store.runExclusive(() => first.store.finalizeIfDue({ force: true, expectedSeasonId: oldSeasonId, reason: "first instance close", authMethod: "legacy_token", requestId: randomUUID() }));
+    assert.equal(closed, true);
+    const currentSeasonId = first.store.snapshot.season.id; assert.notEqual(currentSeasonId, oldSeasonId);
+    const accepted = await second.store.runExclusive(() => second.store.finalizeIfDue({ force: true, expectedSeasonId: currentSeasonId, reason: "stale node valid close", authMethod: "legacy_token", requestId: randomUUID() }));
+    assert.equal(accepted, true, "stale node accepts the current database season id");
+  } finally { await Promise.all([first.app.close(), second.app.close()]); }
 });
 
 test("onboarding progress survives restart via player_onboarding", { skip: !testDatabaseUrl }, async () => {

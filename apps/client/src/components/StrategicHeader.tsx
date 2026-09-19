@@ -71,7 +71,10 @@ export function StrategicHeader({ surfaces, onToggleSurface, onRevealSurface }: 
     </Button>
     {city.frozen && <div className="frozen-banner" role="status">Tài khoản đang bị khóa — thành phố, quân đội và caravan đã đóng băng.</div>}
     <div className="resource-grid" aria-label="Tai nguyen">
-      {resourceKeys.map(key => <Button key={key} variant="ghost" density="compact" className={`resource-counter resource-counter--${key}`} aria-label={`${resourceLabels[key]}: ${city.resources[key]}`} onClick={() => revealSurface("kingdom")}><Icon name={resourceIcons[key]} size="sm" /><span>{resourceLabels[key]}</span><strong className="kom-num" data-testid={`resource-${key}`}>{city.resources[key]}</strong></Button>)}
+      {/* Glyph + number only: the word lives in the `aria-label` ("Gỗ: 120"),
+          read in full by a screen reader, while the eye that has learned the
+          four colours no longer re-reads "Lương thực" four times a minute. */}
+      {resourceKeys.map(key => <Button key={key} variant="ghost" density="compact" className={`resource-counter resource-counter--${key}`} aria-label={`${resourceLabels[key]}: ${city.resources[key]}`} onClick={() => revealSurface("kingdom")}><Icon name={resourceIcons[key]} size="sm" /><strong className="kom-num" data-testid={`resource-${key}`}>{city.resources[key]}</strong></Button>)}
     </div>
     {/* The three scores were `⚔ ◈ ✦` — glyphs with no accessible name, announced as
         the punctuation they are and unreadable to anyone who had not been told what

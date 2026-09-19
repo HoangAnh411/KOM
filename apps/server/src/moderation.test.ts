@@ -37,6 +37,25 @@ test("frozen targets reject combat, espionage and diplomacy commands", async () 
   } finally { config.adminToken = original; await server.app.close(); }
 });
 
+test("legacy admin token cannot read account-only admin data", async () => {
+  const server = createServer(); const original = config.adminToken; config.adminToken = "legacy-read-isolation-token";
+  try {
+    const response = await server.app.inject({ method: "GET", url: "/api/admin/dashboard", headers: { authorization: "Bearer legacy-read-isolation-token" } });
+    assert.equal(response.statusCode, 401); assert.equal(response.json().code, "UNAUTHORIZED");
+  } finally { config.adminToken = original; await server.app.close(); }
+});
+
+test("legacy moderation validates UUIDs and bounded reasons", async () => {
+  const server = createServer(); const original = config.adminToken; config.adminToken = "moderation-validation-token";
+  try {
+    const headers = { authorization: "Bearer moderation-validation-token" };
+    const invalidId = await server.app.inject({ method: "POST", url: "/api/admin/player/ban", headers, payload: { playerId: "not-a-uuid", reason: "valid reason" } });
+    assert.equal(invalidId.statusCode, 400); assert.equal(invalidId.json().code, "INVALID_REQUEST");
+    const longReason = await server.app.inject({ method: "POST", url: "/api/admin/player/ban", headers, payload: { playerId: randomUUID(), reason: "x".repeat(501) } });
+    assert.equal(longReason.statusCode, 400); assert.equal(longReason.json().code, "INVALID_REQUEST");
+  } finally { config.adminToken = original; await server.app.close(); }
+});
+
 test("moderation is idempotent and unban shifts paused deadlines", async () => {
   const server = createServer(); const player = server.store.addDevPlayer("Paused player", "veiled"); const city = server.store.snapshot.cities.find(item => item.playerId === player.id)!;
   const originalDeadline = Date.now() + 30_000; city.queues.push({ id: randomUUID(), type: "build", buildingId: "warehouse", targetLevel: 1, startedAt: new Date().toISOString(), completesAt: new Date(originalDeadline).toISOString() });

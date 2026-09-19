@@ -63,6 +63,9 @@ export class EventLedger {
   }
   markPersisted(): void { this.events.length = 0;
   }
+  discardPending(): void {
+    for (const id of this.events.map(event => event.id)) this.discard(id);
+  }
   async save(): Promise<void> {
     if (!this.pool || !this.events.length) return;
     const client = await this.pool.connect();

@@ -43,7 +43,7 @@ if (isProduction) {
   if (env.AUTH_MODE !== "password") violations.push("AUTH_MODE must be 'password' in production");
   if (!env.DATABASE_URL) violations.push("DATABASE_URL is required in production");
   if (!env.REDIS_URL) violations.push("REDIS_URL is required in production");
-  if (env.ADMIN_TOKEN.length < 32) violations.push("ADMIN_TOKEN must be at least 32 characters in production");
+  if (env.ADMIN_TOKEN && env.ADMIN_TOKEN.length < 32) violations.push("ADMIN_TOKEN must be at least 32 characters when configured in production");
   if (env.METRICS_TOKEN.length < 32) violations.push("METRICS_TOKEN must be at least 32 characters in production");
   if (env.CLIENT_ORIGIN) {
     try {

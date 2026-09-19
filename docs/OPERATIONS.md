@@ -46,6 +46,32 @@ npm run dev:client
 - `npm run db:migrate:baseline` — baseline 001–011 cho database tạo trước khi có runner. Chỉ thành công khi đủ toàn bộ bảng/index bắt buộc; từ chối nếu `schema_migrations` đã có bản ghi.
 - `npm run test:postgres` — reset schema trên database kết thúc bằng `_test` (`TEST_DATABASE_URL`), migrate 2 lần (idempotency), chạy toàn bộ integration tests, kiểm tra checksum.
 
+## Khởi tạo tài khoản quản trị
+
+Trang `/admin` chỉ dùng tài khoản `users.role='admin'` trong PostgreSQL; không có đăng ký admin công khai và admin không có hàng `players` giả. Luôn migrate trước, rồi chạy CLI từ một TTY tin cậy:
+
+```powershell
+$env:DATABASE_URL = "postgres://..."
+npm run db:migrate
+npm run admin:bootstrap -w @kingdoms/server -- operator_name
+```
+
+CLI đọc mật khẩu và xác nhận bằng hai prompt ẩn; không truyền mật khẩu qua argv, biến môi trường, source hay log. Chạy lại cùng username không thay mật khẩu. Chỉ rotation có chủ đích mới dùng:
+
+```powershell
+npm run admin:bootstrap -w @kingdoms/server -- operator_name --rotate-password
+```
+
+Rotation kích hoạt lại account, thu hồi session còn mở và ghi audit `admin.password.rotate`. Username thuộc player bị từ chối. Với image production hiện tại, một cách chạy tương tác sau khi service `migrate` đã hoàn tất là:
+
+```powershell
+docker compose --env-file .env.prod -f infra/docker-compose.prod.yml run --rm --no-deps game npm run admin:bootstrap -w @kingdoms/server -- operator_name
+```
+
+Không ghi secret vào compose command hoặc shell history.
+
+`ADMIN_TOKEN` chỉ giữ trong một deploy để rollback automation cũ. Theo dõi các audit row có `auth_method='legacy_token'`; khi usage bằng 0 trong cả cửa sổ quan sát, xoá biến khỏi secret store và deploy lại. Token này không mở các route đọc mới.
+
 ## Outbox worker (Phase 7A)
 
 - `npm run worker:outbox` — process riêng claim outbox `FOR UPDATE SKIP LOCKED`, XADD at-least-once vào stream `kingdoms.events.v1`, retry exponential 1s→5 phút, dead-letter sau 10 lần lỗi sang `kingdoms.events.dlq.v1`. Metric trên cổng `OUTBOX_METRICS_PORT` (mặc định 9101).
@@ -60,6 +86,7 @@ npm run dev:client
 - `CLIENT_ORIGIN`: origin duy nhất được CORS trong password mode, bắt buộc là origin hợp lệ.
 - `REDIS_URL`: bỏ trống để dùng in-process rate-limit fallback; production bắt buộc.
 - `METRICS_TOKEN`: token bảo vệ `GET /metrics` trong password mode (production bắt buộc ≥32 ký tự).
+- `ADMIN_TOKEN`: tùy chọn trong production, chỉ là credential rollback tạm thời cho ba mutation ban/unban/đóng mùa cũ; nếu đặt thì phải ≥32 ký tự. Token này không đăng nhập trang admin, không đọc dashboard/audit và không dùng được ở gameplay HTTP/WebSocket.
 - `TRUST_PROXY`: `true` chỉ khi chạy sau reverse proxy (Caddy).
 - `SEASON_DURATION_MS`: mặc định 14 ngày.
 - `WORLD_EVENT_SPAWN_CHANCE`: xác suất spawn event mỗi tick khi chưa có event active; mặc định `1/600`.
@@ -67,7 +94,7 @@ npm run dev:client
 - `IDEMPOTENCY_WINDOW`: số command id gần nhất mỗi process giữ trong RAM để trả lời "đã xử lý chưa?" mà không cần truy vấn; mặc định `20000`, tối thiểu `1000`. Đây là **cache**, không phải nguồn sự thật: unique index `event_ledger_command_idx` cộng point query trong transaction của command vẫn chặn trùng khi id rơi ra ngoài window. Tăng lên tốn RAM, giảm xuống chỉ thêm một round trip cho retry cũ.
 - `VITE_API_URL`: mặc định `http://localhost:3000`; để trống khi build qua Caddy (origin-relative).
 
-Validation toàn bộ env bằng Zod lúc khởi động; `NODE_ENV=production` yêu cầu `AUTH_MODE=password`, PostgreSQL/Redis, `ADMIN_TOKEN`/`METRICS_TOKEN` ≥32 ký tự và `CLIENT_ORIGIN` HTTPS, và fail fast khi vi phạm.
+Validation toàn bộ env bằng Zod lúc khởi động; `NODE_ENV=production` yêu cầu `AUTH_MODE=password`, PostgreSQL/Redis, `METRICS_TOKEN` ≥32 ký tự và `CLIENT_ORIGIN` HTTPS, và fail fast khi vi phạm. `ADMIN_TOKEN` không bắt buộc; nếu cấu hình thì vẫn phải ≥32 ký tự.
 
 ## Kiểm tra
 
@@ -98,7 +125,13 @@ docker compose --env-file .env.prod -f infra/docker-compose.prod.yml up -d --bui
 docker compose --env-file .env.prod --profile observability -f infra/docker-compose.prod.yml up -d
 ```
 
-Offline smoke dùng override và host port 18081 mặc định (có thể đổi bằng `SMOKE_PORT`):
+Offline smoke dùng override và host port 18081 mặc định (có thể đổi bằng `SMOKE_PORT`). `npm run test:prod-smoke` dựng stack, tạo một admin tạm trực tiếp trong PostgreSQL cô lập với password ngẫu nhiên chỉ giữ trong memory process, rồi chạy cả project Playwright `password-auth` và `admin`; teardown xoá database/credentials cùng volume:
+
+```powershell
+npm run test:prod-smoke
+```
+
+Nếu chỉ cần dựng stack để kiểm tra tay:
 
 ```powershell
 docker compose --env-file .env.prod -f infra/docker-compose.prod.yml -f infra/docker-compose.smoke.yml up -d --build
